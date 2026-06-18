@@ -2,13 +2,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="meadow" x1="80" y1="70" x2="930" y2="950" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#176B52"/>
-      <stop offset="0.52" stop-color="#2389A5"/>
-      <stop offset="1" stop-color="#8067C7"/>
+      <stop offset="0" stop-color="#B00068"/>
+      <stop offset="0.52" stop-color="#7442B8"/>
+      <stop offset="1" stop-color="#008DA8"/>
     </linearGradient>
     <linearGradient id="sun" x1="220" y1="170" x2="760" y2="800" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFD36A"/>
-      <stop offset="1" stop-color="#F08CB5"/>
+      <stop offset="0" stop-color="#FFB36B"/>
+      <stop offset="1" stop-color="#FF5CAD"/>
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
       <feDropShadow dx="0" dy="28" stdDeviation="30" flood-color="#17372D" flood-opacity="0.28"/>
@@ -16,8 +16,8 @@
   </defs>
   <rect x="76" y="58" width="872" height="872" rx="214" fill="url(#meadow)" filter="url(#shadow)"/>
   <circle cx="748" cy="276" r="116" fill="url(#sun)" opacity="0.94"/>
-  <path d="M280 616c44-220 205-350 437-348-5 228-126 407-355 432-56 6-94-26-82-84Z" fill="#FFF9EC"/>
-  <path d="M322 672c96-117 203-215 344-312" fill="none" stroke="#176B52" stroke-width="35" stroke-linecap="round"/>
-  <path d="M452 529c-3-57-21-103-54-139M525 474c54 1 102-14 145-46M391 593c-1-43-14-81-39-115M585 418c42 1 78-9 109-30" fill="none" stroke="#2389A5" stroke-width="23" stroke-linecap="round"/>
-  <path d="M276 761v-70M344 784V650M412 758v-67M480 803V635M548 771V681M616 798V646M684 762v-75M752 777v-111" fill="none" stroke="#FFF9EC" stroke-width="26" stroke-linecap="round" opacity="0.96"/>
+  <path d="M280 616c44-220 205-350 437-348-5 228-126 407-355 432-56 6-94-26-82-84Z" fill="#FFF8FF"/>
+  <path d="M322 672c96-117 203-215 344-312" fill="none" stroke="#7442B8" stroke-width="35" stroke-linecap="round"/>
+  <path d="M452 529c-3-57-21-103-54-139M525 474c54 1 102-14 145-46M391 593c-1-43-14-81-39-115M585 418c42 1 78-9 109-30" fill="none" stroke="#38D7FF" stroke-width="23" stroke-linecap="round"/>
+  <path d="M276 761v-70M344 784V650M412 758v-67M480 803V635M548 771V681M616 798V646M684 762v-75M752 777v-111" fill="none" stroke="#FFF3FF" stroke-width="26" stroke-linecap="round" opacity="0.96"/>
 </svg>

@@ -8,10 +8,10 @@ struct AttenApp: App {
     var body: some Scene {
         WindowGroup("Atten") {
             RootView(model: model)
-                .frame(minWidth: 980, minHeight: 650)
+                .frame(minWidth: 900, minHeight: 600)
         }
-        .defaultSize(width: 1180, height: 760)
-        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1080, height: 700)
+        .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("New Studio Draft") { model.newDraft() }
@@ -27,12 +27,12 @@ struct AttenApp: App {
             CommandMenu("Speech") {
                 Button("Generate Speech") { model.generate() }
                     .keyboardShortcut(.return, modifiers: [.command])
-                    .disabled(model.isGenerating)
+                    .disabled(model.isGenerating || model.isPlaygroundGenerating)
                 Button("Cancel Generation") { model.cancelGeneration() }
                     .keyboardShortcut(.escape, modifiers: [])
-                    .disabled(!model.isGenerating)
+                    .disabled(!model.isGenerating && !model.isPlaygroundGenerating)
                 Divider()
-                Button(model.isPlaying ? "Pause" : "Play") { model.togglePlayback() }
+                Button(model.isPlaying ? "Pause" : "Play") { model.toggleActivePlayback() }
                     .keyboardShortcut(.space, modifiers: [.option])
                     .disabled(model.currentAudioURL == nil)
             }

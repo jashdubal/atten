@@ -27,7 +27,7 @@ struct ProjectsView: View {
                                 .buttonStyle(AttenPrimaryButtonStyle())
                         }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 420)
+                    .frame(maxWidth: .infinity, minHeight: 340)
                     .attenCard()
                 } else {
                     LazyVStack(spacing: 12) {
@@ -50,7 +50,7 @@ struct ProjectsView: View {
                 }
             }
             .padding(AttenSpacing.xl)
-            .frame(maxWidth: 1050, alignment: .topLeading)
+            .frame(maxWidth: 960, alignment: .topLeading)
         }
         .searchable(text: $query, placement: .toolbar, prompt: "Search projects")
         .confirmationDialog(
@@ -65,9 +65,15 @@ struct ProjectsView: View {
                 if let projectToDelete { model.delete(projectToDelete) }
                 projectToDelete = nil
             }
+            if let projectToDelete, !projectToDelete.isLegacyImport {
+                Button("Delete Project and Audio", role: .destructive) {
+                    model.delete(projectToDelete, includingAudio: true)
+                    self.projectToDelete = nil
+                }
+            }
             Button("Cancel", role: .cancel) { projectToDelete = nil }
         } message: {
-            Text("The generated audio file remains on disk.")
+            Text("Choose whether the generated audio should remain on disk.")
         }
     }
 
@@ -98,12 +104,12 @@ private struct ProjectRow: View {
                 model.togglePlayback(url: project.audioURL)
             } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .fill(AttenColor.river.opacity(0.12))
                     Image(systemName: "play.fill")
                         .foregroundStyle(AttenColor.river)
                 }
-                .frame(width: 48, height: 48)
+                .frame(width: 42, height: 42)
             }
             .buttonStyle(.plain)
             .disabled(!FileManager.default.fileExists(atPath: project.audioPath))
@@ -133,6 +139,14 @@ private struct ProjectRow: View {
             }
 
             Spacer(minLength: 12)
+
+            Button(role: .destructive, action: delete) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(AttenColor.berry)
+            .help("Delete \(project.title)")
+            .accessibilityLabel("Delete \(project.title)")
 
             Menu {
                 if !project.isLegacyImport {

@@ -27,6 +27,7 @@ final class AppModel {
     var isPlaying = false
     var startupError: String?
     var voicePreviewID: String?
+    var playgroundState: GenerationState = .idle
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -36,6 +37,14 @@ final class AppModel {
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
     @ObservationIgnored private var audioDelegate: AudioPlaybackDelegate?
+    @ObservationIgnored private var activeGenerationID: UUID?
+    @ObservationIgnored private var hasStarted = false
+
+    private var playgroundDirectory: URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("Atten", isDirectory: true)
+            .appendingPathComponent("Playground", isDirectory: true)
+    }
 
     init(
         directories: AppDirectories = AppDirectories(),
@@ -67,11 +76,26 @@ final class AppModel {
 
     var isGenerating: Bool { generationState == .generating }
 
+    var isPlaygroundGenerating: Bool { playgroundState == .generating }
+
+    var playgroundAudioURL: URL? {
+        if case let .ready(url) = playgroundState { return url }
+        return nil
+    }
+
+    var currentProject: ProjectRecord? {
+        guard let currentAudioURL else { return nil }
+        return projects.first { $0.audioPath == currentAudioURL.path }
+    }
+
     var backendIsAvailable: Bool { BackendLocator.locate() != nil }
 
     func start() async {
+        guard !hasStarted else { return }
+        hasStarted = true
         do {
             try directories.prepare()
+            try? resetPlaygroundDirectory()
             var loaded = try await repository.load()
             if let backendRoot = BackendLocator.locate() {
                 let legacyDirectory = backendRoot.appendingPathComponent("outputs", isDirectory: true)
@@ -106,6 +130,8 @@ final class AppModel {
         stopPlayback()
         generationState = .generating
         successMessage = nil
+        let generationID = UUID()
+        activeGenerationID = generationID
 
         let title = cleanTitle(draftTitle, fallback: "Atten narration")
         let outputDirectory = URL(fileURLWithPath: settings.outputDirectory, isDirectory: true)
@@ -125,6 +151,7 @@ final class AppModel {
             do {
                 let output = try await generator.generate(request)
                 try Task.checkCancellation()
+                guard activeGenerationID == generationID else { return }
                 let now = Date()
                 let project = ProjectRecord(
                     title: title,
@@ -142,11 +169,13 @@ final class AppModel {
                 successMessage = "Speech is ready to review."
                 play(url: output.url)
             } catch is CancellationError {
-                generationState = .idle
+                if activeGenerationID == generationID { generationState = .idle }
             } catch BackendError.cancelled {
-                generationState = .idle
+                if activeGenerationID == generationID { generationState = .idle }
             } catch {
-                generationState = .failed(error.localizedDescription)
+                if activeGenerationID == generationID {
+                    generationState = .failed(error.localizedDescription)
+                }
             }
         }
     }
@@ -155,7 +184,10 @@ final class AppModel {
         generationTask?.cancel()
         generationTask = nil
         generator.cancel()
+        activeGenerationID = nil
         if isGenerating { generationState = .idle }
+        if isPlaygroundGenerating { playgroundState = .idle }
+        voicePreviewID = nil
     }
 
     func togglePlayback(url: URL? = nil) {
@@ -172,6 +204,10 @@ final class AppModel {
         }
     }
 
+    func toggleActivePlayback() {
+        togglePlayback(url: audioPlayer?.url ?? currentAudioURL)
+    }
+
     func previewVoice(_ voice: Voice) {
         let previewDirectory = directories.applicationSupport
             .appendingPathComponent("Voice Previews", isDirectory: true)
@@ -182,8 +218,10 @@ final class AppModel {
             togglePlayback(url: previewURL)
             return
         }
-        guard !isGenerating, voicePreviewID == nil else { return }
+        guard !isGenerating, !isPlaygroundGenerating, voicePreviewID == nil else { return }
         voicePreviewID = voice.id
+        let generationID = UUID()
+        activeGenerationID = generationID
         let request = GenerationRequest(
             text: "Welcome to Atten. Let every idea find its voice.",
             voiceID: voice.id,
@@ -198,15 +236,93 @@ final class AppModel {
             defer { voicePreviewID = nil }
             do {
                 let output = try await generator.generate(request)
+                guard activeGenerationID == generationID else { return }
                 play(url: output.url)
             } catch is CancellationError {
                 return
             } catch BackendError.cancelled {
                 return
             } catch {
-                generationState = .failed(error.localizedDescription)
+                if activeGenerationID == generationID {
+                    generationState = .failed(error.localizedDescription)
+                }
             }
         }
+    }
+
+    func generatePlaygroundSample(
+        text: String,
+        voiceID: String,
+        speed: Double,
+        format: AudioFormat,
+        useMPS: Bool
+    ) {
+        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanText.isEmpty else {
+            playgroundState = .failed("Enter a short sample before generating.")
+            return
+        }
+
+        cancelGeneration()
+        stopPlayback()
+        do {
+            try resetPlaygroundDirectory()
+        } catch {
+            playgroundState = .failed("The temporary sample folder could not be prepared.")
+            return
+        }
+
+        playgroundState = .generating
+        let generationID = UUID()
+        activeGenerationID = generationID
+        let request = GenerationRequest(
+            text: cleanText,
+            voiceID: voiceID,
+            speed: speed,
+            format: format,
+            outputDirectory: playgroundDirectory,
+            filename: "sample-\(UUID().uuidString)",
+            useMPS: useMPS
+        )
+
+        generationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let output = try await generator.generate(request)
+                try Task.checkCancellation()
+                guard activeGenerationID == generationID else { return }
+                playgroundState = .ready(output.url)
+                play(url: output.url)
+            } catch is CancellationError {
+                if activeGenerationID == generationID { playgroundState = .idle }
+            } catch BackendError.cancelled {
+                if activeGenerationID == generationID { playgroundState = .idle }
+            } catch {
+                if activeGenerationID == generationID {
+                    playgroundState = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    func clearPlaygroundSample() {
+        cancelGeneration()
+        stopPlayback()
+        try? resetPlaygroundDirectory()
+        playgroundState = .idle
+    }
+
+    func usePlaygroundSettingsInStudio(
+        text: String,
+        voiceID: String,
+        speed: Double,
+        format: AudioFormat
+    ) {
+        draftText = text
+        selectedVoiceID = voiceID
+        self.speed = speed
+        self.format = format
+        generationState = .idle
     }
 
     func selectVoice(_ voice: Voice) {
@@ -320,9 +436,37 @@ final class AppModel {
         generate()
     }
 
-    func delete(_ project: ProjectRecord) {
+    func delete(_ project: ProjectRecord, includingAudio: Bool = false) {
+        if includingAudio, FileManager.default.fileExists(atPath: project.audioPath) {
+            do {
+                try FileManager.default.removeItem(at: project.audioURL)
+            } catch {
+                generationState = .failed("The project audio could not be deleted: \(error.localizedDescription)")
+                return
+            }
+        }
+
+        if audioPlayer?.url == project.audioURL {
+            stopPlayback()
+        }
+        if currentAudioURL == project.audioURL {
+            generationState = .idle
+        }
         projects.removeAll { $0.id == project.id }
-        Task { try? await repository.save(projects) }
+        let projectsToSave = projects
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.repository.save(projectsToSave)
+            } catch {
+                self.generationState = .failed(
+                    "The project was removed here, but its history could not be saved: \(error.localizedDescription)"
+                )
+            }
+        }
+        successMessage = includingAudio
+            ? "Project and audio deleted."
+            : "Project deleted. Its audio remains on disk."
     }
 
     func chooseOutputDirectory() {
@@ -355,7 +499,12 @@ final class AppModel {
             isPlaying = true
         } catch {
             isPlaying = false
-            generationState = .failed("Audio playback failed: \(error.localizedDescription)")
+            let message = "Audio playback failed: \(error.localizedDescription)"
+            if url.path.hasPrefix(playgroundDirectory.path) {
+                playgroundState = .failed(message)
+            } else {
+                generationState = .failed(message)
+            }
         }
     }
 
@@ -387,6 +536,16 @@ final class AppModel {
             counter += 1
         }
         return candidate
+    }
+
+    private func resetPlaygroundDirectory() throws {
+        if FileManager.default.fileExists(atPath: playgroundDirectory.path) {
+            try FileManager.default.removeItem(at: playgroundDirectory)
+        }
+        try FileManager.default.createDirectory(
+            at: playgroundDirectory,
+            withIntermediateDirectories: true
+        )
     }
 }
 

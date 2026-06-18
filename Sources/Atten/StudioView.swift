@@ -20,9 +20,9 @@ struct StudioView: View {
 
                 HStack(alignment: .top, spacing: AttenSpacing.lg) {
                     editorCard
-                        .frame(minWidth: 460, maxWidth: .infinity)
+                        .frame(minWidth: 420, maxWidth: .infinity)
                     controlsCard
-                        .frame(width: 300)
+                        .frame(width: 286)
                 }
 
                 if model.isGenerating {
@@ -36,7 +36,7 @@ struct StudioView: View {
                 }
             }
             .padding(AttenSpacing.xl)
-            .frame(maxWidth: 1180, alignment: .topLeading)
+            .frame(maxWidth: 1040, alignment: .topLeading)
         }
         .animation(.easeInOut(duration: 0.2), value: model.isGenerating)
         .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
@@ -71,27 +71,14 @@ struct StudioView: View {
             TextField("Project title", text: $model.draftTitle)
                 .textFieldStyle(.plain)
                 .font(.title3.weight(.semibold))
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-                .background(AttenColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .padding(.horizontal, 11)
+                .frame(height: 34)
+                .pixelInput()
                 .accessibilityLabel("Project title")
 
             ZStack(alignment: .topLeading) {
-                TextEditor(text: $model.draftText)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
-                    .background(AttenColor.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .stroke(
-                                isDropTargeted ? AttenColor.river : AttenColor.divider,
-                                style: StrokeStyle(lineWidth: isDropTargeted ? 2 : 1, dash: isDropTargeted ? [6] : [])
-                            )
-                    }
-                    .frame(minHeight: 330)
+                AlignedTextEditor(text: $model.draftText, accessibilityLabel: "Speech text")
+                    .frame(minHeight: 260)
                     .accessibilityLabel("Speech text")
                     .accessibilityHint("Enter the text Atten should speak")
 
@@ -103,8 +90,16 @@ struct StudioView: View {
                             .font(.caption)
                             .foregroundStyle(AttenColor.secondaryInk.opacity(0.8))
                     }
-                    .padding(18)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
                     .allowsHitTesting(false)
+                }
+            }
+            .pixelInput()
+            .overlay {
+                if isDropTargeted {
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(AttenColor.river, style: StrokeStyle(lineWidth: 2, dash: [6]))
                 }
             }
             .dropDestination(for: URL.self) { urls, _ in
@@ -169,7 +164,7 @@ struct StudioView: View {
                 }
                 .padding(10)
                 .background(AttenColor.forest.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
 
             DisclosureGroup("Voice settings", isExpanded: $showsAdvanced) {
@@ -257,6 +252,7 @@ struct StudioView: View {
 struct PlaybackCard: View {
     @Bindable var model: AppModel
     let url: URL
+    @State private var showsDeleteConfirmation = false
 
     var body: some View {
         HStack(spacing: AttenSpacing.md) {
@@ -283,6 +279,12 @@ struct PlaybackCard: View {
             }
 
             Spacer()
+            if model.currentProject != nil {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    showsDeleteConfirmation = true
+                }
+                .help("Delete this project")
+            }
             Button("Reveal", systemImage: "folder") {
                 NSWorkspace.shared.activateFileViewerSelecting([url])
             }
@@ -293,6 +295,25 @@ struct PlaybackCard: View {
             .tint(AttenColor.forest)
         }
         .attenCard()
+        .confirmationDialog(
+            "Delete this project?",
+            isPresented: $showsDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let project = model.currentProject {
+                Button("Delete Project", role: .destructive) {
+                    model.delete(project)
+                }
+                if !project.isLegacyImport {
+                    Button("Delete Project and Audio", role: .destructive) {
+                        model.delete(project, includingAudio: true)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Deleting only the project keeps its audio file on disk.")
+        }
     }
 }
 

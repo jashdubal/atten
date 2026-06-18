@@ -18,7 +18,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AttenCoreTests",
-            dependencies: ["AttenCore"],
+            dependencies: ["AttenCore", "Atten"],
             path: "tests/AttenCoreTests"
         ),
     ]

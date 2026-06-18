@@ -8,10 +8,12 @@ and generated audio stay on your Mac.
 
 - **Studio** — write, paste, import, or drop text; choose and preview a voice;
   adjust supported speed and format settings; generate, review, and export.
+- **Playground** — audition any voice, speed, format, and Metal setting with a
+  disposable sample that never enters project history.
 - **Voices** — search the real Kokoro catalog by language or traits, preview
   voices, and save favorites.
 - **Projects** — revisit generations, play them, duplicate their settings,
-  regenerate, export, or remove project metadata.
+  regenerate, export, delete project metadata, or explicitly delete its audio.
 - **Exports** — preview, rename, save a copy, and reveal audio in Finder.
 - **Settings** — inspect backend readiness and configure audio, storage,
   appearance, Metal fallback, and keyboard workflows.
@@ -96,7 +98,10 @@ Run `bin/tts --help` for the complete compatible option list and see
 | --- | --- |
 | New Studio draft | Command-N |
 | Import text | Command-O |
+| Open Studio | Command-1 |
+| Open Playground | Command-2 |
 | Generate speech | Command-Return |
+| Create temporary sample | Option-Command-Return |
 | Play or pause | Option-Space |
 | Cancel generation | Escape |
 | Export current audio | Shift-Command-E |

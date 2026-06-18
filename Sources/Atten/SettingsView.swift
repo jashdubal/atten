@@ -156,7 +156,10 @@ struct SettingsView: View {
         SettingsCard(title: "Keyboard shortcuts", icon: "keyboard") {
             ShortcutRow(action: "New Studio draft", keys: "⌘N")
             ShortcutRow(action: "Import text", keys: "⌘O")
+            ShortcutRow(action: "Open Studio", keys: "⌘1")
+            ShortcutRow(action: "Open Playground", keys: "⌘2")
             ShortcutRow(action: "Generate speech", keys: "⌘↩")
+            ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
             ShortcutRow(action: "Play or pause", keys: "⌥Space")
             ShortcutRow(action: "Cancel generation", keys: "Esc")
             ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
