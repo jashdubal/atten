@@ -97,7 +97,7 @@ Run `bin/tts --help` for the complete compatible option list and see
 | New Studio draft | Command-N |
 | Import text | Command-O |
 | Generate speech | Command-Return |
-| Play or pause | Space |
+| Play or pause | Option-Space |
 | Cancel generation | Escape |
 | Export current audio | Shift-Command-E |
 

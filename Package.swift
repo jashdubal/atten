@@ -16,6 +16,10 @@ let package = Package(
             dependencies: ["AttenCore"],
             exclude: ["Resources"]
         ),
-        .testTarget(name: "AttenCoreTests", dependencies: ["AttenCore"]),
+        .testTarget(
+            name: "AttenCoreTests",
+            dependencies: ["AttenCore"],
+            path: "tests/AttenCoreTests"
+        ),
     ]
 )

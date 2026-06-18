@@ -67,7 +67,7 @@ struct ProjectsView: View {
             }
             Button("Cancel", role: .cancel) { projectToDelete = nil }
         } message: {
-            Text("The audio file remains on disk and can still be found in Exports.")
+            Text("The generated audio file remains on disk.")
         }
     }
 
@@ -135,9 +135,11 @@ private struct ProjectRow: View {
             Spacer(minLength: 12)
 
             Menu {
-                Button("Duplicate in Studio", systemImage: "plus.square.on.square", action: duplicate)
-                Button("Regenerate", systemImage: "arrow.clockwise", action: regenerate)
-                Divider()
+                if !project.isLegacyImport {
+                    Button("Duplicate in Studio", systemImage: "plus.square.on.square", action: duplicate)
+                    Button("Regenerate", systemImage: "arrow.clockwise", action: regenerate)
+                    Divider()
+                }
                 Button("Export…", systemImage: "square.and.arrow.up") { model.export(project) }
                 Button("Reveal in Finder", systemImage: "folder") { model.reveal(project) }
                 Divider()

@@ -199,6 +199,10 @@ final class AppModel {
             do {
                 let output = try await generator.generate(request)
                 play(url: output.url)
+            } catch is CancellationError {
+                return
+            } catch BackendError.cancelled {
+                return
             } catch {
                 generationState = .failed(error.localizedDescription)
             }

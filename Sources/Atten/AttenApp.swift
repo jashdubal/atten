@@ -33,7 +33,7 @@ struct AttenApp: App {
                     .disabled(!model.isGenerating)
                 Divider()
                 Button(model.isPlaying ? "Pause" : "Play") { model.togglePlayback() }
-                    .keyboardShortcut(.space, modifiers: [])
+                    .keyboardShortcut(.space, modifiers: [.option])
                     .disabled(model.currentAudioURL == nil)
             }
         }

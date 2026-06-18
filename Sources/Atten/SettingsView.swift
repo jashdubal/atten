@@ -157,7 +157,7 @@ struct SettingsView: View {
             ShortcutRow(action: "New Studio draft", keys: "⌘N")
             ShortcutRow(action: "Import text", keys: "⌘O")
             ShortcutRow(action: "Generate speech", keys: "⌘↩")
-            ShortcutRow(action: "Play or pause", keys: "Space")
+            ShortcutRow(action: "Play or pause", keys: "⌥Space")
             ShortcutRow(action: "Cancel generation", keys: "Esc")
             ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
         }
