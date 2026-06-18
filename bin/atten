@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+export ATTEN_BACKEND_ROOT="$ROOT"
+exec swift run Atten

@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Play - Audio file player for TTS and other audio files
-# This script runs the audio player without needing 'uv run'
+# Atten audio player compatibility command
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

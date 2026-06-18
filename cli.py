@@ -1,180 +1,191 @@
 #!/usr/bin/env python3
-import warnings
-warnings.filterwarnings("ignore")
+"""Backward-compatible command-line entry point for the Atten backend."""
 
 import argparse
+import json
 import os
+from pathlib import Path
 import sys
-import shutil
-from datetime import datetime
-import soundfile as sf
-from kokoro import KPipeline
+from tempfile import TemporaryDirectory
+import warnings
+
+from atten_backend.catalog import VOICES
+from atten_backend.service import GenerationRequest, GenerationService
 from play import play_audio_file
 
-pipeline = KPipeline(lang_code='a')
+warnings.filterwarnings("ignore")
 
-# Global variable for silent mode
 SILENT_MODE = False
+JSON_MODE = False
+
+
+def emit(event, **payload):
+    if JSON_MODE:
+        print(json.dumps({"event": event, **payload}), flush=True)
+
 
 def log_info(message, emoji="ℹ️"):
-    """Log informational messages with emoji, respecting silent mode."""
-    if not SILENT_MODE:
+    if JSON_MODE:
+        emit("info", message=message)
+    elif not SILENT_MODE:
         print(f"{emoji} {message}")
+
 
 def log_success(message, emoji="✅"):
-    """Log success messages with emoji, respecting silent mode."""
-    if not SILENT_MODE:
+    if JSON_MODE:
+        emit("success", message=message)
+    elif not SILENT_MODE:
         print(f"{emoji} {message}")
+
 
 def log_error(message, emoji="❌"):
-    """Log error messages with emoji (always shown)."""
-    print(f"{emoji} {message}")
+    if JSON_MODE:
+        emit("error", message=message)
+    else:
+        print(f"{emoji} {message}", file=sys.stderr)
+
 
 def log_progress(message, emoji="⏳"):
-    """Log progress messages with emoji, respecting silent mode."""
-    if not SILENT_MODE:
+    if JSON_MODE:
+        emit("progress", message=message)
+    elif not SILENT_MODE:
         print(f"{emoji} {message}")
 
 
-def generate_audio(text, voice, speed, output_format='mp3'):
-    """Generates audio files from the provided text."""
-    generator = pipeline(text, voice=voice, speed=speed, split_pattern=r'\n+')
-    
-    output_dir = 'tmp'
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-
-    audio_files = []
-    for i, (_, _, audio) in enumerate(generator):
-        file_path = f'{output_dir}/{i}.{output_format}'
-        sf.write(file_path, audio, 24000)  # Save each segment to specified format
-        audio_files.append(file_path)
-    
-    return audio_files
-
-def merge_audio_files(audio_files, output_dir='outputs', output_format='mp3', custom_filename=None):
-    """Merges multiple audio files into a single file."""
-    # Ensure output directory exists
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Use custom filename or generate timestamp-based filename
-    if custom_filename:
-        filename = custom_filename
-    else:
-        filename = datetime.now().strftime('%y-%m-%d-%H-%M-%S')
-    
-    merged_output_path = os.path.join(output_dir, f'{filename}.{output_format}')
-    
-    # Check if file already exists
-    if os.path.exists(merged_output_path):
-        log_error(f"File '{merged_output_path}' already exists.")
-        log_error("Please choose a different filename or remove the existing file.")
-        sys.exit(1)
-    
-    merged_audio = []
-
-    for file in audio_files:
-        audio_data, samplerate = sf.read(file)
-        merged_audio.extend(audio_data)
-    sf.write(merged_output_path, merged_audio, 24000)
-    return merged_output_path
-
-def merge_audio_files_temp(audio_files, output_format='mp3'):
-    """Merges multiple audio files into a single temporary file for preview."""
-    # Create temporary merged file
-    temp_filename = f'tmp/preview.{output_format}'
-    merged_audio = []
-
-    for file in audio_files:
-        audio_data, samplerate = sf.read(file)
-        merged_audio.extend(audio_data)
-    sf.write(temp_filename, merged_audio, 24000)
-    return temp_filename
-
-def clean_up(files):
-    """Deletes temporary audio files."""
-    for file in files:
-        os.remove(file)
-    if os.path.exists('tmp'):
-        shutil.rmtree('tmp')
-
-def process_input(args):
-    """Handles the CLI input and generates the TTS output."""
-    # Set MPS environment variable if requested
+def process_input(args, service=None):
+    """Load input, generate one file, optionally play it, and return its path."""
     if args.mps:
-        os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+        os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
         log_info("GPU acceleration (MPS) enabled", "🚀")
-    
+
     if args.source:
-        with open(args.source, 'r') as file:
-            text = file.read()
+        text = Path(args.source).read_text(encoding="utf-8")
         log_info(f"Loaded text from: {args.source}", "📄")
     else:
         text = args.text
 
-    log_progress("Generating audio segments...", "🎵")
-    audio_files = generate_audio(text, args.voice, args.speed, args.format)
+    service = service or GenerationService()
+
+    def segment_progress(count):
+        emit("segment", count=count)
 
     if args.play_only:
-        # Play-only mode: merge to temporary file, play, then clean up everything
-        log_progress("Merging audio for preview...", "🔄")
-        merged_file = merge_audio_files_temp(audio_files, args.format)
-        
-        log_progress("Playing audio preview...", "🔊")
-        play_audio_file(merged_file, args.silent)
-        
-        log_progress("Cleaning up temporary files...", "🧹")
-        clean_up(audio_files + [merged_file])  # Clean up segments + merged preview
-        log_success("Preview completed successfully!", "🎉")
-    else:
-        # Normal mode: save to output directory
-        log_progress("Merging audio files...", "🔄")
-        merged_file = merge_audio_files(audio_files, args.output, args.format, args.filename)
+        with TemporaryDirectory(prefix="atten-preview-") as output_directory:
+            log_progress("Generating audio preview...", "🎵")
+            result = service.generate(
+                GenerationRequest(
+                    text=text,
+                    voice=args.voice,
+                    speed=args.speed,
+                    output_format=args.format,
+                    output_directory=Path(output_directory),
+                    filename="preview",
+                ),
+                progress=segment_progress,
+            )
+            log_progress("Playing audio preview...", "🔊")
+            if not play_audio_file(str(result.output_path), args.silent):
+                raise RuntimeError("Audio preview could not be played.")
+            log_success("Preview completed successfully!", "🎉")
+            emit("completed", path=str(result.output_path), preview=True)
+            return result.output_path
 
-        log_success(f"Audio saved: {os.path.basename(merged_file)}", "💾")
+    log_progress("Generating audio...", "🎵")
+    result = service.generate(
+        GenerationRequest(
+            text=text,
+            voice=args.voice,
+            speed=args.speed,
+            output_format=args.format,
+            output_directory=Path(args.output),
+            filename=args.filename,
+        ),
+        progress=segment_progress,
+    )
+    log_success(f"Audio saved: {result.output_path.name}", "💾")
 
-        # Play the audio file if requested
-        if args.play:
-            log_progress("Playing generated audio...", "🔊")
-            play_audio_file(merged_file, args.silent)
+    if args.play:
+        log_progress("Playing generated audio...", "🔊")
+        if not play_audio_file(str(result.output_path), args.silent):
+            raise RuntimeError("Generated audio could not be played.")
 
-        log_progress("Cleaning up temporary files...", "🧹")
-        clean_up(audio_files)
-        log_success("Process completed successfully!", "🎉")
+    log_success("Process completed successfully!", "🎉")
+    emit(
+        "completed",
+        path=str(result.output_path),
+        segments=result.segment_count,
+        sample_rate=result.sample_rate,
+        preview=False,
+    )
+    return result.output_path
 
-def main():
-    import warnings    
-    parser = argparse.ArgumentParser(description="CLI tool for offline text-to-speech")
 
-    parser.add_argument('text', nargs='?', help="Raw text to synthesize.")
-    parser.add_argument('-f', '--source', help="Path to a source document file (e.g., README.md).")
-    parser.add_argument('-s', '--speed', type=float, default=1.0, help="Speed of the speech synthesis (default: 1.0).")
-    parser.add_argument('-v', '--voice', default='af_heart', help="Voice to use for synthesis (default: af_heart).")
-    parser.add_argument('--mps', action='store_true', help="Enable Mac OS MPS GPU acceleration.")
-    parser.add_argument('--format', choices=['mp3', 'wav'], default='mp3', help="Output audio format (default: mp3).")
-    parser.add_argument('-o', '--output', default='outputs', help="Output directory for generated audio files (default: outputs).")
-    parser.add_argument('--filename', help="Custom filename for the output audio file (without extension).")
-    parser.add_argument('--play', action='store_true', help="Automatically play the generated audio file after creation.")
-    parser.add_argument('--play-only', action='store_true', help="Generate and play audio without saving to output directory (temporary preview).")
-    parser.add_argument('--silent', action='store_true', help="Silent mode - suppress all output except errors.")
+def build_parser():
+    parser = argparse.ArgumentParser(
+        description="Atten offline text-to-speech command-line tool"
+    )
+    parser.add_argument("text", nargs="?", help="Raw text to synthesize.")
+    parser.add_argument(
+        "-f", "--source", help="Path to a UTF-8 source document file."
+    )
+    parser.add_argument(
+        "-s", "--speed", type=float, default=1.0, help="Speech speed (default: 1.0)."
+    )
+    parser.add_argument(
+        "-v", "--voice", default="af_heart", help="Kokoro voice (default: af_heart)."
+    )
+    parser.add_argument("--mps", action="store_true", help="Enable macOS MPS fallback.")
+    parser.add_argument(
+        "--format", choices=["mp3", "wav"], default="mp3", help="Output format."
+    )
+    parser.add_argument(
+        "-o", "--output", default="outputs", help="Output directory (default: outputs)."
+    )
+    parser.add_argument("--filename", help="Output filename without extension.")
+    parser.add_argument("--play", action="store_true", help="Play after generation.")
+    parser.add_argument(
+        "--play-only", action="store_true", help="Generate and play without saving."
+    )
+    parser.add_argument(
+        "--silent", action="store_true", help="Suppress output except errors."
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="Emit newline-delimited JSON events."
+    )
+    parser.add_argument(
+        "--list-voices", action="store_true", help="Print the supported voice catalog."
+    )
+    return parser
 
-    args = parser.parse_args()
 
-    # Set silent mode globally
-    global SILENT_MODE
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    global SILENT_MODE, JSON_MODE
     SILENT_MODE = args.silent
-    
-    # Ensure at least one input is provided
+    JSON_MODE = args.json
+
+    if args.list_voices:
+        if args.json:
+            emit("voices", voices=VOICES)
+        else:
+            for voice in VOICES:
+                print(f"{voice['id']}\t{voice['name']}\t{voice['language']}")
+        return 0
+
     if not args.text and not args.source:
         log_error("Please provide either raw text or a source file path.")
-        if not args.silent:
-            parser.print_help()
-        sys.exit(1)
+        if not args.silent and not args.json:
+            build_parser().print_help()
+        return 2
 
-    # Process the input and generate audio
-    with warnings.catch_warnings():
-        process_input(args)
+    try:
+        with warnings.catch_warnings():
+            process_input(args)
+        return 0
+    except (OSError, RuntimeError, ValueError) as error:
+        log_error(str(error))
+        return 1
 
-if __name__ == '__main__':
-    main()
+
+if __name__ == "__main__":
+    sys.exit(main())
