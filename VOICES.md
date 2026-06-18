@@ -1,4 +1,4 @@
-# Available Voices
+# Atten Voice Library
 
 Voice database provided by [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M).
 
@@ -132,4 +132,3 @@ Language code: `'p'` | Fallback: espeak-ng `pt-br`
 | ---- | ------ | -------------- | ----------------- | ------------- | ------ |
 | pm_alex | 🚹 | - | - | - | `cf0ba8c5` |
 | pm_santa | 🚹 | - | - | - | `d4210316` |
-
