@@ -31,6 +31,7 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
     private let environment: [String: String]
     private let lock = NSLock()
     private var process: Process?
+    private var cancellationRequested = false
 
     public init(
         backendRoot: URL? = BackendLocator.locate(),
@@ -53,11 +54,10 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
 
         let child = Process()
         let outputPipe = Pipe()
-        let errorPipe = Pipe()
         child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         child.currentDirectoryURL = backendRoot
         child.standardOutput = outputPipe
-        child.standardError = errorPipe
+        child.standardError = outputPipe
         child.environment = environment.merging(["PYTHONUNBUFFERED": "1"]) { _, new in new }
 
         let hasUV = FileManager.default.fileExists(atPath: backendRoot.appendingPathComponent("uv.lock").path)
@@ -79,25 +79,26 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
 
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
+            let outputData: Data
             do {
-                try child.run()
+                outputData = try await ProcessExecution(
+                    process: child,
+                    output: outputPipe.fileHandleForReading,
+                    cancellationRequested: { self.isCancellationRequested }
+                ).run()
             } catch {
                 throw BackendError.processFailed(error.localizedDescription)
             }
 
-            let outputData = try outputPipe.fileHandleForReading.readToEnd() ?? Data()
-            let errorData = try errorPipe.fileHandleForReading.readToEnd() ?? Data()
-            child.waitUntilExit()
-
-            if Task.isCancelled || child.terminationReason == .uncaughtSignal {
+            if Task.isCancelled || isCancellationRequested || child.terminationReason == .uncaughtSignal {
                 throw BackendError.cancelled
             }
             guard child.terminationStatus == 0 else {
-                let standardError = String(decoding: errorData, as: UTF8.self)
+                let processOutput = String(decoding: outputData, as: UTF8.self)
                 let events = Self.events(from: outputData)
                 let eventError = events.last { $0.event == "error" }?.message
                 throw BackendError.processFailed(
-                    eventError ?? standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+                    eventError ?? processOutput.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
             }
 
@@ -117,19 +118,27 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
 
     public func cancel() {
         lock.withLock {
+            cancellationRequested = true
             guard let process, process.isRunning else { return }
             process.terminate()
         }
     }
 
     private func setProcess(_ newValue: Process) {
-        lock.withLock { process = newValue }
+        lock.withLock {
+            cancellationRequested = false
+            process = newValue
+        }
     }
 
     private func clearProcess(_ expected: Process) {
         lock.withLock {
             if process === expected { process = nil }
         }
+    }
+
+    private var isCancellationRequested: Bool {
+        lock.withLock { cancellationRequested }
     }
 
     private struct Event: Decodable {
@@ -149,6 +158,38 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         String(decoding: data, as: UTF8.self)
             .split(separator: "\n")
             .compactMap { try? JSONDecoder().decode(Event.self, from: Data($0.utf8)) }
+    }
+}
+
+private final class ProcessExecution: @unchecked Sendable {
+    private let process: Process
+    private let output: FileHandle
+    private let cancellationRequested: @Sendable () -> Bool
+
+    init(
+        process: Process,
+        output: FileHandle,
+        cancellationRequested: @escaping @Sendable () -> Bool
+    ) {
+        self.process = process
+        self.output = output
+        self.cancellationRequested = cancellationRequested
+    }
+
+    func run() async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                do {
+                    try process.run()
+                    if cancellationRequested() { process.terminate() }
+                    let data = try output.readToEnd() ?? Data()
+                    process.waitUntilExit()
+                    continuation.resume(returning: data)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 }
 
