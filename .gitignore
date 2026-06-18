@@ -4,3 +4,4 @@ outputs/*# pixi environments
 .pixi/*
 !.pixi/config.toml
 __pycache__/
+.build/
