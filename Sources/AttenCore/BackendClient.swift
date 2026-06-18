@@ -54,14 +54,14 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
 
         let child = Process()
         let outputPipe = Pipe()
-        child.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        let command = BackendRuntime.command(backendRoot: backendRoot, environment: environment)
+        child.executableURL = command.executable
         child.currentDirectoryURL = backendRoot
         child.standardOutput = outputPipe
         child.standardError = outputPipe
         child.environment = environment.merging(["PYTHONUNBUFFERED": "1"]) { _, new in new }
 
-        let hasUV = FileManager.default.fileExists(atPath: backendRoot.appendingPathComponent("uv.lock").path)
-        var arguments = hasUV ? ["uv", "run", "cli.py"] : ["python3", "cli.py"]
+        var arguments = command.arguments + ["cli.py"]
         arguments += [
             "--source", inputURL.path,
             "--voice", request.voiceID,
@@ -86,6 +86,8 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
                     output: outputPipe.fileHandleForReading,
                     cancellationRequested: { self.isCancellationRequested }
                 ).run()
+            } catch where isCancellationRequested || Task.isCancelled {
+                throw BackendError.cancelled
             } catch {
                 throw BackendError.processFailed(error.localizedDescription)
             }
@@ -158,6 +160,41 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         String(decoding: data, as: UTF8.self)
             .split(separator: "\n")
             .compactMap { try? JSONDecoder().decode(Event.self, from: Data($0.utf8)) }
+    }
+}
+
+public struct BackendCommand: Equatable, Sendable {
+    public let executable: URL
+    public let arguments: [String]
+}
+
+public enum BackendRuntime {
+    public static func command(
+        backendRoot: URL,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BackendCommand {
+        let virtualEnvironmentPython = backendRoot.appendingPathComponent(".venv/bin/python3")
+        if FileManager.default.isExecutableFile(atPath: virtualEnvironmentPython.path) {
+            return BackendCommand(executable: virtualEnvironmentPython, arguments: [])
+        }
+
+        var candidates = (environment["PATH"] ?? "")
+            .split(separator: ":")
+            .map { URL(fileURLWithPath: String($0)).appendingPathComponent("uv") }
+        if let home = environment["HOME"] {
+            candidates.append(URL(fileURLWithPath: home).appendingPathComponent(".local/bin/uv"))
+        }
+        candidates += [
+            URL(fileURLWithPath: "/opt/homebrew/bin/uv"),
+            URL(fileURLWithPath: "/usr/local/bin/uv"),
+        ]
+        if let uv = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) {
+            return BackendCommand(executable: uv, arguments: ["run"])
+        }
+        return BackendCommand(
+            executable: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: ["python3"]
+        )
     }
 }
 

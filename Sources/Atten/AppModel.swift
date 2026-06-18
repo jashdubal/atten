@@ -35,6 +35,7 @@ final class AppModel {
     @ObservationIgnored private let exportService = ExportService()
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var audioPlayer: AVAudioPlayer?
+    @ObservationIgnored private var audioDelegate: AudioPlaybackDelegate?
 
     init(
         directories: AppDirectories = AppDirectories(),
@@ -230,7 +231,15 @@ final class AppModel {
         guard url.startAccessingSecurityScopedResource() || url.isFileURL else { return }
         defer { url.stopAccessingSecurityScopedResource() }
         do {
-            draftText = try String(contentsOf: url, encoding: .utf8)
+            if url.pathExtension.lowercased() == "rtf" {
+                draftText = try NSAttributedString(
+                    url: url,
+                    options: [:],
+                    documentAttributes: nil
+                ).string
+            } else {
+                draftText = try String(contentsOf: url, encoding: .utf8)
+            }
             draftTitle = url.deletingPathExtension().lastPathComponent
             generationState = .idle
         } catch {
@@ -285,6 +294,7 @@ final class AppModel {
             projects[index].title = newURL.deletingPathExtension().lastPathComponent
             projects[index].audioPath = newURL.path
             projects[index].updatedAt = Date()
+            if currentAudioURL == project.audioURL { generationState = .ready(newURL) }
             Task { try? await repository.save(projects) }
             successMessage = "Renamed to \(newURL.lastPathComponent)."
         } catch {
@@ -331,6 +341,11 @@ final class AppModel {
     private func play(url: URL) {
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
+            let delegate = AudioPlaybackDelegate { [weak self] in
+                Task { @MainActor in self?.isPlaying = false }
+            }
+            audioDelegate = delegate
+            audioPlayer?.delegate = delegate
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
             isPlaying = true
@@ -368,5 +383,17 @@ final class AppModel {
             counter += 1
         }
         return candidate
+    }
+}
+
+private final class AudioPlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    private let didFinish: @Sendable () -> Void
+
+    init(didFinish: @escaping @Sendable () -> Void) {
+        self.didFinish = didFinish
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        didFinish()
     }
 }

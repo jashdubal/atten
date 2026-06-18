@@ -26,6 +26,9 @@ struct SettingsView: View {
             }
         }
         .onChange(of: model.settings) { _, _ in model.applySettings() }
+        .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
+        .onChange(of: model.speed) { _, _ in model.applySettings() }
+        .onChange(of: model.format) { _, _ in model.applySettings() }
     }
 
     private var providerSection: some View {

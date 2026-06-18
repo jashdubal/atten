@@ -90,4 +90,27 @@ final class BackendClientTests: XCTestCase {
 
         XCTAssertEqual(result?.resolvingSymlinksInPath(), directory.resolvingSymlinksInPath())
     }
+
+    func testBackendRuntimePrefersRepositoryVirtualEnvironment() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let python = directory.appendingPathComponent(".venv/bin/python3")
+        try FileManager.default.createDirectory(
+            at: python.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\n".utf8).write(to: python)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: python.path
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let command = BackendRuntime.command(
+            backendRoot: directory,
+            environment: ["PATH": "", "HOME": directory.path]
+        )
+
+        XCTAssertEqual(command, BackendCommand(executable: python, arguments: []))
+    }
 }

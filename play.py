@@ -98,7 +98,7 @@ def list_audio_files(directory):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Audio file player for TTS and other audio files")
+    parser = argparse.ArgumentParser(description="Atten audio file player")
     
     parser.add_argument('file', nargs='?', help="Path to audio file to play")
     parser.add_argument('-d', '--directory', help="Play all audio files in a directory")

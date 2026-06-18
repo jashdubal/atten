@@ -14,7 +14,7 @@ let package = Package(
         .executableTarget(
             name: "Atten",
             dependencies: ["AttenCore"],
-            resources: [.process("Resources")]
+            exclude: ["Resources"]
         ),
         .testTarget(name: "AttenCoreTests", dependencies: ["AttenCore"]),
     ]

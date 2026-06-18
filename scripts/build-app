@@ -1,0 +1,29 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+APP="$ROOT/.build/Atten.app"
+CONTENTS="$APP/Contents"
+ICON_SOURCE="$ROOT/Sources/Atten/Resources/AttenIcon.svg"
+ICONSET="$ROOT/.build/Atten.iconset"
+
+cd "$ROOT"
+swift build -c release
+
+rm -rf "$APP" "$ICONSET"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$ICONSET"
+cp "$ROOT/.build/release/Atten" "$CONTENTS/MacOS/Atten"
+cp "$ROOT/macOS/Info.plist" "$CONTENTS/Info.plist"
+
+sips -s format png "$ICON_SOURCE" --out "$ROOT/.build/atten-icon.png" >/dev/null
+for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$ROOT/.build/atten-icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    double=$((size * 2))
+    sips -z "$double" "$double" "$ROOT/.build/atten-icon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/AttenIcon.icns"
+rm -rf "$ICONSET" "$ROOT/.build/atten-icon.png"
+
+codesign --force --deep --sign - "$APP" >/dev/null
+echo "Built $APP"

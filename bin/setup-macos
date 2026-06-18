@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# TTS Setup Script for macOS
-# This script installs and sets up everything needed to run the TTS tool from a fresh macOS installation
+# Atten Backend Setup for macOS
+# Installs the local Python and Kokoro dependencies used by Atten.
 
 set -e  # Exit on any error
 
@@ -22,8 +22,8 @@ INSTALL="📦"
 SETUP="⚙️"
 ROCKET="🚀"
 
-echo -e "${BLUE}${ROCKET} TTS Setup Script for macOS${NC}"
-echo -e "${CYAN}This script will install and configure everything needed for the TTS tool${NC}"
+echo -e "${BLUE}${ROCKET} Atten Backend Setup for macOS${NC}"
+echo -e "${CYAN}This installs the local Kokoro speech backend used by Atten.${NC}"
 echo ""
 
 # Function to print colored messages
@@ -191,12 +191,12 @@ chmod +x bin/setup-macos
 print_status "Scripts are now executable"
 
 # Download the Kokoro model (this will happen on first run, but we can trigger it)
-print_setup "Preparing TTS model (this may take a few minutes on first run)..."
-print_info "Testing TTS setup with a quick example..."
+print_setup "Preparing the Atten speech model (this may take a few minutes on first run)..."
+print_info "Testing the Kokoro backend with a quick example..."
 
 # Run a quick test to download the model
 uv run cli.py "Testing TTS installation" --silent --play-only --mps || {
-    print_error "TTS test failed. Please check the installation."
+    print_error "Atten backend test failed. Please check the installation."
     exit 1
 }
 
@@ -229,9 +229,10 @@ fi
 echo ""
 echo -e "${GREEN}${ROCKET} Setup completed successfully!${NC}"
 echo ""
-echo -e "${CYAN}You can now use the TTS tool with:${NC}"
+echo -e "${CYAN}The Atten backend is ready. Launch the native app with:${NC}"
+echo -e "${YELLOW}  bin/atten${NC}"
+echo -e "${CYAN}The compatible CLI remains available with:${NC}"
 echo -e "${YELLOW}  bin/tts \"Hello world\"${NC}"
-echo -e "${YELLOW}  bin/play --latest${NC}"
 echo ""
 echo -e "${CYAN}Available options:${NC}"
 echo -e "${YELLOW}  bin/tts --help${NC}"
@@ -240,4 +241,4 @@ echo ""
 echo -e "${BLUE}${INFO} If you opened a new terminal, you may need to restart it or run:${NC}"
 echo -e "${YELLOW}  source $SHELL_PROFILE${NC}"
 echo ""
-echo -e "${GREEN}Happy text-to-speech generation! 🎵${NC}"
+echo -e "${GREEN}Atten is ready. 🎵${NC}"
