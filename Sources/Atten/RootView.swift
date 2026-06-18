@@ -7,22 +7,24 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case voices
     case projects
     case exports
-    case settings
 
     var id: String { rawValue }
-
     var label: String { rawValue.capitalized }
 
     var icon: String {
         switch self {
-        case .studio: "waveform.badge.mic"
+        case .studio: "waveform"
         case .playground: "flask"
-        case .voices: "person.wave.2"
-        case .projects: "square.stack.3d.up"
-        case .exports: "arrow.up.doc"
-        case .settings: "gearshape"
+        case .voices: "person.2"
+        case .projects: "doc.on.doc"
+        case .exports: "waveform.badge.magnifyingglass"
         }
     }
+}
+
+extension Notification.Name {
+    static let attenOpenStudio = Notification.Name("Atten.openStudio")
+    static let attenOpenPlayground = Notification.Name("Atten.openPlayground")
 }
 
 struct RootView: View {
@@ -30,7 +32,6 @@ struct RootView: View {
     @SceneStorage("Atten.selectedSection") private var selectionRaw = SidebarItem.studio.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showsShortcuts = false
 
     private var selection: Binding<SidebarItem?> {
         Binding(
@@ -42,90 +43,26 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 172, ideal: 184, max: 210)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 228, max: 248)
         } detail: {
             ZStack {
-                ForestBackdrop()
+                AttenBackdrop()
                 detail
             }
         }
+        .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
-        .tint(AttenColor.forest)
+        .tint(AttenColor.accent)
         .toolbar {
             ToolbarItem(placement: .navigation) {
                 AttenLogo(compact: true)
             }
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    model.newDraft()
-                    selectionRaw = SidebarItem.studio.rawValue
-                } label: {
-                    Label("New Draft", systemImage: "square.and.pencil")
-                }
-                .help("New draft (⌘N)")
-
-                Button {
-                    model.openImportPanel()
-                    selectionRaw = SidebarItem.studio.rawValue
-                } label: {
-                    Label("Import", systemImage: "doc.badge.plus")
-                }
-                .help("Import text (⌘O)")
-
-                Button {
-                    selectionRaw = SidebarItem.studio.rawValue
-                } label: {
-                    Label("Studio", systemImage: "waveform.badge.mic")
-                }
-                .keyboardShortcut("1")
-                .help("Open Studio (⌘1)")
-
-                Button {
-                    selectionRaw = SidebarItem.playground.rawValue
-                } label: {
-                    Label("Playground", systemImage: "flask")
-                }
-                .keyboardShortcut("2")
-                .help("Open Playground (⌘2)")
-
-                Button {
-                    model.generate()
-                    selectionRaw = SidebarItem.studio.rawValue
-                } label: {
-                    Label("Generate", systemImage: "sparkles")
-                }
-                .disabled(
-                    model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        || model.isGenerating
-                        || model.isPlaygroundGenerating
-                )
-                .help("Generate speech (⌘↩)")
-
-                Button { model.togglePlayback(url: toolbarAudioURL) } label: {
-                    Label(model.isPlaying ? "Pause" : "Play", systemImage: model.isPlaying ? "pause.fill" : "play.fill")
-                }
-                .disabled(toolbarAudioURL == nil)
-                .help("Play or pause (⌥Space)")
-
-                Button { model.exportCurrent() } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-                .disabled(model.currentAudioURL == nil)
-                .help("Export current audio (⇧⌘E)")
-
-                if model.isGenerating || model.isPlaygroundGenerating {
-                    Button(role: .cancel) { model.cancelGeneration() } label: {
-                        Label("Cancel", systemImage: "stop.fill")
-                    }
-                    .help("Cancel generation (Esc)")
-                }
-
-                Button { showsShortcuts.toggle() } label: {
-                    Label("Shortcuts", systemImage: "keyboard")
-                }
-                .help("Show keyboard shortcuts")
-                .popover(isPresented: $showsShortcuts, arrowEdge: .bottom) {
-                    ShortcutGuide()
+            ToolbarItem(placement: .primaryAction) {
+                ToolbarIconButton(
+                    title: "New Studio draft (⌘N)",
+                    systemImage: "square.and.pencil"
+                ) {
+                    openNewDraft()
                 }
             }
         }
@@ -135,6 +72,12 @@ struct RootView: View {
         }
         .onChange(of: model.draftText) { _, newValue in
             restoredDraft = String(newValue.prefix(100_000))
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .attenOpenStudio)) { _ in
+            selectionRaw = SidebarItem.studio.rawValue
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .attenOpenPlayground)) { _ in
+            selectionRaw = SidebarItem.playground.rawValue
         }
         .alert("Atten could not finish starting", isPresented: startupAlert) {
             Button("OK", role: .cancel) { model.startupError = nil }
@@ -146,42 +89,44 @@ struct RootView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             AttenLogo()
-                .padding(.horizontal, 14)
-                .padding(.vertical, 16)
+                .padding(.horizontal, AttenSpacing.md)
+                .padding(.top, AttenSpacing.md)
+                .padding(.bottom, AttenSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             List(selection: selection) {
-                ForEach(SidebarItem.allCases) { item in
-                    Label(item.label, systemImage: item.icon)
-                        .font(.system(.body, design: .rounded, weight: .semibold))
-                        .tag(item)
-                        .listRowBackground(
-                            selectionRaw == item.rawValue
-                                ? AttenColor.sunlight.opacity(0.16)
-                                : Color.clear
-                        )
-                        .accessibilityHint("Open \(item.label)")
+                Section {
+                    ForEach(SidebarItem.allCases) { item in
+                        Label(item.label, systemImage: item.icon)
+                            .font(.system(size: 13, weight: .medium))
+                            .frame(minHeight: 32)
+                            .tag(item)
+                            .listRowInsets(
+                                EdgeInsets(top: 1, leading: 10, bottom: 1, trailing: 10)
+                            )
+                            .listRowBackground(
+                                selectionRaw == item.rawValue
+                                    ? AttenColor.accentSecondary.opacity(0.15)
+                                    : Color.clear
+                            )
+                            .accessibilityHint("Open \(item.label)")
+                    }
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
 
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(model.backendIsAvailable ? AttenColor.forest : AttenColor.berry)
-                    .frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Kokoro • Offline")
-                        .font(.caption.weight(.semibold))
-                    Text(model.backendIsAvailable ? "Backend ready" : "Backend not found")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(14)
-            .accessibilityElement(children: .combine)
+            Divider()
+                .overlay(AttenColor.separator)
+
+            StatusIndicator(
+                title: "Kokoro 82M",
+                detail: model.backendIsAvailable ? "Local backend ready" : "Backend not found",
+                isAvailable: model.backendIsAvailable
+            )
+            .padding(AttenSpacing.md)
         }
-        .background(AttenColor.surface)
+        .background(AttenColor.sidebar)
     }
 
     @ViewBuilder private var detail: some View {
@@ -196,8 +141,6 @@ struct RootView: View {
             ProjectsView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
         case .exports:
             ExportsView(model: model)
-        case .settings:
-            SettingsView(model: model)
         }
     }
 
@@ -209,50 +152,15 @@ struct RootView: View {
         }
     }
 
-    private var toolbarAudioURL: URL? {
-        if selectionRaw == SidebarItem.playground.rawValue {
-            return model.playgroundAudioURL
-        }
-        return model.currentAudioURL
-    }
-
     private var startupAlert: Binding<Bool> {
         Binding(
             get: { model.startupError != nil },
             set: { if !$0 { model.startupError = nil } }
         )
     }
-}
 
-private struct ShortcutGuide: View {
-    private let shortcuts = [
-        ("New draft", "⌘N"),
-        ("Import text", "⌘O"),
-        ("Open Studio", "⌘1"),
-        ("Open Playground", "⌘2"),
-        ("Generate speech", "⌘↩"),
-        ("Create temp sample", "⌥⌘↩"),
-        ("Play or pause", "⌥Space"),
-        ("Cancel generation", "Esc"),
-        ("Export audio", "⇧⌘E"),
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Atten shortcuts", systemImage: "keyboard")
-                .font(.headline)
-            Divider()
-            ForEach(shortcuts, id: \.0) { shortcut in
-                HStack {
-                    Text(shortcut.0)
-                    Spacer()
-                    Text(shortcut.1)
-                        .font(.system(.callout, design: .monospaced, weight: .semibold))
-                        .foregroundStyle(AttenColor.forest)
-                }
-            }
-        }
-        .padding(16)
-        .frame(width: 260)
+    private func openNewDraft() {
+        model.newDraft()
+        selectionRaw = SidebarItem.studio.rawValue
     }
 }

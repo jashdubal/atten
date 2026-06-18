@@ -1,191 +1,220 @@
 import AttenCore
 import SwiftUI
 
+private enum SettingsCategory: String, CaseIterable, Identifiable {
+    case provider
+    case audio
+    case storage
+    case appearance
+    case shortcuts
+
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+
+    var icon: String {
+        switch self {
+        case .provider: "cpu"
+        case .audio: "speaker.wave.2"
+        case .storage: "internaldrive"
+        case .appearance: "paintpalette"
+        case .shortcuts: "keyboard"
+        }
+    }
+}
+
 struct SettingsView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        ZStack {
-            ForestBackdrop()
-            ScrollView {
-                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                    SectionHeader(
-                        eyebrow: "Settings",
-                        title: "Make Atten yours",
-                        detail: "Configure the real Kokoro backend, audio defaults, storage, appearance, and shortcuts."
-                    )
-
-                    providerSection
-                    audioSection
-                    storageSection
-                    appearanceSection
-                    shortcutsSection
-                }
-                .padding(AttenSpacing.xl)
-                .frame(maxWidth: 820, alignment: .topLeading)
+        TabView {
+            SettingsPane(title: "Provider", detail: "Local speech synthesis status and acceleration.") {
+                providerForm
             }
+            .tabItem { Label("Provider", systemImage: SettingsCategory.provider.icon) }
+
+            SettingsPane(title: "Audio", detail: "Defaults used for new Studio generations.") {
+                audioForm
+            }
+            .tabItem { Label("Audio", systemImage: SettingsCategory.audio.icon) }
+
+            SettingsPane(title: "Storage", detail: "Where Atten keeps generated audio and project history.") {
+                storageForm
+            }
+            .tabItem { Label("Storage", systemImage: SettingsCategory.storage.icon) }
+
+            SettingsPane(title: "Appearance", detail: "Match macOS or choose a specific appearance.") {
+                appearanceForm
+            }
+            .tabItem { Label("Appearance", systemImage: SettingsCategory.appearance.icon) }
+
+            SettingsPane(title: "Shortcuts", detail: "Keyboard commands available throughout Atten.") {
+                shortcutsForm
+            }
+            .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }
         }
+        .tint(AttenColor.accent)
         .onChange(of: model.settings) { _, _ in model.applySettings() }
         .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
         .onChange(of: model.speed) { _, _ in model.applySettings() }
         .onChange(of: model.format) { _, _ in model.applySettings() }
     }
 
-    private var providerSection: some View {
-        SettingsCard(title: "Provider", icon: "cpu") {
-            HStack(spacing: AttenSpacing.md) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(AttenColor.meadowGradient)
-                    Image(systemName: "leaf.fill")
-                        .font(.title2)
-                        .foregroundStyle(.white)
+    private var providerForm: some View {
+        Form {
+            Section("Kokoro 82M") {
+                FormRow(label: "Status", detail: "Offline synthesis; no account or API credential required.") {
+                    Label(
+                        model.backendIsAvailable ? "Ready" : "Not found",
+                        systemImage: model.backendIsAvailable
+                            ? "checkmark.circle.fill"
+                            : "exclamationmark.triangle.fill"
+                    )
+                    .foregroundStyle(
+                        model.backendIsAvailable ? AttenColor.success : AttenColor.destructive
+                    )
                 }
-                .frame(width: 52, height: 52)
 
-                VStack(alignment: .leading, spacing: 4) {
+                FormRow(label: "Credentials") {
+                    Text("None required").foregroundStyle(AttenColor.textSecondary)
+                }
+
+                Toggle("Use Metal acceleration fallback", isOn: $model.settings.useMPS)
+                    .help("Sets PYTORCH_ENABLE_MPS_FALLBACK for the local Kokoro process")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var audioForm: some View {
+        Form {
+            Section("Generation defaults") {
+                FormRow(label: "Voice") {
+                    Picker("Voice", selection: $model.selectedVoiceID) {
+                        ForEach(VoiceCatalog.all) { voice in
+                            Text("\(voice.name) — \(voice.language)").tag(voice.id)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 270)
+                }
+
+                FormRow(label: "Speech speed") {
                     HStack {
-                        Text("Kokoro 82M")
-                            .font(.headline)
-                        Text("Offline")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(AttenColor.forest.opacity(0.14))
-                            .clipShape(Capsule())
-                    }
-                    Text("Local speech synthesis. No account, network API, or credential is required.")
-                        .font(.callout)
-                        .foregroundStyle(AttenColor.secondaryInk)
-                }
-                Spacer()
-                Label(
-                    model.backendIsAvailable ? "Ready" : "Not found",
-                    systemImage: model.backendIsAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                )
-                .foregroundStyle(model.backendIsAvailable ? AttenColor.forest : AttenColor.berry)
-            }
-
-            Divider()
-
-            LabeledContent("Credentials") {
-                Text("None required")
-                    .foregroundStyle(.secondary)
-            }
-            Text("Atten’s provider boundary stores any future secrets in macOS Keychain, never in project files or preferences.")
-                .font(.caption)
-                .foregroundStyle(AttenColor.secondaryInk)
-
-            Toggle("Use Metal acceleration fallback", isOn: $model.settings.useMPS)
-                .help("Sets PYTORCH_ENABLE_MPS_FALLBACK for the local Kokoro process")
-        }
-    }
-
-    private var audioSection: some View {
-        SettingsCard(title: "Audio defaults", icon: "speaker.wave.2") {
-            LabeledContent("Default voice") {
-                Picker("Default voice", selection: $model.selectedVoiceID) {
-                    ForEach(VoiceCatalog.all) { voice in
-                        Text("\(voice.name) — \(voice.language)").tag(voice.id)
+                        Slider(value: $model.speed, in: 0.5...2, step: 0.05)
+                            .frame(width: 190)
+                        Text(String(format: "%.2f×", model.speed))
+                            .monospacedDigit()
+                            .frame(width: 48, alignment: .trailing)
                     }
                 }
-                .labelsHidden()
-                .frame(width: 260)
-            }
 
-            LabeledContent("Speech speed") {
-                HStack {
-                    Slider(value: $model.speed, in: 0.5...2, step: 0.05)
-                        .frame(width: 180)
-                    Text(String(format: "%.2f×", model.speed))
-                        .monospacedDigit()
-                        .frame(width: 48, alignment: .trailing)
+                FormRow(label: "File format") {
+                    Picker("File format", selection: $model.format) {
+                        ForEach(AudioFormat.allCases) { format in
+                            Text(format.displayName).tag(format)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 180)
                 }
             }
+        }
+        .formStyle(.grouped)
+    }
 
-            LabeledContent("File format") {
-                Picker("File format", selection: $model.format) {
-                    ForEach(AudioFormat.allCases) { format in
-                        Text(format.displayName).tag(format)
+    private var storageForm: some View {
+        Form {
+            Section("Generated audio") {
+                FormRow(
+                    label: "Export folder",
+                    detail: "Project metadata remains in Application Support/Atten."
+                ) {
+                    HStack(spacing: AttenSpacing.xs) {
+                        Text(model.settings.outputDirectory)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(AttenColor.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(width: 290, alignment: .trailing)
+                        Button("Choose…") { model.chooseOutputDirectory() }
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 180)
+            }
+
+            Section {
+                Text("Existing audio in the original outputs folder is discovered without being moved.")
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
             }
         }
+        .formStyle(.grouped)
     }
 
-    private var storageSection: some View {
-        SettingsCard(title: "Storage", icon: "internaldrive") {
-            LabeledContent("Generated audio") {
-                HStack {
-                    Text(model.settings.outputDirectory)
-                        .font(.caption.monospaced())
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 330, alignment: .trailing)
-                    Button("Choose…") { model.chooseOutputDirectory() }
-                }
-            }
-            Text("Project metadata is stored in Application Support/Atten. Existing files in the original outputs folder are discovered without being moved.")
-                .font(.caption)
-                .foregroundStyle(AttenColor.secondaryInk)
-        }
-    }
-
-    private var appearanceSection: some View {
-        SettingsCard(title: "Appearance", icon: "paintpalette") {
-            LabeledContent("Theme") {
-                Picker("Theme", selection: $model.settings.appearance) {
+    private var appearanceForm: some View {
+        Form {
+            Section("Theme") {
+                Picker("Appearance", selection: $model.settings.appearance) {
                     ForEach(AppearancePreference.allCases) { appearance in
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
-                .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(width: 260)
+
+                Text("Motion and transparency follow your macOS accessibility preferences.")
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
             }
-            Text("Motion and transparency follow your macOS accessibility preferences.")
-                .font(.caption)
-                .foregroundStyle(AttenColor.secondaryInk)
         }
+        .formStyle(.grouped)
     }
 
-    private var shortcutsSection: some View {
-        SettingsCard(title: "Keyboard shortcuts", icon: "keyboard") {
-            ShortcutRow(action: "New Studio draft", keys: "⌘N")
-            ShortcutRow(action: "Import text", keys: "⌘O")
-            ShortcutRow(action: "Open Studio", keys: "⌘1")
-            ShortcutRow(action: "Open Playground", keys: "⌘2")
-            ShortcutRow(action: "Generate speech", keys: "⌘↩")
-            ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
-            ShortcutRow(action: "Play or pause", keys: "⌥Space")
-            ShortcutRow(action: "Cancel generation", keys: "Esc")
-            ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
+    private var shortcutsForm: some View {
+        Form {
+            Section("Studio") {
+                ShortcutRow(action: "New Studio draft", keys: "⌘N")
+                ShortcutRow(action: "Import text", keys: "⌘O")
+                ShortcutRow(action: "Generate speech", keys: "⌘↩")
+                ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
+            }
+            Section("Navigation and playback") {
+                ShortcutRow(action: "Open Studio", keys: "⌘1")
+                ShortcutRow(action: "Open Playground", keys: "⌘2")
+                ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
+                ShortcutRow(action: "Play or pause", keys: "⌥Space")
+                ShortcutRow(action: "Cancel generation", keys: "Esc")
+            }
         }
+        .formStyle(.grouped)
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+private struct SettingsPane<Content: View>: View {
     let title: String
-    let icon: String
+    let detail: String
     @ViewBuilder let content: Content
 
-    init(title: String, icon: String, @ViewBuilder content: () -> Content) {
+    init(title: String, detail: String, @ViewBuilder content: () -> Content) {
         self.title = title
-        self.icon = icon
+        self.detail = detail
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
-            Label(title, systemImage: icon)
-                .font(.headline)
-                .foregroundStyle(AttenColor.ink)
+            VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
+                Text(title).font(.system(size: 20, weight: .semibold))
+                Text(detail)
+                    .font(AttenTypography.body)
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            .padding(.horizontal, AttenSpacing.lg)
+            .padding(.top, AttenSpacing.lg)
+
             content
         }
-        .attenCard(padding: AttenSpacing.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AttenColor.appBackground)
     }
 }
 
@@ -196,14 +225,15 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent(action) {
             Text(keys)
-                .font(.system(.body, design: .rounded, weight: .semibold))
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(AttenColor.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(AttenColor.textSecondary)
+                .padding(.horizontal, AttenSpacing.xs)
+                .padding(.vertical, AttenSpacing.xxs)
+                .background(AttenColor.surfaceMuted)
+                .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(AttenColor.divider)
+                    RoundedRectangle(cornerRadius: AttenRadius.small)
+                        .stroke(AttenColor.separator, lineWidth: 1)
                 }
         }
         .accessibilityElement(children: .combine)
