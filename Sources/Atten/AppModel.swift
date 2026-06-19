@@ -83,6 +83,8 @@ final class AppModel {
         return nil
     }
 
+    var activeAudioURL: URL? { audioPlayer?.url }
+
     var currentProject: ProjectRecord? {
         guard let currentAudioURL else { return nil }
         return projects.first { $0.audioPath == currentAudioURL.path }

@@ -9,66 +9,88 @@ struct VoicesView: View {
     @State private var language = "All languages"
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                HStack(alignment: .bottom) {
-                    SectionHeader(
-                        eyebrow: "Voices",
-                        title: "Meet the woodland chorus",
-                        detail: "Browse the voices installed with Kokoro, preview them, and keep favorites close."
-                    )
-                    Spacer()
-                    Toggle("Favorites", systemImage: "heart.fill", isOn: $favoritesOnly)
-                        .toggleStyle(.button)
-                        .tint(AttenColor.berry)
-                }
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                    header
+                    filters
 
-                HStack {
-                    Picker("Language", selection: $language) {
-                        Text("All languages").tag("All languages")
-                        ForEach(languages, id: \.self) { Text($0).tag($0) }
-                    }
-                    .frame(width: 210)
-                    Text("\(filteredVoices.count) voices")
-                        .font(.caption)
-                        .foregroundStyle(AttenColor.secondaryInk)
-                    Spacer()
-                }
-
-                if filteredVoices.isEmpty {
-                    ContentUnavailableView(
-                        "No voices found",
-                        systemImage: "person.wave.2",
-                        description: Text("Try another search or show all languages.")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 360)
-                    .attenCard()
-                } else {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 245, maximum: 330), spacing: 16)],
-                        spacing: 16
-                    ) {
-                        ForEach(filteredVoices) { voice in
-                            VoiceCard(
-                                voice: voice,
-                                isSelected: model.selectedVoiceID == voice.id,
-                                isFavorite: model.settings.favoriteVoiceIDs.contains(voice.id),
-                                isPreviewing: model.voicePreviewID == voice.id,
-                                select: {
-                                    model.selectVoice(voice)
-                                    openStudio()
-                                },
-                                favorite: { model.toggleFavorite(voice) },
-                                preview: { model.previewVoice(voice) }
-                            )
+                    if filteredVoices.isEmpty {
+                        AttenEmptyState(
+                            title: "No voices found",
+                            systemImage: "person.2",
+                            detail: "Try another search or show all languages."
+                        )
+                        .attenSurface()
+                    } else {
+                        LazyVStack(spacing: 1) {
+                            ForEach(filteredVoices) { voice in
+                                VoiceRow(
+                                    voice: voice,
+                                    availableWidth: proxy.size.width,
+                                    isSelected: model.selectedVoiceID == voice.id,
+                                    isFavorite: model.settings.favoriteVoiceIDs.contains(voice.id),
+                                    isPreviewing: model.voicePreviewID == voice.id,
+                                    select: {
+                                        model.selectVoice(voice)
+                                        openStudio()
+                                    },
+                                    favorite: { model.toggleFavorite(voice) },
+                                    preview: { model.previewVoice(voice) }
+                                )
+                                if voice.id != filteredVoices.last?.id {
+                                    Divider()
+                                        .padding(.leading, 58)
+                                        .overlay(AttenColor.separator.opacity(0.8))
+                                }
+                            }
+                        }
+                        .padding(.vertical, AttenSpacing.xxs)
+                        .background(AttenColor.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: AttenRadius.card)
+                                .stroke(AttenColor.separator.opacity(0.72), lineWidth: 1)
                         }
                     }
                 }
+                .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
+                .padding(.vertical, AttenSpacing.lg)
+                .frame(maxWidth: 1120, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(AttenSpacing.xl)
-            .frame(maxWidth: 1180, alignment: .topLeading)
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Search voices, traits, or languages")
+        .searchable(text: $query, placement: .toolbar, prompt: "Search voices")
+    }
+
+    private var header: some View {
+        HStack(alignment: .bottom) {
+            PageHeader(
+                eyebrow: "Voices",
+                title: "Voice library",
+                detail: "Preview Kokoro voices and keep favorites close."
+            )
+            Spacer()
+            Text("\(filteredVoices.count) voices")
+                .font(AttenTypography.metadata)
+                .foregroundStyle(AttenColor.textSecondary)
+        }
+    }
+
+    private var filters: some View {
+        HStack(spacing: AttenSpacing.sm) {
+            Picker("Language", selection: $language) {
+                Text("All languages").tag("All languages")
+                ForEach(languages, id: \.self) { Text($0).tag($0) }
+            }
+            .frame(width: 210)
+
+            Toggle("Favorites", systemImage: "heart.fill", isOn: $favoritesOnly)
+                .toggleStyle(.button)
+                .tint(AttenColor.accentSecondary)
+
+            Spacer()
+        }
     }
 
     private var languages: [String] {
@@ -87,8 +109,9 @@ struct VoicesView: View {
     }
 }
 
-private struct VoiceCard: View {
+private struct VoiceRow: View {
     let voice: Voice
+    let availableWidth: CGFloat
     let isSelected: Bool
     let isFavorite: Bool
     let isPreviewing: Bool
@@ -96,66 +119,103 @@ private struct VoiceCard: View {
     let favorite: () -> Void
     let preview: () -> Void
 
+    @State private var isHovering = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.md) {
-            HStack(alignment: .top) {
-                VoiceAvatar(voice: voice, size: 54)
-                VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: AttenSpacing.sm) {
+            VoiceAvatar(voice: voice, size: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: AttenSpacing.xs) {
                     Text(voice.name)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AttenColor.ink)
-                    Text("\(voice.language) • \(voice.gender)")
-                        .font(.caption)
-                        .foregroundStyle(AttenColor.secondaryInk)
-                }
-                Spacer()
-                Button(action: favorite) {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .foregroundStyle(isFavorite ? AttenColor.berry : AttenColor.secondaryInk)
-                }
-                .buttonStyle(.plain)
-                .help(isFavorite ? "Remove from favorites" : "Add to favorites")
-                .accessibilityLabel(isFavorite ? "Remove \(voice.name) from favorites" : "Favorite \(voice.name)")
-            }
-
-            HStack(spacing: 6) {
-                ForEach(voice.traits.prefix(3), id: \.self) { trait in
-                    Text(trait.capitalized)
-                        .font(.caption2.weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(AttenColor.moss.opacity(0.13))
-                        .clipShape(Capsule())
-                }
-                Spacer()
-                Text("Quality \(voice.quality)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack {
-                Button(action: preview) {
-                    if isPreviewing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Preview", systemImage: "play.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AttenColor.textPrimary)
+                    if isSelected {
+                        Label("Selected", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
+                            .font(.caption)
+                            .foregroundStyle(AttenColor.accent)
                     }
                 }
-                .buttonStyle(.bordered)
-                .disabled(isPreviewing)
+                Text("\(voice.language) · \(voice.gender)")
+                    .font(AttenTypography.caption)
+                    .foregroundStyle(AttenColor.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(minWidth: 150, alignment: .leading)
 
-                Spacer()
-                Button(isSelected ? "Selected" : "Use Voice", action: select)
+            if availableWidth >= 720 {
+                HStack(spacing: AttenSpacing.xs) {
+                    ForEach(voice.traits.prefix(2), id: \.self) { trait in
+                        Text(trait.capitalized)
+                            .font(AttenTypography.caption)
+                            .foregroundStyle(AttenColor.textSecondary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(AttenColor.surfaceMuted)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+
+            Spacer(minLength: AttenSpacing.xs)
+
+            Button(action: preview) {
+                if isPreviewing {
+                    ProgressView().controlSize(.small).frame(width: 26, height: 26)
+                } else {
+                    Image(systemName: "play.fill").frame(width: 26, height: 26)
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isPreviewing)
+            .help("Preview \(voice.name)")
+            .accessibilityLabel("Preview \(voice.name)")
+
+            Button(action: favorite) {
+                Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    .foregroundStyle(
+                        isFavorite ? AttenColor.accentSecondary : AttenColor.textSecondary
+                    )
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.borderless)
+            .help(isFavorite ? "Remove from favorites" : "Add to favorites")
+            .accessibilityLabel(
+                isFavorite ? "Remove \(voice.name) from favorites" : "Favorite \(voice.name)"
+            )
+
+            if isSelected {
+                Button("Open", action: select)
+                    .buttonStyle(.bordered)
+                    .tint(AttenColor.accent)
+                    .controlSize(.small)
+                    .frame(minWidth: 58)
+            } else {
+                Button("Use", action: select)
                     .buttonStyle(.borderedProminent)
-                    .tint(isSelected ? AttenColor.moss : AttenColor.forest)
+                    .tint(AttenColor.accent)
+                    .controlSize(.small)
+                    .frame(minWidth: 58)
             }
         }
-        .attenCard()
-        .overlay {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(AttenColor.forest, lineWidth: 2)
-            }
+        .padding(.horizontal, AttenSpacing.sm)
+        .frame(minHeight: 58)
+        .background(
+            isSelected
+                ? AttenColor.accent.opacity(0.09)
+                : (isHovering ? AttenColor.surfaceMuted.opacity(0.65) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button(isSelected ? "Open in Studio" : "Use in Studio", action: select)
+            Button("Preview", systemImage: "play.fill", action: preview)
+            Button(
+                isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                systemImage: isFavorite ? "heart.slash" : "heart",
+                action: favorite
+            )
         }
         .accessibilityElement(children: .contain)
     }
