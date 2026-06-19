@@ -104,11 +104,6 @@ struct RootView: View {
                             .listRowInsets(
                                 EdgeInsets(top: 1, leading: 10, bottom: 1, trailing: 10)
                             )
-                            .listRowBackground(
-                                selectionRaw == item.rawValue
-                                    ? AttenColor.accentSecondary.opacity(0.15)
-                                    : Color.clear
-                            )
                             .accessibilityHint("Open \(item.label)")
                     }
                 }
