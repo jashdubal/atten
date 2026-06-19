@@ -1,3 +1,4 @@
+import AppKit
 import AttenCore
 import SwiftUI
 
@@ -53,10 +54,8 @@ struct RootView: View {
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
         .tint(AttenColor.accent)
+        .background(WindowTitleHider())
         .toolbar {
-            ToolbarItem(placement: .navigation) {
-                AttenLogo(compact: true)
-            }
             ToolbarItem(placement: .primaryAction) {
                 ToolbarIconButton(
                     title: "New Studio draft (⌘N)",
@@ -157,5 +156,22 @@ struct RootView: View {
     private func openNewDraft() {
         model.newDraft()
         selectionRaw = SidebarItem.studio.rawValue
+    }
+}
+
+private struct WindowTitleHider: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowTitleHidingView()
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        view.window?.titleVisibility = .hidden
+    }
+}
+
+private final class WindowTitleHidingView: NSView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.titleVisibility = .hidden
     }
 }
