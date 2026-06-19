@@ -4,44 +4,53 @@ import UniformTypeIdentifiers
 
 struct StudioView: View {
     @Bindable var model: AppModel
-    @State private var showsAdvanced = false
+    @State private var showsOutputSettings = true
     @State private var isDropTargeted = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                SectionHeader(
-                    eyebrow: "Studio",
-                    title: "Give your words a voice",
-                    detail: "Write or import text, choose a voice, and create audio locally on your Mac."
-                )
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                    header
+                    statusArea
+                    workspace(width: proxy.size.width, height: proxy.size.height)
 
-                statusArea
-
-                HStack(alignment: .top, spacing: AttenSpacing.lg) {
-                    editorCard
-                        .frame(minWidth: 420, maxWidth: .infinity)
-                    controlsCard
-                        .frame(width: 286)
+                    if let audioURL = model.currentAudioURL {
+                        PlaybackCard(model: model, url: audioURL)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
                 }
-
-                if model.isGenerating {
-                    generationProgress
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
-
-                if let audioURL = model.currentAudioURL {
-                    PlaybackCard(model: model, url: audioURL)
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
-                }
+                .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
+                .padding(.vertical, AttenSpacing.lg)
+                .frame(maxWidth: 1180, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(AttenSpacing.xl)
-            .frame(maxWidth: 1040, alignment: .topLeading)
         }
-        .animation(.easeInOut(duration: 0.2), value: model.isGenerating)
+        .animation(
+            .easeInOut(duration: AttenMotion.standard),
+            value: model.currentAudioURL
+        )
         .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
         .onChange(of: model.speed) { _, _ in model.applySettings() }
         .onChange(of: model.format) { _, _ in model.applySettings() }
+        .onChange(of: model.settings.useMPS) { _, _ in model.applySettings() }
+    }
+
+    private var header: some View {
+        HStack(alignment: .bottom, spacing: AttenSpacing.md) {
+            PageHeader(
+                eyebrow: "Studio",
+                title: "Create speech",
+                detail: "Write, choose a voice, and generate locally."
+            )
+            Spacer()
+            Button("Import…", systemImage: "doc.badge.plus") {
+                model.openImportPanel()
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut("o")
+            .help("Import a UTF-8 text, Markdown, source, or RTF file")
+        }
     }
 
     @ViewBuilder private var statusArea: some View {
@@ -53,53 +62,71 @@ struct StudioView: View {
         }
     }
 
-    private var editorCard: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.md) {
+    @ViewBuilder private func workspace(width: CGFloat, height: CGFloat) -> some View {
+        let workspaceHeight = max(430, height - 205)
+        if width >= 760 {
+            HSplitView {
+                editorPane
+                    .frame(minWidth: 440, maxWidth: .infinity, minHeight: workspaceHeight)
+                inspectorPane
+                    .frame(minWidth: 280, idealWidth: 304, maxWidth: 340, minHeight: workspaceHeight)
+            }
+            .frame(minHeight: workspaceHeight)
+        } else {
+            VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                editorPane
+                    .frame(minHeight: max(360, height - 310))
+                inspectorPane
+            }
+        }
+    }
+
+    private var editorPane: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             HStack {
                 Label("Script", systemImage: "text.alignleft")
-                    .font(.headline)
-                    .foregroundStyle(AttenColor.ink)
+                    .font(AttenTypography.sectionTitle)
+                    .foregroundStyle(AttenColor.textPrimary)
                 Spacer()
-                Button("Import…", systemImage: "doc.badge.plus") {
-                    model.openImportPanel()
-                }
-                .buttonStyle(.borderless)
-                .keyboardShortcut("o")
-                .help("Import a UTF-8 text, Markdown, source, or RTF file")
+                Text("\(wordCount) words · \(model.draftText.count) characters")
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
             }
 
             TextField("Project title", text: $model.draftTitle)
                 .textFieldStyle(.plain)
-                .font(.title3.weight(.semibold))
-                .padding(.horizontal, 11)
-                .frame(height: 34)
-                .pixelInput()
+                .font(.system(size: 16, weight: .semibold))
+                .padding(.horizontal, AttenSpacing.sm)
+                .frame(height: 36)
+                .attenInput()
                 .accessibilityLabel("Project title")
 
             ZStack(alignment: .topLeading) {
                 AlignedTextEditor(text: $model.draftText, accessibilityLabel: "Speech text")
-                    .frame(minHeight: 260)
-                    .accessibilityLabel("Speech text")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityHint("Enter the text Atten should speak")
 
                 if model.draftText.isEmpty {
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
                         Text("Start writing here…")
-                            .foregroundStyle(AttenColor.secondaryInk)
-                        Text("You can also drop a text file into this editor.")
-                            .font(.caption)
-                            .foregroundStyle(AttenColor.secondaryInk.opacity(0.8))
+                            .foregroundStyle(AttenColor.textSecondary)
+                        Text("Drop a compatible text file here to import it.")
+                            .font(AttenTypography.metadata)
+                            .foregroundStyle(AttenColor.textSecondary.opacity(0.82))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 13)
+                    .padding(AttenSpacing.sm)
                     .allowsHitTesting(false)
                 }
             }
-            .pixelInput()
+            .frame(minHeight: 300)
+            .attenInput()
             .overlay {
                 if isDropTargeted {
-                    RoundedRectangle(cornerRadius: 7)
-                        .stroke(AttenColor.river, style: StrokeStyle(lineWidth: 2, dash: [6]))
+                    RoundedRectangle(cornerRadius: AttenRadius.control)
+                        .stroke(
+                            AttenColor.focus,
+                            style: StrokeStyle(lineWidth: 2, dash: [5, 4])
+                        )
                 }
             }
             .dropDestination(for: URL.self) { urls, _ in
@@ -109,27 +136,25 @@ struct StudioView: View {
             } isTargeted: { isDropTargeted = $0 }
 
             HStack {
-                Text("\(wordCount) words • \(model.draftText.count) characters")
-                    .font(.caption)
-                    .foregroundStyle(AttenColor.secondaryInk)
+                Label("Saved automatically as a draft", systemImage: "checkmark")
+                    .font(AttenTypography.caption)
+                    .foregroundStyle(AttenColor.textSecondary)
                 Spacer()
-                if model.draftText.isEmpty {
-                    Label("Drop text files here", systemImage: "arrow.down.doc")
-                        .font(.caption)
-                        .foregroundStyle(AttenColor.river)
+                if !model.draftText.isEmpty {
+                    Button("Clear") { model.draftText = "" }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(AttenColor.textSecondary)
                 }
             }
         }
-        .attenCard(padding: AttenSpacing.lg)
+        .padding(.trailing, AttenSpacing.md)
     }
 
-    private var controlsCard: some View {
+    private var inspectorPane: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-            VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-                Text("Voice")
-                    .font(.headline)
+            InspectorSection(title: "Voice") {
                 Picker("Voice", selection: $model.selectedVoiceID) {
-                    ForEach(Dictionary(grouping: VoiceCatalog.all, by: \.language).keys.sorted(), id: \.self) { language in
+                    ForEach(groupedLanguages, id: \.self) { language in
                         Section(language) {
                             ForEach(VoiceCatalog.all.filter { $0.language == language }) { voice in
                                 Text("\(voice.name) · \(voice.gender)").tag(voice.id)
@@ -140,13 +165,14 @@ struct StudioView: View {
                 .labelsHidden()
                 .frame(maxWidth: .infinity)
 
-                HStack(spacing: 9) {
-                    VoiceAvatar(voice: model.selectedVoice, size: 42)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(model.selectedVoice.name).font(.subheadline.weight(.semibold))
-                        Text("\(model.selectedVoice.language) • \(model.selectedVoice.provider)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                HStack(spacing: AttenSpacing.xs) {
+                    VoiceAvatar(voice: model.selectedVoice, size: 36)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(model.selectedVoice.name)
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("\(model.selectedVoice.language) · \(model.selectedVoice.gender)")
+                            .font(AttenTypography.caption)
+                            .foregroundStyle(AttenColor.textSecondary)
                     }
                     Spacer()
                     Button {
@@ -162,26 +188,26 @@ struct StudioView: View {
                     .help("Preview \(model.selectedVoice.name)")
                     .accessibilityLabel("Preview \(model.selectedVoice.name)")
                 }
-                .padding(10)
-                .background(AttenColor.forest.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .padding(AttenSpacing.xs)
+                .background(AttenColor.surfaceMuted)
+                .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             }
 
-            DisclosureGroup("Voice settings", isExpanded: $showsAdvanced) {
+            Divider().overlay(AttenColor.separator)
+
+            DisclosureGroup("Output settings", isExpanded: $showsOutputSettings) {
                 VStack(alignment: .leading, spacing: AttenSpacing.md) {
-                    HStack {
-                        Text("Speed")
-                        Spacer()
-                        Text(String(format: "%.2f×", model.speed))
-                            .monospacedDigit()
-                            .foregroundStyle(AttenColor.forest)
-                    }
-                    Slider(value: $model.speed, in: 0.5...2, step: 0.05) {
-                        Text("Speech speed")
-                    } minimumValueLabel: {
-                        Text("0.5×").font(.caption2)
-                    } maximumValueLabel: {
-                        Text("2×").font(.caption2)
+                    VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+                        HStack {
+                            Text("Speed")
+                            Spacer()
+                            Text(String(format: "%.2f×", model.speed))
+                                .monospacedDigit()
+                                .foregroundStyle(AttenColor.accent)
+                        }
+                        Slider(value: $model.speed, in: 0.5...2, step: 0.05) {
+                            Text("Speech speed")
+                        }
                     }
 
                     Picker("Format", selection: $model.format) {
@@ -190,58 +216,60 @@ struct StudioView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .accessibilityHint("Choose MP3 for smaller files or WAV for uncompressed audio")
+
+                    Toggle("Metal acceleration fallback", isOn: $model.settings.useMPS)
+                        .font(AttenTypography.body)
                 }
                 .padding(.top, AttenSpacing.sm)
             }
+            .font(.system(size: 13, weight: .medium))
 
-            Divider()
+            Spacer(minLength: 0)
 
-            if model.isGenerating {
-                Button("Cancel", role: .cancel) { model.cancelGeneration() }
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity)
-                    .keyboardShortcut(.escape, modifiers: [])
-            } else {
-                Button {
-                    model.generate()
-                } label: {
-                    Label("Generate Speech", systemImage: "sparkles")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(AttenPrimaryButtonStyle())
-                .keyboardShortcut(.return, modifiers: [.command])
-                .disabled(model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityHint("Generates speech locally with the selected Kokoro voice")
-            }
+            generationAction
 
-            Text("Generation stays on this Mac. First use may download the Kokoro model.")
-                .font(.caption)
-                .foregroundStyle(AttenColor.secondaryInk)
+            Text("Speech generation stays on this Mac. The first run may download the Kokoro model.")
+                .font(AttenTypography.caption)
+                .foregroundStyle(AttenColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .attenCard(padding: AttenSpacing.lg)
+        .attenSurface(padding: AttenSpacing.md, elevated: true)
     }
 
-    private var generationProgress: some View {
-        HStack(spacing: AttenSpacing.md) {
-            ProgressView()
-                .controlSize(.large)
-                .tint(AttenColor.forest)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Growing your audio…")
-                    .font(.headline)
-                    .foregroundStyle(AttenColor.ink)
-                Text("Kokoro is synthesizing locally. You can cancel at any time.")
-                    .font(.callout)
-                    .foregroundStyle(AttenColor.secondaryInk)
+    @ViewBuilder private var generationAction: some View {
+        if model.isGenerating {
+            VStack(spacing: AttenSpacing.xs) {
+                HStack {
+                    ProgressView().controlSize(.small)
+                    Text("Generating speech…")
+                    Spacer()
+                }
+                .font(AttenTypography.body)
+                .foregroundStyle(AttenColor.textSecondary)
+
+                Button("Cancel Generation", role: .cancel) { model.cancelGeneration() }
+                    .buttonStyle(AttenSecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    .keyboardShortcut(.escape, modifiers: [])
             }
-            Spacer()
-            Button("Cancel") { model.cancelGeneration() }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Generating speech")
+        } else {
+            Button {
+                model.generate()
+            } label: {
+                Label("Generate Speech", systemImage: "waveform")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(AttenPrimaryButtonStyle())
+            .keyboardShortcut(.return, modifiers: [.command])
+            .disabled(model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityHint("Generates speech locally with the selected Kokoro voice")
         }
-        .attenCard()
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Generating speech")
+    }
+
+    private var groupedLanguages: [String] {
+        Array(Set(VoiceCatalog.all.map(\.language))).sorted()
     }
 
     private var wordCount: Int {
@@ -255,55 +283,60 @@ struct PlaybackCard: View {
     @State private var showsDeleteConfirmation = false
 
     var body: some View {
-        HStack(spacing: AttenSpacing.md) {
-            Button {
-                model.togglePlayback(url: url)
-            } label: {
+        HStack(spacing: AttenSpacing.sm) {
+            Button { model.togglePlayback(url: url) } label: {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(AttenColor.sunriseGradient)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color(light: 0xFFFFFF, dark: 0x17111D))
+                    .frame(width: 36, height: 36)
+                    .background(AttenColor.accent)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(model.isPlaying ? "Pause audio" : "Play audio")
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(url.deletingPathExtension().lastPathComponent)
-                    .font(.headline)
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
-                Label("Ready to review", systemImage: "waveform")
-                    .font(.caption)
-                    .foregroundStyle(AttenColor.forest)
+                Text("Ready to review · \(url.pathExtension.uppercased())")
+                    .font(AttenTypography.caption)
+                    .foregroundStyle(AttenColor.textSecondary)
             }
 
-            Spacer()
-            if model.currentProject != nil {
-                Button("Delete", systemImage: "trash", role: .destructive) {
-                    showsDeleteConfirmation = true
+            Spacer(minLength: AttenSpacing.xs)
+
+            Menu {
+                Button("Reveal in Finder", systemImage: "folder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
                 }
-                .help("Delete this project")
+                if model.currentProject != nil {
+                    Divider()
+                    Button("Delete Project…", systemImage: "trash", role: .destructive) {
+                        showsDeleteConfirmation = true
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
-            Button("Reveal", systemImage: "folder") {
-                NSWorkspace.shared.activateFileViewerSelecting([url])
-            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityLabel("Audio actions")
+
             Button("Export…", systemImage: "square.and.arrow.up") {
                 model.exportCurrent()
             }
             .buttonStyle(.borderedProminent)
-            .tint(AttenColor.forest)
+            .tint(AttenColor.accent)
         }
-        .attenCard()
+        .attenSurface(padding: AttenSpacing.sm)
         .confirmationDialog(
             "Delete this project?",
             isPresented: $showsDeleteConfirmation,
             titleVisibility: .visible
         ) {
             if let project = model.currentProject {
-                Button("Delete Project", role: .destructive) {
-                    model.delete(project)
-                }
+                Button("Delete Project", role: .destructive) { model.delete(project) }
                 if !project.isLegacyImport {
                     Button("Delete Project and Audio", role: .destructive) {
                         model.delete(project, includingAudio: true)
@@ -319,26 +352,24 @@ struct PlaybackCard: View {
 
 struct VoiceAvatar: View {
     let voice: Voice
-    var size: CGFloat = 48
+    var size: CGFloat = 40
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(gradient)
-            Image(systemName: voice.gender == "Female" ? "leaf.fill" : "tree.fill")
-                .font(.system(size: size * 0.38, weight: .semibold))
-                .foregroundStyle(.white)
+            Circle().fill(avatarColor.opacity(0.18))
+            Image(systemName: voice.gender == "Female" ? "person.fill" : "person.fill")
+                .font(.system(size: size * 0.40, weight: .medium))
+                .foregroundStyle(avatarColor)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 
-    private var gradient: LinearGradient {
+    private var avatarColor: Color {
         switch voice.languageCode {
-        case "b": LinearGradient(colors: [AttenColor.river, AttenColor.wildflower], startPoint: .top, endPoint: .bottom)
-        case "e", "i", "p": AttenColor.sunriseGradient
-        case "f": LinearGradient(colors: [AttenColor.berry, AttenColor.wildflower], startPoint: .topLeading, endPoint: .bottomTrailing)
-        default: AttenColor.meadowGradient
+        case "b", "f": AttenColor.accentSecondary
+        case "e", "i", "p": AttenColor.warning
+        default: AttenColor.accent
         }
     }
 }
