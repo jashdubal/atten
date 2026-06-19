@@ -49,13 +49,17 @@ struct PlaygroundView: View {
                 detail: "Try a short sample without adding it to Projects."
             )
             Spacer()
-            Label("Temporary", systemImage: "clock")
+            Label("TEMPORARY", systemImage: "clock")
                 .font(AttenTypography.metadata.weight(.medium))
                 .foregroundStyle(AttenColor.accentSecondary)
                 .padding(.horizontal, AttenSpacing.xs)
                 .padding(.vertical, AttenSpacing.xxs)
-                .background(AttenColor.accentSecondary.opacity(0.10))
-                .clipShape(Capsule())
+                .background(AttenColor.surface)
+                .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AttenRadius.control)
+                        .stroke(AttenColor.accent, lineWidth: 1)
+                }
         }
     }
 
@@ -81,7 +85,7 @@ struct PlaygroundView: View {
     private var sampleEditor: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             HStack {
-                Label("Sample text", systemImage: "text.bubble")
+                Label("> SAMPLE_TEXT", systemImage: "text.bubble")
                     .font(AttenTypography.sectionTitle)
                 Spacer()
                 Text("\(sampleText.count)/500")
@@ -135,7 +139,7 @@ struct PlaygroundView: View {
                 HStack(spacing: AttenSpacing.xs) {
                     VoiceAvatar(voice: voice, size: 36)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(voice.name).font(.system(size: 13, weight: .semibold))
+                        Text(voice.name).font(AttenTypography.control.weight(.semibold))
                         Text("\(voice.language) · \(voice.gender)")
                             .font(AttenTypography.caption)
                             .foregroundStyle(AttenColor.textSecondary)
@@ -211,16 +215,16 @@ struct PlaygroundView: View {
         HStack(spacing: AttenSpacing.sm) {
             Button { model.togglePlayback(url: url) } label: {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .foregroundStyle(Color(light: 0xFFFFFF, dark: 0x17111D))
+                    .foregroundStyle(AttenColor.onAccent)
                     .frame(width: 36, height: 36)
                     .background(AttenColor.accent)
-                    .clipShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(model.isPlaying ? "Pause temporary sample" : "Play temporary sample")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(voice.name) sample").font(.system(size: 13, weight: .semibold))
+                Text("\(voice.name) sample").font(AttenTypography.control.weight(.semibold))
                 Text("Temporary · replaced by the next sample")
                     .font(AttenTypography.caption)
                     .foregroundStyle(AttenColor.textSecondary)
@@ -237,8 +241,7 @@ struct PlaygroundView: View {
                 )
                 openStudio()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AttenColor.accent)
+            .buttonStyle(AttenPrimaryButtonStyle())
         }
         .attenSurface(padding: AttenSpacing.sm)
     }

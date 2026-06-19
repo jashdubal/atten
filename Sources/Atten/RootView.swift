@@ -33,13 +33,7 @@ struct RootView: View {
     @SceneStorage("Atten.selectedSection") private var selectionRaw = SidebarItem.studio.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-
-    private var selection: Binding<SidebarItem?> {
-        Binding(
-            get: { SidebarItem(rawValue: selectionRaw) ?? .studio },
-            set: { selectionRaw = ($0 ?? .studio).rawValue }
-        )
-    }
+    @FocusState private var focusedSidebarItem: SidebarItem?
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -54,6 +48,8 @@ struct RootView: View {
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
         .tint(AttenColor.accent)
+        .font(AttenTypography.body)
+        .foregroundStyle(AttenColor.textPrimary)
         .background(WindowTitleHider())
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -93,29 +89,28 @@ struct RootView: View {
                 .padding(.bottom, AttenSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            List(selection: selection) {
-                Section {
-                    ForEach(SidebarItem.allCases) { item in
-                        Label(item.label, systemImage: item.icon)
-                            .font(.system(size: 13, weight: .medium))
-                            .frame(minHeight: 32)
-                            .tag(item)
-                            .listRowInsets(
-                                EdgeInsets(top: 1, leading: 10, bottom: 1, trailing: 10)
-                            )
-                            .accessibilityHint("Open \(item.label)")
+            VStack(spacing: 2) {
+                ForEach(SidebarItem.allCases) { item in
+                    SidebarNavigationRow(
+                        item: item,
+                        isSelected: selectionRaw == item.rawValue
+                    ) {
+                        selectionRaw = item.rawValue
+                        focusedSidebarItem = item
                     }
+                    .focused($focusedSidebarItem, equals: item)
                 }
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
+            .padding(.horizontal, AttenSpacing.xs)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .onMoveCommand(perform: moveSidebarSelection)
 
             Divider()
                 .overlay(AttenColor.separator)
 
             StatusIndicator(
-                title: "Kokoro 82M",
-                detail: model.backendIsAvailable ? "Local backend ready" : "Backend not found",
+                title: "KOKORO_82M",
+                detail: model.backendIsAvailable ? "STATUS: READY" : "STATUS: OFFLINE",
                 isAvailable: model.backendIsAvailable
             )
             .padding(AttenSpacing.md)
@@ -156,6 +151,73 @@ struct RootView: View {
     private func openNewDraft() {
         model.newDraft()
         selectionRaw = SidebarItem.studio.rawValue
+    }
+
+    private func moveSidebarSelection(_ direction: MoveCommandDirection) {
+        guard direction == .up || direction == .down else { return }
+        let items = SidebarItem.allCases
+        let selected = focusedSidebarItem ?? SidebarItem(rawValue: selectionRaw) ?? .studio
+        guard let index = items.firstIndex(of: selected) else { return }
+        let offset = direction == .down ? 1 : -1
+        let nextIndex = min(max(index + offset, items.startIndex), items.index(before: items.endIndex))
+        let next = items[nextIndex]
+        focusedSidebarItem = next
+        selectionRaw = next.rawValue
+    }
+}
+
+private struct SidebarNavigationRow: View {
+    let item: SidebarItem
+    let isSelected: Bool
+    let action: () -> Void
+
+    @Environment(\.isFocused) private var isFocused
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AttenSpacing.sm) {
+                Image(systemName: item.icon)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .frame(width: 18)
+                Text(item.label.uppercased())
+                    .font(AttenTypography.control)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Text(">")
+                        .font(AttenTypography.control.weight(.bold))
+                        .accessibilityHidden(true)
+                }
+            }
+            .foregroundStyle(isSelected ? AttenColor.accentHover : AttenColor.textPrimary)
+            .padding(.horizontal, AttenSpacing.sm)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+            .overlay {
+                RoundedRectangle(cornerRadius: AttenRadius.control)
+                    .stroke(borderColor, lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(item.label)
+        .accessibilityHint("Open \(item.label)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var background: Color {
+        if isSelected { return AttenColor.accent.opacity(0.14) }
+        if isHovering { return AttenColor.surfaceMuted.opacity(0.72) }
+        return .clear
+    }
+
+    private var borderColor: Color {
+        if isFocused { return AttenColor.focus }
+        if isSelected { return AttenColor.accent.opacity(0.55) }
+        return .clear
     }
 }
 

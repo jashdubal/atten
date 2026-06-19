@@ -138,7 +138,7 @@ private struct VoiceRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: AttenSpacing.xs) {
                     Text(voice.name)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(AttenTypography.control.weight(.semibold))
                         .foregroundStyle(AttenColor.textPrimary)
                     if isSelected {
                         Label("Selected", systemImage: "checkmark")
@@ -163,7 +163,7 @@ private struct VoiceRow: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(AttenColor.surfaceMuted)
-                            .clipShape(Capsule())
+                            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
                     }
                 }
             }

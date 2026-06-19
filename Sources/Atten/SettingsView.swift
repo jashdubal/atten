@@ -53,6 +53,8 @@ struct SettingsView: View {
             .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }
         }
         .tint(AttenColor.accent)
+        .font(AttenTypography.body)
+        .foregroundStyle(AttenColor.textPrimary)
         .preferredColorScheme(preferredColorScheme)
         .onChange(of: model.settings) { _, _ in model.applySettings() }
         .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
@@ -212,7 +214,9 @@ private struct SettingsPane<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-                Text(title).font(.system(size: 20, weight: .semibold))
+                Text("> \(title.uppercased())")
+                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(AttenColor.accent)
                 Text(detail)
                     .font(AttenTypography.body)
                     .foregroundStyle(AttenColor.textSecondary)

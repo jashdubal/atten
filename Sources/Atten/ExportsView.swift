@@ -131,7 +131,7 @@ private struct ExportRow: View {
         HStack(spacing: AttenSpacing.sm) {
             Button { model.togglePlayback(url: project.audioURL) } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(AttenTypography.caption.weight(.semibold))
                     .foregroundStyle(AttenColor.accent)
                     .frame(width: 30, height: 30)
                     .background(AttenColor.accent.opacity(0.10))
@@ -148,7 +148,7 @@ private struct ExportRow: View {
                         .onSubmit { commitRename() }
                 } else {
                     Text(project.audioURL.lastPathComponent)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(AttenTypography.control.weight(.semibold))
                         .foregroundStyle(AttenColor.textPrimary)
                         .lineLimit(1)
                 }

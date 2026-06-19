@@ -86,7 +86,7 @@ struct StudioView: View {
     private var editorPane: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             HStack {
-                Label("Script", systemImage: "text.alignleft")
+                Label("> SCRIPT", systemImage: "text.alignleft")
                     .font(AttenTypography.sectionTitle)
                     .foregroundStyle(AttenColor.textPrimary)
                 Spacer()
@@ -97,7 +97,7 @@ struct StudioView: View {
 
             TextField("Project title", text: $model.draftTitle)
                 .textFieldStyle(.plain)
-                .font(.system(size: 16, weight: .semibold))
+                .font(AttenTypography.sectionTitle)
                 .padding(.horizontal, AttenSpacing.sm)
                 .frame(height: 36)
                 .attenInput()
@@ -171,7 +171,7 @@ struct StudioView: View {
                     VoiceAvatar(voice: model.selectedVoice, size: 36)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(model.selectedVoice.name)
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(AttenTypography.control.weight(.semibold))
                         Text("\(model.selectedVoice.language) · \(model.selectedVoice.gender)")
                             .font(AttenTypography.caption)
                             .foregroundStyle(AttenColor.textSecondary)
@@ -224,13 +224,13 @@ struct StudioView: View {
                 }
                 .padding(.top, AttenSpacing.sm)
             }
-            .font(.system(size: 13, weight: .medium))
+            .font(AttenTypography.control)
 
             Spacer(minLength: 0)
 
             generationAction
 
-            Text("Speech generation stays on this Mac. The first run may download the Kokoro model.")
+            Text("Speech generation stays on this Mac and uses the bundled Kokoro model.")
                 .font(AttenTypography.caption)
                 .foregroundStyle(AttenColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -288,18 +288,18 @@ struct PlaybackCard: View {
         HStack(spacing: AttenSpacing.sm) {
             Button { model.togglePlayback(url: url) } label: {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(light: 0xFFFFFF, dark: 0x17111D))
+                    .font(AttenTypography.control.weight(.semibold))
+                    .foregroundStyle(AttenColor.onAccent)
                     .frame(width: 36, height: 36)
                     .background(AttenColor.accent)
-                    .clipShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(model.isPlaying ? "Pause audio" : "Play audio")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(url.deletingPathExtension().lastPathComponent)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(AttenTypography.control.weight(.semibold))
                     .lineLimit(1)
                 Text("Ready to review · \(url.pathExtension.uppercased())")
                     .font(AttenTypography.caption)
@@ -328,8 +328,7 @@ struct PlaybackCard: View {
             Button("Export…", systemImage: "square.and.arrow.up") {
                 model.exportCurrent()
             }
-            .buttonStyle(.borderedProminent)
-            .tint(AttenColor.accent)
+            .buttonStyle(AttenPrimaryButtonStyle())
         }
         .attenSurface(padding: AttenSpacing.sm)
         .confirmationDialog(
@@ -358,9 +357,14 @@ struct VoiceAvatar: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(avatarColor.opacity(0.18))
+            RoundedRectangle(cornerRadius: AttenRadius.small)
+                .fill(AttenColor.surfaceMuted)
+                .overlay {
+                    RoundedRectangle(cornerRadius: AttenRadius.small)
+                        .stroke(avatarColor.opacity(0.7), lineWidth: 1)
+                }
             Image(systemName: voice.gender == "Female" ? "person.fill" : "person.fill")
-                .font(.system(size: size * 0.40, weight: .medium))
+                .font(.system(size: size * 0.40, weight: .medium, design: .monospaced))
                 .foregroundStyle(avatarColor)
         }
         .frame(width: size, height: size)

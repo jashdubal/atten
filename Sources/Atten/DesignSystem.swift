@@ -2,24 +2,24 @@ import AVFoundation
 import SwiftUI
 
 enum AttenColor {
-    // Semantic application layers
-    static let appBackground = Color(light: 0xF2ECEF, dark: 0x17111D)
-    static let sidebar = Color(light: 0xEAE2E8, dark: 0x130F19)
-    static let surface = Color(light: 0xF9F5F3, dark: 0x211827)
-    static let surfaceElevated = Color(light: 0xFFFFFF, dark: 0x2B2031)
-    static let surfaceMuted = Color(light: 0xEEE6ED, dark: 0x2F2436)
-    static let separator = Color(light: 0xD7CAD4, dark: 0x43364A)
+    // Warm paper in Light mode; amber phosphor on near-black in Dark mode.
+    static let appBackground = Color(light: 0xF4EEDC, dark: 0x0C0C0A)
+    static let sidebar = Color(light: 0xE9E0C7, dark: 0x11110E)
+    static let surface = Color(light: 0xFBF5E5, dark: 0x171711)
+    static let surfaceElevated = Color(light: 0xFFF9EA, dark: 0x1D1C15)
+    static let surfaceMuted = Color(light: 0xE5D9BB, dark: 0x242219)
+    static let separator = Color(light: 0xB8AA83, dark: 0x343126)
 
-    // Semantic content and actions
-    static let textPrimary = Color(light: 0x291F2C, dark: 0xF2E9E4)
-    static let textSecondary = Color(light: 0x716475, dark: 0xB9AABD)
-    static let accent = Color(light: 0x317C82, dark: 0x87C9CC)
-    static let accentSecondary = Color(light: 0x9F5F78, dark: 0xC68FA6)
-    static let success = Color(light: 0x3B7F5B, dark: 0x7EB89A)
-    static let warning = Color(light: 0x966A2B, dark: 0xD5AE78)
-    static let destructive = Color(light: 0xAA3E4B, dark: 0xD9828F)
-    static let focus = Color(light: 0x246D73, dark: 0xA0DADD)
-
+    static let textPrimary = Color(light: 0x29251B, dark: 0xF2E7C9)
+    static let textSecondary = Color(light: 0x6F654B, dark: 0xA99C7A)
+    static let accent = Color(light: 0x94620E, dark: 0xE3A94B)
+    static let accentHover = Color(light: 0x754900, dark: 0xF2BF62)
+    static let accentSecondary = accent
+    static let success = Color(light: 0x3E6E4B, dark: 0x8FB996)
+    static let warning = accent
+    static let destructive = Color(light: 0xA7473A, dark: 0xD07163)
+    static let focus = accentHover
+    static let onAccent = Color(light: 0xFFF9EA, dark: 0x0C0C0A)
 }
 
 extension Color {
@@ -55,9 +55,9 @@ enum AttenSpacing {
 }
 
 enum AttenRadius {
-    static let small: CGFloat = 6
-    static let control: CGFloat = 8
-    static let card: CGFloat = 12
+    static let small: CGFloat = 4
+    static let control: CGFloat = 4
+    static let card: CGFloat = 6
 }
 
 enum AttenMotion {
@@ -66,29 +66,17 @@ enum AttenMotion {
 }
 
 enum AttenTypography {
-    static let pageTitle = Font.system(size: 28, weight: .semibold)
-    static let sectionTitle = Font.system(size: 17, weight: .semibold)
-    static let body = Font.system(size: 13)
-    static let metadata = Font.system(size: 12)
-    static let caption = Font.system(size: 11)
+    static let pageTitle = Font.system(size: 24, weight: .semibold, design: .monospaced)
+    static let sectionTitle = Font.system(size: 14, weight: .semibold, design: .monospaced)
+    static let body = Font.system(size: 13, design: .monospaced)
+    static let control = Font.system(size: 13, weight: .medium, design: .monospaced)
+    static let metadata = Font.system(size: 11, design: .monospaced)
+    static let caption = Font.system(size: 11, design: .monospaced)
 }
 
 struct AttenBackdrop: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-
     var body: some View {
-        ZStack {
-            AttenColor.appBackground
-            if !reduceTransparency {
-                RadialGradient(
-                    colors: [AttenColor.accentSecondary.opacity(0.10), .clear],
-                    center: UnitPoint(x: 0.88, y: 0.04),
-                    startRadius: 12,
-                    endRadius: 560
-                )
-            }
-        }
-        .ignoresSafeArea()
+        AttenColor.appBackground.ignoresSafeArea()
     }
 }
 
@@ -100,16 +88,11 @@ struct AttenSurfaceModifier: ViewModifier {
         content
             .padding(padding)
             .background(elevated ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
             .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
-                    .stroke(AttenColor.separator.opacity(0.72), lineWidth: 1)
+                RoundedRectangle(cornerRadius: AttenRadius.card)
+                    .stroke(AttenColor.separator, lineWidth: 1)
             }
-            .shadow(
-                color: Color.black.opacity(elevated ? 0.12 : 0.06),
-                radius: elevated ? 8 : 3,
-                y: elevated ? 3 : 1
-            )
     }
 }
 
@@ -124,46 +107,73 @@ extension View {
 }
 
 struct AttenPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        AttenPrimaryButtonBody(
+            label: AnyView(configuration.label),
+            isPressed: configuration.isPressed
+        )
+    }
+}
+
+private struct AttenPrimaryButtonBody: View {
+    let label: AnyView
+    let isPressed: Bool
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color(light: 0xFFFFFF, dark: 0x17111D))
+    var body: some View {
+        label
+            .font(AttenTypography.control.weight(.semibold))
+            .foregroundStyle(AttenColor.onAccent.opacity(isEnabled ? 1 : 0.55))
             .padding(.horizontal, AttenSpacing.md)
             .frame(minHeight: 40)
-            .background(
-                AttenColor.accent.opacity(
-                    isEnabled ? (configuration.isPressed ? 0.76 : 1) : 0.36
-                )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: AttenMotion.fast),
-                value: configuration.isPressed
-            )
+            .background(fillColor.opacity(isEnabled ? 1 : 0.42))
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+            .scaleEffect(isPressed && !reduceMotion ? 0.99 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: AttenMotion.fast), value: isPressed)
+            .onHover { isHovering = $0 }
+    }
+
+    private var fillColor: Color {
+        if isPressed { return AttenColor.accent.opacity(0.78) }
+        return isHovering ? AttenColor.accentHover : AttenColor.accent
     }
 }
 
 struct AttenSecondaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
+        AttenSecondaryButtonBody(
+            label: AnyView(configuration.label),
+            isPressed: configuration.isPressed
+        )
+    }
+}
+
+private struct AttenSecondaryButtonBody: View {
+    let label: AnyView
+    let isPressed: Bool
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    var body: some View {
+        label
+            .font(AttenTypography.control)
             .foregroundStyle(AttenColor.textPrimary.opacity(isEnabled ? 1 : 0.45))
             .padding(.horizontal, AttenSpacing.sm)
             .frame(minHeight: 34)
-            .background(
-                AttenColor.surfaceMuted.opacity(configuration.isPressed ? 0.70 : 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
-                    .stroke(AttenColor.separator, lineWidth: 1)
+                RoundedRectangle(cornerRadius: AttenRadius.control)
+                    .stroke(isHovering ? AttenColor.accent : AttenColor.separator, lineWidth: 1)
             }
+            .onHover { isHovering = $0 }
+    }
+
+    private var background: Color {
+        if isPressed { return AttenColor.surfaceMuted.opacity(0.72) }
+        return isHovering ? AttenColor.surfaceMuted : AttenColor.surface
     }
 }
 
@@ -178,10 +188,15 @@ struct ToolbarIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
+                .font(AttenTypography.control)
                 .frame(width: 30, height: 30)
-                .background(isHovering ? AttenColor.surfaceMuted : .clear)
+                .foregroundStyle(isHovering ? AttenColor.accentHover : AttenColor.textPrimary)
+                .background(isHovering ? AttenColor.surfaceMuted : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AttenRadius.small)
+                        .stroke(isHovering ? AttenColor.separator : Color.clear, lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -198,18 +213,22 @@ struct AttenLogo: View {
     var body: some View {
         HStack(spacing: AttenSpacing.xs) {
             ZStack {
-                RoundedRectangle(cornerRadius: compact ? 6 : 8, style: .continuous)
-                    .fill(AttenColor.accentSecondary)
+                RoundedRectangle(cornerRadius: AttenRadius.small)
+                    .fill(AttenColor.appBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AttenRadius.small)
+                            .stroke(AttenColor.accent, lineWidth: 1)
+                    }
                 Image(systemName: "waveform")
-                    .font(.system(size: compact ? 12 : 15, weight: .semibold))
-                    .foregroundStyle(AttenColor.appBackground)
+                    .font(.system(size: compact ? 12 : 15, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(AttenColor.accent)
             }
             .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
             .accessibilityHidden(true)
 
             if !compact {
-                Text("Atten")
-                    .font(.system(size: 19, weight: .semibold))
+                Text("ATTEN_")
+                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
                     .foregroundStyle(AttenColor.textPrimary)
             }
         }
@@ -225,10 +244,10 @@ struct PageHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-            Text(eyebrow.uppercased())
+            Text("> \(eyebrow.uppercased())")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .tracking(1.1)
-                .foregroundStyle(AttenColor.accentSecondary)
+                .tracking(0.8)
+                .foregroundStyle(AttenColor.accent)
             Text(title)
                 .font(AttenTypography.pageTitle)
                 .foregroundStyle(AttenColor.textPrimary)
@@ -251,9 +270,9 @@ struct InspectorSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-            Text(title)
+            Text("> \(title.uppercased())")
                 .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.textPrimary)
+                .foregroundStyle(AttenColor.accent)
             content
         }
     }
@@ -296,11 +315,11 @@ struct StatusBanner: View {
         }
         .padding(.horizontal, AttenSpacing.sm)
         .frame(minHeight: 38)
-        .background(color.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+        .background(AttenColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
         .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
-                .stroke(color.opacity(0.28), lineWidth: 1)
+            RoundedRectangle(cornerRadius: AttenRadius.control)
+                .stroke(color, lineWidth: 1)
         }
     }
 }
@@ -316,7 +335,7 @@ struct StatusIndicator: View {
                 .fill(isAvailable ? AttenColor.success : AttenColor.destructive)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(AttenTypography.metadata.weight(.semibold))
+                Text(title.uppercased()).font(AttenTypography.metadata.weight(.semibold))
                 Text(detail)
                     .font(AttenTypography.caption)
                     .foregroundStyle(AttenColor.textSecondary)
@@ -374,7 +393,7 @@ private struct AttenInputModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             .overlay {
                 RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     .stroke(AttenColor.separator, lineWidth: 1)
@@ -384,6 +403,11 @@ private struct AttenInputModifier: ViewModifier {
 
 extension View {
     func attenInput() -> some View { modifier(AttenInputModifier()) }
+
+    func attenContentTypography() -> some View {
+        font(AttenTypography.body)
+            .foregroundStyle(AttenColor.textPrimary)
+    }
 }
 
 struct AudioFileMetadata: Equatable {
