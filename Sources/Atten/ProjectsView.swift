@@ -90,7 +90,7 @@ struct ProjectsView: View {
                     Text("Project").frame(maxWidth: .infinity, alignment: .leading)
                     Text("Voice").frame(width: 120, alignment: .leading)
                     Text("Updated").frame(width: 135, alignment: .leading)
-                    Text("Format").frame(width: 62, alignment: .leading)
+                    Text("Details").frame(width: 100, alignment: .leading)
                     Color.clear.frame(width: 70)
                 }
                 .font(AttenTypography.caption.weight(.semibold))
@@ -164,6 +164,10 @@ private struct ProjectRow: View {
         model.isPlaying && model.activeAudioURL == project.audioURL
     }
 
+    private var metadata: AudioFileMetadata {
+        AudioFileMetadata(url: project.audioURL)
+    }
+
     var body: some View {
         HStack(spacing: AttenSpacing.sm) {
             Button { model.togglePlayback(url: project.audioURL) } label: {
@@ -201,7 +205,7 @@ private struct ProjectRow: View {
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
                 if !isWide {
-                    Text("\(voice.name) · \(project.format.displayName) · \(project.updatedAt.formatted(date: .abbreviated, time: .omitted))")
+                    Text("\(voice.name) · \(project.format.displayName) · \(metadata.durationText) · \(project.updatedAt.formatted(date: .abbreviated, time: .omitted))")
                         .font(AttenTypography.caption)
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
@@ -214,8 +218,8 @@ private struct ProjectRow: View {
                     .frame(width: 120, alignment: .leading)
                 Text(project.updatedAt.formatted(date: .abbreviated, time: .shortened))
                     .frame(width: 135, alignment: .leading)
-                Text(project.format.displayName)
-                    .frame(width: 62, alignment: .leading)
+                Text("\(project.format.displayName) · \(metadata.durationText)")
+                    .frame(width: 100, alignment: .leading)
             }
 
             Menu { actionMenu } label: {

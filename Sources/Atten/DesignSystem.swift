@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 enum AttenColor {
@@ -418,4 +419,36 @@ private struct AttenInputModifier: ViewModifier {
 extension View {
     func attenInput() -> some View { modifier(AttenInputModifier()) }
     func pixelInput() -> some View { attenInput() }
+}
+
+struct AudioFileMetadata: Equatable {
+    let byteCount: Int64?
+    let creationDate: Date?
+    let duration: TimeInterval?
+
+    init(url: URL) {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey])
+        byteCount = values?.fileSize.map(Int64.init)
+        creationDate = values?.creationDate
+
+        if let file = try? AVAudioFile(forReading: url), file.fileFormat.sampleRate > 0 {
+            duration = Double(file.length) / file.fileFormat.sampleRate
+        } else {
+            duration = nil
+        }
+    }
+
+    var sizeText: String {
+        guard let byteCount else { return "Unknown" }
+        return ByteCountFormatter.string(fromByteCount: byteCount, countStyle: .file)
+    }
+
+    var durationText: String {
+        guard let duration, duration.isFinite else { return "—" }
+        let seconds = max(0, Int(duration.rounded()))
+        if seconds >= 3_600 {
+            return String(format: "%d:%02d:%02d", seconds / 3_600, (seconds / 60) % 60, seconds % 60)
+        }
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
 }
