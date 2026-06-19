@@ -61,7 +61,8 @@ struct PlaygroundView: View {
 
     @ViewBuilder private func workspace(width: CGFloat, height: CGFloat) -> some View {
         let workspaceHeight = max(410, height - 205)
-        if width >= 760 {
+        let contentWidth = width - (width < 700 ? 48 : 64)
+        if contentWidth >= 760 {
             HSplitView {
                 sampleEditor
                     .frame(minWidth: 440, maxWidth: .infinity, minHeight: workspaceHeight)

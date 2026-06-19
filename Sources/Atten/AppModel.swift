@@ -25,6 +25,7 @@ final class AppModel {
     var generationState: GenerationState = .idle
     var successMessage: String?
     var isPlaying = false
+    private(set) var activeAudioURL: URL?
     var startupError: String?
     var voicePreviewID: String?
     var playgroundState: GenerationState = .idle
@@ -82,8 +83,6 @@ final class AppModel {
         if case let .ready(url) = playgroundState { return url }
         return nil
     }
-
-    var activeAudioURL: URL? { audioPlayer?.url }
 
     var currentProject: ProjectRecord? {
         guard let currentAudioURL else { return nil }
@@ -498,8 +497,10 @@ final class AppModel {
             audioPlayer?.delegate = delegate
             audioPlayer?.prepareToPlay()
             audioPlayer?.play()
+            activeAudioURL = url
             isPlaying = true
         } catch {
+            activeAudioURL = nil
             isPlaying = false
             let message = "Audio playback failed: \(error.localizedDescription)"
             if url.path.hasPrefix(playgroundDirectory.path) {
@@ -513,6 +514,7 @@ final class AppModel {
     private func stopPlayback() {
         audioPlayer?.stop()
         audioPlayer = nil
+        activeAudioURL = nil
         isPlaying = false
     }
 

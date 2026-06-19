@@ -63,11 +63,17 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
         XCTAssertTrue(audioURL.path.contains("/Atten/Playground/"))
         XCTAssertTrue(fixture.model.projects.isEmpty)
+        XCTAssertEqual(fixture.model.activeAudioURL, audioURL)
+
+        let metadata = AudioFileMetadata(url: audioURL)
+        XCTAssertGreaterThan(metadata.byteCount ?? 0, 0)
+        XCTAssertEqual(metadata.duration ?? 0, 0.1, accuracy: 0.01)
 
         fixture.model.clearPlaygroundSample()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
         XCTAssertNil(fixture.model.playgroundAudioURL)
+        XCTAssertNil(fixture.model.activeAudioURL)
     }
 
     func testProjectDeletionCanKeepOrRemoveAudio() throws {

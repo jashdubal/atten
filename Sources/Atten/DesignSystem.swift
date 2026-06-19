@@ -20,32 +20,6 @@ enum AttenColor {
     static let destructive = Color(light: 0xAA3E4B, dark: 0xD9828F)
     static let focus = Color(light: 0x246D73, dark: 0xA0DADD)
 
-    // Compatibility names used while feature views migrate to semantic tokens.
-    static let forest = accent
-    static let moss = accentSecondary
-    static let river = accent
-    static let sunlight = warning
-    static let berry = destructive
-    static let wildflower = accentSecondary
-    static let parchment = appBackground
-    static let wood = textSecondary
-    static let ink = textPrimary
-    static let secondaryInk = textSecondary
-    static let surfaceRaised = surfaceElevated
-    static let divider = separator
-    static let soil = sidebar
-    static let sky = surfaceMuted
-
-    static let meadowGradient = LinearGradient(
-        colors: [accentSecondary, accent],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-    static let sunriseGradient = LinearGradient(
-        colors: [accentSecondary, warning],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
 }
 
 extension Color {
@@ -118,9 +92,6 @@ struct AttenBackdrop: View {
     }
 }
 
-// Kept as a compatibility wrapper for feature views migrated in later commits.
-typealias ForestBackdrop = AttenBackdrop
-
 struct AttenSurfaceModifier: ViewModifier {
     var padding: CGFloat
     var elevated: Bool
@@ -150,9 +121,6 @@ extension View {
         modifier(AttenSurfaceModifier(padding: padding, elevated: elevated))
     }
 
-    func attenCard(padding: CGFloat = AttenSpacing.md) -> some View {
-        attenSurface(padding: padding)
-    }
 }
 
 struct AttenPrimaryButtonStyle: ButtonStyle {
@@ -271,8 +239,6 @@ struct PageHeader: View {
         }
     }
 }
-
-typealias SectionHeader = PageHeader
 
 struct InspectorSection<Content: View>: View {
     let title: String
@@ -418,7 +384,6 @@ private struct AttenInputModifier: ViewModifier {
 
 extension View {
     func attenInput() -> some View { modifier(AttenInputModifier()) }
-    func pixelInput() -> some View { attenInput() }
 }
 
 struct AudioFileMetadata: Equatable {

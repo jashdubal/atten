@@ -12,6 +12,7 @@ struct ProjectsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AttenSpacing.lg) {
                     header
+                    statusArea
 
                     if filteredProjects.isEmpty {
                         emptyState
@@ -81,6 +82,15 @@ struct ProjectsView: View {
             }
         }
         .attenSurface()
+    }
+
+    @ViewBuilder private var statusArea: some View {
+        if let success = model.successMessage {
+            StatusBanner(kind: .success, message: success, dismiss: model.dismissStatus)
+        }
+        if case let .failed(message) = model.generationState {
+            StatusBanner(kind: .error, message: message, dismiss: model.dismissStatus)
+        }
     }
 
     private func projectList(isWide: Bool) -> some View {

@@ -53,10 +53,19 @@ struct SettingsView: View {
             .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }
         }
         .tint(AttenColor.accent)
+        .preferredColorScheme(preferredColorScheme)
         .onChange(of: model.settings) { _, _ in model.applySettings() }
         .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
         .onChange(of: model.speed) { _, _ in model.applySettings() }
         .onChange(of: model.format) { _, _ in model.applySettings() }
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch model.settings.appearance {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
     }
 
     private var providerForm: some View {
@@ -225,7 +234,7 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent(action) {
             Text(keys)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(AttenColor.textSecondary)
                 .padding(.horizontal, AttenSpacing.xs)
                 .padding(.vertical, AttenSpacing.xxs)

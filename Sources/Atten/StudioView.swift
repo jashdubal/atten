@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct StudioView: View {
     @Bindable var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showsOutputSettings = true
     @State private var isDropTargeted = false
 
@@ -27,7 +28,7 @@ struct StudioView: View {
             }
         }
         .animation(
-            .easeInOut(duration: AttenMotion.standard),
+            reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard),
             value: model.currentAudioURL
         )
         .onChange(of: model.selectedVoiceID) { _, _ in model.applySettings() }
@@ -64,7 +65,8 @@ struct StudioView: View {
 
     @ViewBuilder private func workspace(width: CGFloat, height: CGFloat) -> some View {
         let workspaceHeight = max(430, height - 205)
-        if width >= 760 {
+        let contentWidth = width - (width < 700 ? 48 : 64)
+        if contentWidth >= 760 {
             HSplitView {
                 editorPane
                     .frame(minWidth: 440, maxWidth: .infinity, minHeight: workspaceHeight)

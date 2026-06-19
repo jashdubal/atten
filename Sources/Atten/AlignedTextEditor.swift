@@ -17,7 +17,7 @@ struct AlignedTextEditor: NSViewRepresentable {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        scrollView.focusRingType = .none
+        scrollView.focusRingType = .exterior
 
         let textView = NSTextView()
         textView.delegate = context.coordinator

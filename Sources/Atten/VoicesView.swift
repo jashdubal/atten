@@ -13,6 +13,7 @@ struct VoicesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: AttenSpacing.lg) {
                     header
+                    statusArea
                     filters
 
                     if filteredVoices.isEmpty {
@@ -93,6 +94,15 @@ struct VoicesView: View {
         }
     }
 
+    @ViewBuilder private var statusArea: some View {
+        if let success = model.successMessage {
+            StatusBanner(kind: .success, message: success, dismiss: model.dismissStatus)
+        }
+        if case let .failed(message) = model.generationState {
+            StatusBanner(kind: .error, message: message, dismiss: model.dismissStatus)
+        }
+    }
+
     private var languages: [String] {
         Array(Set(VoiceCatalog.all.map(\.language))).sorted()
     }
@@ -144,7 +154,7 @@ private struct VoiceRow: View {
             }
             .frame(minWidth: 150, alignment: .leading)
 
-            if availableWidth >= 720 {
+            if availableWidth >= 820 {
                 HStack(spacing: AttenSpacing.xs) {
                     ForEach(voice.traits.prefix(2), id: \.self) { trait in
                         Text(trait.capitalized)
@@ -162,9 +172,9 @@ private struct VoiceRow: View {
 
             Button(action: preview) {
                 if isPreviewing {
-                    ProgressView().controlSize(.small).frame(width: 26, height: 26)
+                    ProgressView().controlSize(.small).frame(width: 30, height: 30)
                 } else {
-                    Image(systemName: "play.fill").frame(width: 26, height: 26)
+                    Image(systemName: "play.fill").frame(width: 30, height: 30)
                 }
             }
             .buttonStyle(.borderless)
@@ -177,7 +187,7 @@ private struct VoiceRow: View {
                     .foregroundStyle(
                         isFavorite ? AttenColor.accentSecondary : AttenColor.textSecondary
                     )
-                    .frame(width: 26, height: 26)
+                    .frame(width: 30, height: 30)
             }
             .buttonStyle(.borderless)
             .help(isFavorite ? "Remove from favorites" : "Add to favorites")

@@ -16,14 +16,20 @@ mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$ICONSET"
 cp "$ROOT/.build/release/Atten" "$CONTENTS/MacOS/Atten"
 cp "$ROOT/macOS/Info.plist" "$CONTENTS/Info.plist"
 
-sips -s format png "$ICON_SOURCE" --out "$ROOT/.build/atten-icon.png" >/dev/null
+ICON_PNG="$ROOT/.build/atten-icon.png"
+if ! sips -s format png "$ICON_SOURCE" --out "$ICON_PNG" >/dev/null 2>&1; then
+    # Newer macOS releases can identify SVGs with sips but fail to rasterize
+    # them. Quick Look provides the system SVG renderer used by Finder.
+    qlmanage -t -s 1024 -o "$ROOT/.build" "$ICON_SOURCE" >/dev/null
+    mv "$ROOT/.build/$(basename "$ICON_SOURCE").png" "$ICON_PNG"
+fi
 for size in 16 32 128 256 512; do
-    sips -z "$size" "$size" "$ROOT/.build/atten-icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z "$size" "$size" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
     double=$((size * 2))
-    sips -z "$double" "$double" "$ROOT/.build/atten-icon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+    sips -z "$double" "$double" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/AttenIcon.icns"
-rm -rf "$ICONSET" "$ROOT/.build/atten-icon.png"
+rm -rf "$ICONSET" "$ICON_PNG"
 
 codesign --force --deep --sign - "$APP" >/dev/null
 echo "Built $APP"
