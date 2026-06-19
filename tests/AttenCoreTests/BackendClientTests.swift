@@ -113,4 +113,63 @@ final class BackendClientTests: XCTestCase {
 
         XCTAssertEqual(command, BackendCommand(executable: python, arguments: []))
     }
+
+    func testBundledBackendTakesPrecedenceAndRunsDirectly() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let helper = directory.appendingPathComponent(
+            "Atten.app/Contents/Helpers/atten-backend/atten-backend"
+        )
+        let modelRoot = directory.appendingPathComponent(
+            "Atten.app/Contents/Resources/Models/Kokoro-82M",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: helper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: modelRoot.appendingPathComponent("voices"),
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\n".utf8).write(to: helper)
+        try Data().write(to: modelRoot.appendingPathComponent("config.json"))
+        try Data().write(to: modelRoot.appendingPathComponent("kokoro-v1_0.pth"))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: helper.path
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let installation = BackendLocator.locateInstallation(
+            environment: ["ATTEN_BACKEND_ROOT": "/not/used"],
+            currentDirectory: URL(fileURLWithPath: "/"),
+            bundleURL: directory.appendingPathComponent("Atten.app")
+        )
+
+        XCTAssertEqual(installation, .bundled(helper: helper, modelRoot: modelRoot))
+        XCTAssertEqual(
+            installation.map { BackendRuntime.command(for: $0, environment: [:]) },
+            BackendCommand(executable: helper, arguments: [])
+        )
+    }
+
+    func testBundledBackendEnvironmentIsOfflineAndSelfContained() {
+        let installation = BackendInstallation.bundled(
+            helper: URL(fileURLWithPath: "/Atten.app/Contents/Helpers/atten-backend/atten-backend"),
+            modelRoot: URL(fileURLWithPath: "/Atten.app/Contents/Resources/Models/Kokoro-82M")
+        )
+
+        let environment = BackendRuntime.environment(
+            for: installation,
+            inheriting: ["PATH": "/user/bin", "HOME": "/Users/example"]
+        )
+
+        XCTAssertEqual(environment["ATTEN_MODEL_ROOT"], "/Atten.app/Contents/Resources/Models/Kokoro-82M")
+        XCTAssertEqual(environment["HF_HUB_OFFLINE"], "1")
+        XCTAssertEqual(environment["PYTHONNOUSERSITE"], "1")
+        XCTAssertEqual(environment["PYTHONDONTWRITEBYTECODE"], "1")
+        XCTAssertEqual(environment["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
+        XCTAssertEqual(environment["HOME"], "/Users/example")
+    }
 }

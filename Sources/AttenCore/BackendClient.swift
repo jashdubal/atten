@@ -10,7 +10,7 @@ public enum BackendError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .backendNotFound:
-            "Atten could not find cli.py. Set ATTEN_BACKEND_ROOT to the repository path."
+            "Atten could not find its bundled speech engine or a development backend."
         case let .invalidRequest(message), let .processFailed(message):
             message
         case .malformedResponse:
@@ -27,25 +27,35 @@ public protocol TTSGenerating: Sendable {
 }
 
 public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
-    private let backendRoot: URL?
+    private let installation: BackendInstallation?
     private let environment: [String: String]
     private let lock = NSLock()
     private var process: Process?
     private var cancellationRequested = false
 
     public init(
-        backendRoot: URL? = BackendLocator.locate(),
+        installation: BackendInstallation? = BackendLocator.locateInstallation(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) {
-        self.backendRoot = backendRoot
+        self.installation = installation
         self.environment = environment
+    }
+
+    public convenience init(
+        backendRoot: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        self.init(
+            installation: backendRoot.map { .development(root: $0) },
+            environment: environment
+        )
     }
 
     public func generate(_ request: GenerationRequest) async throws -> GenerationOutput {
         guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BackendError.invalidRequest("Enter some text before generating speech.")
         }
-        guard let backendRoot else { throw BackendError.backendNotFound }
+        guard let installation else { throw BackendError.backendNotFound }
 
         let inputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("atten-input-\(UUID().uuidString).txt")
@@ -54,14 +64,17 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
 
         let child = Process()
         let outputPipe = Pipe()
-        let command = BackendRuntime.command(backendRoot: backendRoot, environment: environment)
+        let command = BackendRuntime.command(for: installation, environment: environment)
         child.executableURL = command.executable
-        child.currentDirectoryURL = backendRoot
+        child.currentDirectoryURL = installation.workingDirectory
         child.standardOutput = outputPipe
         child.standardError = outputPipe
-        child.environment = environment.merging(["PYTHONUNBUFFERED": "1"]) { _, new in new }
+        child.environment = BackendRuntime.environment(
+            for: installation,
+            inheriting: environment
+        )
 
-        var arguments = command.arguments + ["cli.py"]
+        var arguments = command.arguments + installation.entrypointArguments
         arguments += [
             "--source", inputURL.path,
             "--voice", request.voiceID,
@@ -168,7 +181,56 @@ public struct BackendCommand: Equatable, Sendable {
     public let arguments: [String]
 }
 
+public enum BackendInstallation: Equatable, Sendable {
+    case bundled(helper: URL, modelRoot: URL)
+    case development(root: URL)
+
+    public var root: URL {
+        switch self {
+        case let .bundled(helper, _): helper.deletingLastPathComponent()
+        case let .development(root): root
+        }
+    }
+
+    var workingDirectory: URL { root }
+
+    var entrypointArguments: [String] {
+        switch self {
+        case .bundled: []
+        case .development: ["cli.py"]
+        }
+    }
+}
+
 public enum BackendRuntime {
+    public static func command(
+        for installation: BackendInstallation,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> BackendCommand {
+        switch installation {
+        case let .bundled(helper, _):
+            BackendCommand(executable: helper, arguments: [])
+        case let .development(root):
+            command(backendRoot: root, environment: environment)
+        }
+    }
+
+    public static func environment(
+        for installation: BackendInstallation,
+        inheriting base: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var values = base
+        values["PYTHONUNBUFFERED"] = "1"
+        guard case let .bundled(_, modelRoot) = installation else { return values }
+
+        values["ATTEN_MODEL_ROOT"] = modelRoot.path
+        values["HF_HUB_OFFLINE"] = "1"
+        values["PYTHONNOUSERSITE"] = "1"
+        values["PYTHONDONTWRITEBYTECODE"] = "1"
+        values["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        return values
+    }
+
     public static func command(
         backendRoot: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -262,20 +324,25 @@ public struct RetryingBackendClient: TTSGenerating {
 }
 
 public enum BackendLocator {
-    public static func locate(
+    public static func locateInstallation(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        currentDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    ) -> URL? {
+        currentDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        bundleURL: URL? = Bundle.main.bundleURL
+    ) -> BackendInstallation? {
+        if let bundleURL, let bundled = bundledInstallation(in: bundleURL) {
+            return bundled
+        }
+
         if let override = environment["ATTEN_BACKEND_ROOT"] {
             let url = URL(fileURLWithPath: override)
-            if containsBackend(url) { return url }
+            if containsBackend(url) { return .development(root: url) }
         }
-        if containsBackend(currentDirectory) { return currentDirectory }
+        if containsBackend(currentDirectory) { return .development(root: currentDirectory) }
 
         var candidate = Bundle.main.executableURL?.deletingLastPathComponent()
         for _ in 0..<8 {
             guard let url = candidate else { break }
-            if containsBackend(url) { return url }
+            if containsBackend(url) { return .development(root: url) }
             candidate = url.deletingLastPathComponent()
         }
 
@@ -283,7 +350,35 @@ public enum BackendLocator {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return containsBackend(sourceRoot) ? sourceRoot : nil
+        return containsBackend(sourceRoot) ? .development(root: sourceRoot) : nil
+    }
+
+    public static func locate(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    ) -> URL? {
+        locateInstallation(
+            environment: environment,
+            currentDirectory: currentDirectory
+        )?.root
+    }
+
+    private static func bundledInstallation(in bundleURL: URL) -> BackendInstallation? {
+        let contents = bundleURL.appendingPathComponent("Contents", isDirectory: true)
+        let helper = contents
+            .appendingPathComponent("Helpers/atten-backend", isDirectory: true)
+            .appendingPathComponent("atten-backend")
+        let modelRoot = contents
+            .appendingPathComponent("Resources/Models/Kokoro-82M", isDirectory: true)
+        let hasModel = FileManager.default.fileExists(
+            atPath: modelRoot.appendingPathComponent("config.json").path
+        ) && FileManager.default.fileExists(
+            atPath: modelRoot.appendingPathComponent("kokoro-v1_0.pth").path
+        ) && FileManager.default.fileExists(
+            atPath: modelRoot.appendingPathComponent("voices", isDirectory: true).path
+        )
+        guard FileManager.default.isExecutableFile(atPath: helper.path), hasModel else { return nil }
+        return .bundled(helper: helper, modelRoot: modelRoot)
     }
 
     private static func containsBackend(_ url: URL) -> Bool {

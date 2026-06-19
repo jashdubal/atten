@@ -89,7 +89,7 @@ final class AppModel {
         return projects.first { $0.audioPath == currentAudioURL.path }
     }
 
-    var backendIsAvailable: Bool { BackendLocator.locate() != nil }
+    var backendIsAvailable: Bool { BackendLocator.locateInstallation() != nil }
 
     func start() async {
         guard !hasStarted else { return }
@@ -98,7 +98,7 @@ final class AppModel {
             try directories.prepare()
             try? resetPlaygroundDirectory()
             var loaded = try await repository.load()
-            if let backendRoot = BackendLocator.locate() {
+            if case let .development(backendRoot)? = BackendLocator.locateInstallation() {
                 let legacyDirectory = backendRoot.appendingPathComponent("outputs", isDirectory: true)
                 let imported = LegacyOutputImporter.discover(in: legacyDirectory, excluding: loaded)
                 if !imported.isEmpty {

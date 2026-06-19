@@ -3,8 +3,13 @@ name = "atten-tts"
 version = "0.2.0"
 description = "Atten's backward-compatible offline Kokoro speech backend"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12,<3.13"
 dependencies = [
-    "kokoro>=0.7.16",
-    "soundfile>=0.13.1",
+    "kokoro==0.9.4",
+    "soundfile==0.13.1",
+]
+
+[dependency-groups]
+release = [
+    "pyinstaller==6.14.2",
 ]

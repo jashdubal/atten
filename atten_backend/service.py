@@ -31,17 +31,48 @@ class GenerationResult:
 class KokoroProvider:
     """Lazily creates one Kokoro pipeline per requested language."""
 
-    def __init__(self):
+    def __init__(self, model_root=None):
         self._pipelines = {}
+        configured_root = model_root or os.environ.get("ATTEN_MODEL_ROOT")
+        self._model_root = Path(configured_root).resolve() if configured_root else None
+        self._model = None
+        if self._model_root:
+            required = [
+                self._model_root / "config.json",
+                self._model_root / "kokoro-v1_0.pth",
+                self._model_root / "voices",
+            ]
+            missing = [str(path) for path in required if not path.exists()]
+            if missing:
+                raise RuntimeError(
+                    "Bundled Kokoro model is incomplete; missing: " + ", ".join(missing)
+                )
 
     def segments(self, text, voice, speed):
         language_code = voice_for_id(voice)["language_code"]
         if language_code not in self._pipelines:
-            from kokoro import KPipeline
+            from kokoro import KModel, KPipeline
 
-            self._pipelines[language_code] = KPipeline(lang_code=language_code)
+            if self._model_root:
+                if self._model is None:
+                    self._model = KModel(
+                        config=str(self._model_root / "config.json"),
+                        model=str(self._model_root / "kokoro-v1_0.pth"),
+                    ).eval()
+                self._pipelines[language_code] = KPipeline(
+                    lang_code=language_code, model=self._model
+                )
+            else:
+                self._pipelines[language_code] = KPipeline(lang_code=language_code)
+
+        voice_reference = voice
+        if self._model_root:
+            voice_path = self._model_root / "voices" / f"{voice}.pt"
+            if not voice_path.is_file():
+                raise RuntimeError(f"Bundled Kokoro voice is missing: {voice}.pt")
+            voice_reference = str(voice_path)
         return self._pipelines[language_code](
-            text, voice=voice, speed=speed, split_pattern=r"\n+"
+            text, voice=voice_reference, speed=speed, split_pattern=r"\n+"
         )
 
 

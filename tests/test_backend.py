@@ -1,10 +1,12 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import types
 import unittest
+from unittest.mock import patch
 
 import cli
-from atten_backend.service import GenerationRequest, GenerationService
+from atten_backend.service import GenerationRequest, GenerationService, KokoroProvider
 
 
 class FakeProvider:
@@ -74,6 +76,48 @@ class GenerationServiceTests(unittest.TestCase):
                     GenerationRequest(text="Hello", output_directory=Path(directory))
                 )
             self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_bundled_provider_uses_explicit_model_and_voice_paths(self):
+        with TemporaryDirectory() as directory:
+            model_root = Path(directory)
+            (model_root / "voices").mkdir()
+            (model_root / "config.json").write_text("{}", encoding="utf-8")
+            (model_root / "kokoro-v1_0.pth").write_bytes(b"model")
+            (model_root / "voices" / "af_heart.pt").write_bytes(b"voice")
+            calls = {}
+
+            class FakeModel:
+                def __init__(self, config, model):
+                    calls["config"] = config
+                    calls["model"] = model
+
+                def eval(self):
+                    return self
+
+            class FakePipeline:
+                def __init__(self, lang_code, model):
+                    calls["language"] = lang_code
+                    calls["pipeline_model"] = model
+
+                def __call__(self, text, voice, speed, split_pattern):
+                    calls["voice"] = voice
+                    return [(text, "phonemes", [0.1])]
+
+            fake_kokoro = types.SimpleNamespace(KModel=FakeModel, KPipeline=FakePipeline)
+            with patch.dict("sys.modules", {"kokoro": fake_kokoro}):
+                provider = KokoroProvider(model_root=model_root)
+                segments = list(provider.segments("hello", "af_heart", 1.0))
+
+            self.assertEqual(len(segments), 1)
+            resolved_root = model_root.resolve()
+            self.assertEqual(calls["config"], str(resolved_root / "config.json"))
+            self.assertEqual(calls["model"], str(resolved_root / "kokoro-v1_0.pth"))
+            self.assertEqual(calls["voice"], str(resolved_root / "voices" / "af_heart.pt"))
+
+    def test_bundled_provider_rejects_incomplete_model(self):
+        with TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+                KokoroProvider(model_root=directory)
 
     def test_existing_export_is_never_overwritten(self):
         with TemporaryDirectory() as directory:
