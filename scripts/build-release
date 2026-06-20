@@ -86,6 +86,14 @@ cp "$ROOT/macOS/Info.plist" "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-1}" "$CONTENTS/Info.plist"
 cp -R "$PYINSTALLER_DIST/atten-backend" "$CONTENTS/Resources/Backend/atten-backend"
 
+# PyInstaller rewrites Mach-O binaries while collecting them. Its rewrite of
+# espeakng-loader's library breaks the explicit runtime data path and makes the
+# library fall back to the build machine's compiled-in path. Restore the
+# original wheel binary here; the signing pass below signs it in place.
+cp \
+    "$PYTHON_ENV/lib/python3.12/site-packages/espeakng_loader/libespeak-ng.dylib" \
+    "$CONTENTS/Resources/Backend/atten-backend/_internal/espeakng_loader/libespeak-ng.dylib"
+
 ICON_SOURCE="$ROOT/Sources/Atten/Resources/AttenIcon.svg"
 ICONSET="$BUILD_ROOT/Atten.iconset"
 ICON_PNG="$BUILD_ROOT/atten-icon.png"
@@ -163,6 +171,7 @@ fi
 
 test "$(find "$MODEL_DESTINATION/voices" -type f -name '*.pt' | wc -l | tr -d ' ')" -eq 37
 "$CONTENTS/Resources/Backend/atten-backend/atten-backend" --list-voices --json >/dev/null
+"$ROOT/scripts/smoke-packaged-backend" --quick "$APP"
 
 if [[ "${RUN_SYNTHESIS_SMOKE:-0}" == "1" ]]; then
     "$ROOT/scripts/smoke-packaged-backend" "$APP"

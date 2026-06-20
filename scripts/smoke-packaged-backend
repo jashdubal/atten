@@ -2,8 +2,14 @@
 
 set -euo pipefail
 
+quick=0
+if [[ "${1:-}" == "--quick" ]]; then
+    quick=1
+    shift
+fi
+
 if [[ $# -ne 1 ]]; then
-    echo "Usage: scripts/smoke-packaged-backend /path/to/Atten.app" >&2
+    echo "Usage: scripts/smoke-packaged-backend [--quick] /path/to/Atten.app" >&2
     exit 2
 fi
 
@@ -23,9 +29,16 @@ texts=(
     "Atten e pronto."
     "Atten esta pronto."
 )
+formats=(wav mp3)
+
+if [[ "$quick" -eq 1 ]]; then
+    voices=(af_heart)
+    texts=("Atten is ready.")
+    formats=(wav)
+fi
 
 for index in "${!voices[@]}"; do
-    for format in wav mp3; do
+    for format in "${formats[@]}"; do
         /usr/bin/env -i \
             HOME="$WORK/home" \
             PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
@@ -43,4 +56,8 @@ for index in "${!voices[@]}"; do
     done
 done
 
-echo "Packaged offline synthesis passed for all supported languages and formats."
+if [[ "$quick" -eq 1 ]]; then
+    echo "Packaged offline synthesis passed."
+else
+    echo "Packaged offline synthesis passed for all supported languages and formats."
+fi

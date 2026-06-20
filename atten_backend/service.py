@@ -3,12 +3,39 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import shutil
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional
 import os
 import uuid
 
 from .catalog import voice_for_id
+
+
+def _configure_espeak():
+    """Point phonemizer at the bundled eSpeak library and data."""
+    import espeakng_loader
+    from phonemizer.backend.espeak.wrapper import EspeakWrapper
+
+    library = Path(espeakng_loader.get_library_path())
+    data = Path(espeakng_loader.get_data_path())
+    temporary_assets = None
+
+    # eSpeak 1.52 silently falls back to its compiled-in data directory when
+    # its runtime resource path is long. This is common in CI/build folders,
+    # so stage only these small assets under the system's short temp path.
+    if max(len(str(library)), len(str(data))) > 150:
+        temporary_assets = TemporaryDirectory(prefix="atten-espeak-")
+        root = Path(temporary_assets.name)
+        staged_library = root / library.name
+        staged_data = root / data.name
+        shutil.copy2(library, staged_library)
+        shutil.copytree(data, staged_data)
+        library, data = staged_library, staged_data
+
+    EspeakWrapper.set_library(str(library))
+    EspeakWrapper.set_data_path(str(data))
+    return temporary_assets
 
 
 @dataclass(frozen=True)
@@ -33,6 +60,7 @@ class KokoroProvider:
 
     def __init__(self, model_root=None):
         self._pipelines = {}
+        self._espeak_assets = None
         configured_root = model_root or os.environ.get("ATTEN_MODEL_ROOT")
         self._model_root = Path(configured_root).resolve() if configured_root else None
         self._model = None
@@ -52,6 +80,9 @@ class KokoroProvider:
         language_code = voice_for_id(voice)["language_code"]
         if language_code not in self._pipelines:
             from kokoro import KModel, KPipeline
+
+            if self._espeak_assets is None:
+                self._espeak_assets = _configure_espeak() or False
 
             if self._model_root:
                 if self._model is None:

@@ -104,7 +104,9 @@ class GenerationServiceTests(unittest.TestCase):
                     return [(text, "phonemes", [0.1])]
 
             fake_kokoro = types.SimpleNamespace(KModel=FakeModel, KPipeline=FakePipeline)
-            with patch.dict("sys.modules", {"kokoro": fake_kokoro}):
+            with patch.dict("sys.modules", {"kokoro": fake_kokoro}), patch(
+                "atten_backend.service._configure_espeak", return_value=False
+            ):
                 provider = KokoroProvider(model_root=model_root)
                 segments = list(provider.segments("hello", "af_heart", 1.0))
 

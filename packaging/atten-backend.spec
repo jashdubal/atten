@@ -11,7 +11,13 @@ datas = []
 binaries = []
 hiddenimports = []
 
-for package in ("espeakng_loader", "phonemizer", "misaki", "en_core_web_sm"):
+for package in (
+    "espeakng_loader",
+    "phonemizer",
+    "misaki",
+    "language_tags",
+    "en_core_web_sm",
+):
     package_datas, package_binaries, package_hiddenimports = collect_all(package)
     datas += package_datas
     binaries += package_binaries
