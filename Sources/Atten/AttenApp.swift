@@ -8,9 +8,9 @@ struct AttenApp: App {
     var body: some Scene {
         WindowGroup("Atten") {
             RootView(model: model)
-                .frame(minWidth: 820, minHeight: 600)
+                .frame(minWidth: 960, minHeight: 700)
         }
-        .defaultSize(width: 1080, height: 700)
+        .defaultSize(width: 1180, height: 780)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <rect x="76" y="58" width="872" height="872" rx="164" fill="#0C0C0A"/>
-  <rect x="104" y="86" width="816" height="816" rx="138" fill="none" stroke="#343126" stroke-width="12"/>
-  <path d="M218 326h588" fill="none" stroke="#E3A94B" stroke-width="28" stroke-linecap="square"/>
-  <path d="M218 326l112 112-112 112" fill="none" stroke="#E3A94B" stroke-width="28" stroke-linecap="square" stroke-linejoin="miter"/>
-  <path d="M406 590h344" fill="none" stroke="#F2E7C9" stroke-width="30" stroke-linecap="square"/>
-  <rect x="406" y="662" width="224" height="22" fill="#A99C7A"/>
+  <rect x="76" y="58" width="872" height="872" rx="164" fill="#080C14"/>
+  <rect x="104" y="86" width="816" height="816" rx="138" fill="none" stroke="#273852" stroke-width="12"/>
+  <path d="M218 326h588" fill="none" stroke="#5DDBFF" stroke-width="28" stroke-linecap="square"/>
+  <path d="M218 326l112 112-112 112" fill="none" stroke="#5DDBFF" stroke-width="28" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M406 590h344" fill="none" stroke="#E7EEF8" stroke-width="30" stroke-linecap="square"/>
+  <rect x="406" y="662" width="224" height="22" fill="#A78BFA"/>
 </svg>

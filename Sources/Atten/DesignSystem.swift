@@ -2,24 +2,24 @@ import AVFoundation
 import SwiftUI
 
 enum AttenColor {
-    // Warm paper in Light mode; amber phosphor on near-black in Dark mode.
-    static let appBackground = Color(light: 0xF4EEDC, dark: 0x0C0C0A)
-    static let sidebar = Color(light: 0xE9E0C7, dark: 0x11110E)
-    static let surface = Color(light: 0xFBF5E5, dark: 0x171711)
-    static let surfaceElevated = Color(light: 0xFFF9EA, dark: 0x1D1C15)
-    static let surfaceMuted = Color(light: 0xE5D9BB, dark: 0x242219)
-    static let separator = Color(light: 0xB8AA83, dark: 0x343126)
+    // Cool terminal palette: crisp cyan and violet over graphite/navy surfaces.
+    static let appBackground = Color(light: 0xF3F7FC, dark: 0x080C14)
+    static let sidebar = Color(light: 0xE8EFF8, dark: 0x0C121E)
+    static let surface = Color(light: 0xFFFFFF, dark: 0x101826)
+    static let surfaceElevated = Color(light: 0xF8FBFF, dark: 0x141E2E)
+    static let surfaceMuted = Color(light: 0xDDE8F5, dark: 0x1A2940)
+    static let separator = Color(light: 0xB7C6D9, dark: 0x273852)
 
-    static let textPrimary = Color(light: 0x29251B, dark: 0xF2E7C9)
-    static let textSecondary = Color(light: 0x6F654B, dark: 0xA99C7A)
-    static let accent = Color(light: 0x94620E, dark: 0xE3A94B)
-    static let accentHover = Color(light: 0x754900, dark: 0xF2BF62)
-    static let accentSecondary = accent
-    static let success = Color(light: 0x3E6E4B, dark: 0x8FB996)
-    static let warning = accent
-    static let destructive = Color(light: 0xA7473A, dark: 0xD07163)
+    static let textPrimary = Color(light: 0x101827, dark: 0xE7EEF8)
+    static let textSecondary = Color(light: 0x51647B, dark: 0x8FA2BA)
+    static let accent = Color(light: 0x007EA7, dark: 0x5DDBFF)
+    static let accentHover = Color(light: 0x005F7A, dark: 0x91E8FF)
+    static let accentSecondary = Color(light: 0x6848D8, dark: 0xA78BFA)
+    static let success = Color(light: 0x177A50, dark: 0x4ADE80)
+    static let warning = Color(light: 0xA23E65, dark: 0xF472B6)
+    static let destructive = Color(light: 0xB42346, dark: 0xFB7185)
     static let focus = accentHover
-    static let onAccent = Color(light: 0xFFF9EA, dark: 0x0C0C0A)
+    static let onAccent = Color(light: 0xF7FCFF, dark: 0x061018)
 }
 
 extension Color {

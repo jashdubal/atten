@@ -210,6 +210,8 @@ struct StudioView: View {
                         Slider(value: $model.speed, in: 0.5...2, step: 0.05) {
                             Text("Speech speed")
                         }
+                        .labelsHidden()
+                        .padding(.horizontal, AttenSpacing.xxs)
                     }
 
                     Picker("Format", selection: $model.format) {
