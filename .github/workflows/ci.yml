@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "release/**", "design/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.7.2"
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
+      - name: Validate locked dependencies
+        run: uv lock --check
+      - name: Test Swift application
+        run: swift test
+      - name: Test Python backend
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Build release configuration
+        run: swift build -c release
+
