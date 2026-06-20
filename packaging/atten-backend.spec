@@ -4,7 +4,9 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 
-ROOT = Path(SPECPATH).parent.parent
+ROOT = Path(SPECPATH).resolve().parent
+if not (ROOT / "cli.py").is_file():
+    raise SystemExit(f"Could not locate Atten repository root from spec path: {SPECPATH}")
 datas = []
 binaries = []
 hiddenimports = []

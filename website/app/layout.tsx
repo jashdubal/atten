@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Atten — Private speech, made on your Mac",
+  title: "Atten | Local TTS for Mac",
   description: "A native, fully offline text-to-speech studio for Apple Silicon Macs.",
 };
 
