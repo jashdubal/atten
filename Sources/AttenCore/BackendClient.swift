@@ -346,11 +346,7 @@ public enum BackendLocator {
             candidate = url.deletingLastPathComponent()
         }
 
-        let sourceRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        return containsBackend(sourceRoot) ? .development(root: sourceRoot) : nil
+        return nil
     }
 
     public static func locate(

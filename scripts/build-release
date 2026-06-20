@@ -1,0 +1,203 @@
+#!/bin/bash
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT/macOS/Info.plist")"
+MODEL_SOURCE="${ATTEN_MODEL_SOURCE:-}"
+OUTPUT_DIRECTORY="$ROOT/.build/release-artifacts"
+
+usage() {
+    echo "Usage: scripts/build-release [--version VERSION] [--model-source PATH] [--output PATH]" >&2
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --version)
+            VERSION="$2"
+            shift 2
+            ;;
+        --model-source)
+            MODEL_SOURCE="$2"
+            shift 2
+            ;;
+        --output)
+            OUTPUT_DIRECTORY="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+if [[ "$(uname -m)" != "arm64" ]]; then
+    echo "Release builds require an Apple Silicon runner." >&2
+    exit 1
+fi
+if [[ "${ALLOW_DIRTY:-0}" != "1" ]] && ! git -C "$ROOT" diff --quiet --ignore-submodules HEAD --; then
+    echo "Release builds require a clean worktree. Set ALLOW_DIRTY=1 only for local validation." >&2
+    exit 1
+fi
+
+for command in swift uv pyinstaller hdiutil codesign lipo otool sips iconutil; do
+    if [[ "$command" == "pyinstaller" ]]; then
+        continue
+    fi
+    command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
+done
+
+BUILD_ROOT="$ROOT/.build/release-package"
+APP="$BUILD_ROOT/Atten.app"
+CONTENTS="$APP/Contents"
+PYTHON_ENV="$BUILD_ROOT/python-environment"
+PYINSTALLER_DIST="$BUILD_ROOT/pyinstaller-dist"
+MODEL_DESTINATION="$CONTENTS/Resources/Models/Kokoro-82M"
+DMG_STAGING="$BUILD_ROOT/dmg"
+DMG="$OUTPUT_DIRECTORY/Atten-macOS-arm64.dmg"
+SOURCE_ARCHIVE="$OUTPUT_DIRECTORY/Atten-corresponding-source.tar.gz"
+SBOM="$OUTPUT_DIRECTORY/Atten-sbom.spdx.json"
+
+rm -rf "$BUILD_ROOT" "$OUTPUT_DIRECTORY"
+mkdir -p "$BUILD_ROOT" "$OUTPUT_DIRECTORY"
+
+export UV_PROJECT_ENVIRONMENT="$PYTHON_ENV"
+export UV_PYTHON="3.12"
+uv sync --frozen --group release --no-editable
+
+swift build -c release --arch arm64 --package-path "$ROOT"
+
+uv run --frozen --group release pyinstaller \
+    --clean \
+    --noconfirm \
+    --distpath "$PYINSTALLER_DIST" \
+    --workpath "$BUILD_ROOT/pyinstaller-work" \
+    "$ROOT/packaging/atten-backend.spec"
+
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/Licenses" "$CONTENTS/Helpers"
+cp "$ROOT/.build/arm64-apple-macosx/release/Atten" "$CONTENTS/MacOS/Atten"
+cp "$ROOT/macOS/Info.plist" "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-1}" "$CONTENTS/Info.plist"
+cp -R "$PYINSTALLER_DIST/atten-backend" "$CONTENTS/Helpers/atten-backend"
+
+ICON_SOURCE="$ROOT/Sources/Atten/Resources/AttenIcon.svg"
+ICONSET="$BUILD_ROOT/Atten.iconset"
+ICON_PNG="$BUILD_ROOT/atten-icon.png"
+mkdir -p "$ICONSET"
+if ! sips -s format png "$ICON_SOURCE" --out "$ICON_PNG" >/dev/null 2>&1; then
+    qlmanage -t -s 1024 -o "$BUILD_ROOT" "$ICON_SOURCE" >/dev/null
+    mv "$BUILD_ROOT/$(basename "$ICON_SOURCE").png" "$ICON_PNG"
+fi
+for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    double=$((size * 2))
+    sips -z "$double" "$double" "$ICON_PNG" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$CONTENTS/Resources/AttenIcon.icns"
+
+model_arguments=("$MODEL_DESTINATION")
+if [[ -n "$MODEL_SOURCE" ]]; then
+    model_arguments+=(--source "$MODEL_SOURCE")
+fi
+uv run --frozen python "$ROOT/scripts/prepare-model" "${model_arguments[@]}"
+
+cp "$ROOT/LICENSE" "$CONTENTS/Resources/Licenses/GPL-3.0-or-later.txt"
+cp "$ROOT/legal/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/Licenses/"
+cp "$ROOT/legal/MODEL_ATTRIBUTION.md" "$CONTENTS/Resources/Licenses/"
+cp "$ROOT/legal/CORRESPONDING_SOURCE.md" "$CONTENTS/Resources/Licenses/"
+
+SITE_PACKAGES="$PYTHON_ENV/lib/python3.12/site-packages"
+mkdir -p "$CONTENTS/Resources/Licenses/Python"
+find "$SITE_PACKAGES" -maxdepth 3 -type f \( \
+    -iname 'LICENSE' -o -iname 'LICENSE.txt' -o -iname 'LICENSE.md' -o \
+    -iname 'COPYING' -o -iname 'COPYING.txt' -o -iname 'NOTICE' -o -iname 'NOTICE.txt' \
+\) -print0 | while IFS= read -r -d '' license; do
+    relative="${license#"$SITE_PACKAGES"/}"
+    target="$CONTENTS/Resources/Licenses/Python/$relative"
+    mkdir -p "$(dirname "$target")"
+    cp "$license" "$target"
+done
+
+missing_architecture=0
+while IFS= read -r -d '' file_path; do
+    if file "$file_path" | grep -q 'Mach-O'; then
+        architectures="$(lipo -archs "$file_path")"
+        if [[ "$architectures" != "arm64" ]]; then
+            echo "Unexpected architecture ($architectures): $file_path" >&2
+            missing_architecture=1
+        fi
+        codesign --force --sign - --timestamp=none "$file_path" >/dev/null
+    fi
+done < <(find "$APP" -type f -print0)
+if [[ "$missing_architecture" -ne 0 ]]; then
+    exit 1
+fi
+
+codesign --force --deep --sign - --timestamp=none "$APP" >/dev/null
+codesign --verify --deep --strict --verbose=2 "$APP"
+
+while IFS= read -r -d '' file_path; do
+    if file "$file_path" | grep -q 'Mach-O'; then
+        while IFS= read -r dependency; do
+            case "$dependency" in
+                /System/*|/usr/lib/*|@executable_path/*|@loader_path/*|@rpath/*) ;;
+                *)
+                    echo "Non-portable dependency in $file_path: $dependency" >&2
+                    exit 1
+                    ;;
+            esac
+        done < <(otool -L "$file_path" | tail -n +2 | awk '{print $1}')
+    fi
+done < <(find "$APP" -type f -print0)
+
+if grep -R -a -l -E '/Users/runner|/Users/jash|/\.venv/' "$CONTENTS" >/dev/null; then
+    echo "Bundle contains a development or CI path." >&2
+    exit 1
+fi
+
+test "$(find "$MODEL_DESTINATION/voices" -type f -name '*.pt' | wc -l | tr -d ' ')" -eq 37
+"$CONTENTS/Helpers/atten-backend/atten-backend" --list-voices --json >/dev/null
+
+if [[ "${RUN_SYNTHESIS_SMOKE:-0}" == "1" ]]; then
+    "$ROOT/scripts/smoke-packaged-backend" "$APP"
+fi
+
+mkdir -p "$DMG_STAGING"
+cp -R "$APP" "$DMG_STAGING/Atten.app"
+ln -s /Applications "$DMG_STAGING/Applications"
+hdiutil create \
+    -volname "Atten" \
+    -fs HFS+ \
+    -format UDZO \
+    -imagekey zlib-level=9 \
+    -srcfolder "$DMG_STAGING" \
+    "$DMG" >/dev/null
+
+if [[ "$(stat -f '%z' "$DMG")" -ge 2147483648 ]]; then
+    echo "DMG exceeds GitHub's 2 GiB per-file release limit." >&2
+    exit 1
+fi
+
+REVISION="$(git -C "$ROOT" rev-parse HEAD)"
+SOURCE_TAR="$BUILD_ROOT/Atten-corresponding-source.tar"
+git -C "$ROOT" archive --format=tar --prefix="Atten-$VERSION/" --output="$SOURCE_TAR" HEAD
+gzip -9 -c "$SOURCE_TAR" > "$SOURCE_ARCHIVE"
+uv run --frozen python "$ROOT/scripts/generate-sbom" \
+    "$SBOM" --version "$VERSION" --revision "$REVISION"
+
+(
+    cd "$OUTPUT_DIRECTORY"
+    shasum -a 256 \
+        "$(basename "$DMG")" \
+        "$(basename "$SOURCE_ARCHIVE")" \
+        "$(basename "$SBOM")" > SHA256SUMS.txt
+)
+
+echo "Release artifacts:"
+ls -lh "$OUTPUT_DIRECTORY"

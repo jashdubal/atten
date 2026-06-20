@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Generate a deterministic SPDX dependency manifest from uv.lock."""
+
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import tomllib
+
+
+def spdx_id(value):
+    return "SPDXRef-" + "".join(character if character.isalnum() else "-" for character in value)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--version", required=True)
+    parser.add_argument("--revision", required=True)
+    args = parser.parse_args()
+
+    lock_path = Path(__file__).resolve().parents[1] / "uv.lock"
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    packages = []
+    relationships = []
+    app_id = "SPDXRef-Atten"
+    for package in sorted(lock["package"], key=lambda item: (item["name"], item["version"])):
+        package_id = spdx_id(f"Python-{package['name']}-{package['version']}")
+        source = package.get("source", {})
+        download = source.get("url") or source.get("registry") or "NOASSERTION"
+        packages.append(
+            {
+                "SPDXID": package_id,
+                "name": package["name"],
+                "versionInfo": package["version"],
+                "downloadLocation": download,
+                "filesAnalyzed": False,
+                "licenseConcluded": "NOASSERTION",
+                "licenseDeclared": "NOASSERTION",
+                "copyrightText": "NOASSERTION",
+            }
+        )
+        relationships.append(
+            {"spdxElementId": app_id, "relationshipType": "DEPENDS_ON", "relatedSpdxElement": package_id}
+        )
+
+    namespace_digest = hashlib.sha256(
+        f"{args.version}:{args.revision}".encode("utf-8")
+    ).hexdigest()[:20]
+    document = {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "name": f"Atten-{args.version}",
+        "documentNamespace": f"https://github.com/jashdubal/atten/releases/{args.version}/{namespace_digest}",
+        "creationInfo": {
+            "created": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "creators": ["Tool: Atten scripts/generate-sbom"],
+        },
+        "packages": [
+            {
+                "SPDXID": app_id,
+                "name": "Atten",
+                "versionInfo": args.version,
+                "downloadLocation": "https://github.com/jashdubal/atten",
+                "filesAnalyzed": False,
+                "licenseConcluded": "GPL-3.0-or-later",
+                "licenseDeclared": "GPL-3.0-or-later",
+                "copyrightText": "NOASSERTION",
+                "externalRefs": [
+                    {
+                        "referenceCategory": "PACKAGE-MANAGER",
+                        "referenceType": "purl",
+                        "referenceLocator": f"pkg:github/jashdubal/atten@{args.version}",
+                    }
+                ],
+            },
+            *packages,
+        ],
+        "relationships": relationships,
+    }
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,46 @@
+#!/bin/bash
+
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: scripts/smoke-packaged-backend /path/to/Atten.app" >&2
+    exit 2
+fi
+
+APP="$1"
+HELPER="$APP/Contents/Helpers/atten-backend/atten-backend"
+MODEL="$APP/Contents/Resources/Models/Kokoro-82M"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/atten-smoke.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+mkdir -p "$WORK/home" "$WORK/output"
+
+voices=(af_heart bf_emma ef_dora ff_siwis if_sara pf_dora)
+texts=(
+    "Atten is ready."
+    "Atten is ready."
+    "Atten esta listo."
+    "Atten est pret."
+    "Atten e pronto."
+    "Atten esta pronto."
+)
+
+for index in "${!voices[@]}"; do
+    for format in wav mp3; do
+        /usr/bin/env -i \
+            HOME="$WORK/home" \
+            PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+            ATTEN_MODEL_ROOT="$MODEL" \
+            HF_HUB_OFFLINE=1 \
+            PYTHONNOUSERSITE=1 \
+            PYTHONDONTWRITEBYTECODE=1 \
+            "$HELPER" "${texts[$index]}" \
+            --voice "${voices[$index]}" \
+            --format "$format" \
+            --output "$WORK/output" \
+            --filename "${voices[$index]}-$format" \
+            --json
+        test -s "$WORK/output/${voices[$index]}-$format.$format"
+    done
+done
+
+echo "Packaged offline synthesis passed for all supported languages and formats."

@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Stage the pinned Kokoro model and only the voices exposed by Atten."""
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import shutil
+
+from atten_backend.catalog import VOICES
+
+
+MODEL_REPOSITORY = "hexgrad/Kokoro-82M"
+MODEL_REVISION = "7884269d6fd3f9beabc271b6f1308e5699281fa9"
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def resolve_source(source, offline):
+    if source:
+        return Path(source).expanduser().resolve()
+
+    from huggingface_hub import snapshot_download
+
+    voices = [f"voices/{voice['id']}.pt" for voice in VOICES]
+    return Path(
+        snapshot_download(
+            repo_id=MODEL_REPOSITORY,
+            revision=MODEL_REVISION,
+            allow_patterns=["config.json", "kokoro-v1_0.pth", "README.md", *voices],
+            local_files_only=offline,
+        )
+    ).resolve()
+
+
+def stage_model(source, destination):
+    files = ["config.json", "kokoro-v1_0.pth"]
+    files.extend(f"voices/{voice['id']}.pt" for voice in VOICES)
+    missing = [relative for relative in files if not (source / relative).is_file()]
+    if missing:
+        raise SystemExit("Kokoro snapshot is incomplete: " + ", ".join(missing))
+
+    if destination.exists():
+        shutil.rmtree(destination)
+    (destination / "voices").mkdir(parents=True)
+
+    manifest_files = []
+    for relative in files:
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source / relative, target, follow_symlinks=True)
+        manifest_files.append(
+            {"path": relative, "bytes": target.stat().st_size, "sha256": sha256(target)}
+        )
+
+    manifest = {
+        "repository": MODEL_REPOSITORY,
+        "revision": MODEL_REVISION,
+        "voice_count": len(VOICES),
+        "files": manifest_files,
+    }
+    (destination / "MODEL_MANIFEST.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("destination", type=Path)
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--offline", action="store_true")
+    args = parser.parse_args()
+    source = resolve_source(args.source, args.offline)
+    stage_model(source, args.destination.resolve())
+    print(f"Staged Kokoro model from {source} at {args.destination.resolve()}")
+
+
+if __name__ == "__main__":
+    main()
