@@ -3,6 +3,8 @@
 import { motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export function AppPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -41,13 +43,13 @@ export function AppPreview() {
           loop
           playsInline
           preload="metadata"
-          poster="/atten-demo-poster.jpg"
+          poster={`${basePath}/atten-demo-poster.jpg`}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
           className="size-full object-cover"
           aria-label="Demonstration of Atten's Studio, Playground, Voices, Projects, and Exports"
         >
-          <source src="/atten-demo.mp4" type="video/mp4" />
+          <source src={`${basePath}/atten-demo.mp4`} type="video/mp4" />
         </video>
         <button
           type="button"
