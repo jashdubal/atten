@@ -362,7 +362,7 @@ public enum BackendLocator {
     private static func bundledInstallation(in bundleURL: URL) -> BackendInstallation? {
         let contents = bundleURL.appendingPathComponent("Contents", isDirectory: true)
         let helper = contents
-            .appendingPathComponent("Helpers/atten-backend", isDirectory: true)
+            .appendingPathComponent("Resources/Backend/atten-backend", isDirectory: true)
             .appendingPathComponent("atten-backend")
         let modelRoot = contents
             .appendingPathComponent("Resources/Models/Kokoro-82M", isDirectory: true)

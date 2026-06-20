@@ -8,7 +8,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 APP="$1"
-HELPER="$APP/Contents/Helpers/atten-backend/atten-backend"
+HELPER="$APP/Contents/Resources/Backend/atten-backend/atten-backend"
 MODEL="$APP/Contents/Resources/Models/Kokoro-82M"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/atten-smoke.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT

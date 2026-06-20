@@ -118,7 +118,7 @@ final class BackendClientTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         let helper = directory.appendingPathComponent(
-            "Atten.app/Contents/Helpers/atten-backend/atten-backend"
+            "Atten.app/Contents/Resources/Backend/atten-backend/atten-backend"
         )
         let modelRoot = directory.appendingPathComponent(
             "Atten.app/Contents/Resources/Models/Kokoro-82M",
@@ -156,7 +156,7 @@ final class BackendClientTests: XCTestCase {
 
     func testBundledBackendEnvironmentIsOfflineAndSelfContained() {
         let installation = BackendInstallation.bundled(
-            helper: URL(fileURLWithPath: "/Atten.app/Contents/Helpers/atten-backend/atten-backend"),
+            helper: URL(fileURLWithPath: "/Atten.app/Contents/Resources/Backend/atten-backend/atten-backend"),
             modelRoot: URL(fileURLWithPath: "/Atten.app/Contents/Resources/Models/Kokoro-82M")
         )
 

@@ -79,12 +79,12 @@ uv run --frozen --group release pyinstaller \
     --workpath "$BUILD_ROOT/pyinstaller-work" \
     "$ROOT/packaging/atten-backend.spec"
 
-mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/Licenses" "$CONTENTS/Helpers"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/Licenses" "$CONTENTS/Resources/Backend"
 cp "$ROOT/.build/arm64-apple-macosx/release/Atten" "$CONTENTS/MacOS/Atten"
 cp "$ROOT/macOS/Info.plist" "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-1}" "$CONTENTS/Info.plist"
-cp -R "$PYINSTALLER_DIST/atten-backend" "$CONTENTS/Helpers/atten-backend"
+cp -R "$PYINSTALLER_DIST/atten-backend" "$CONTENTS/Resources/Backend/atten-backend"
 
 ICON_SOURCE="$ROOT/Sources/Atten/Resources/AttenIcon.svg"
 ICONSET="$BUILD_ROOT/Atten.iconset"
@@ -139,7 +139,7 @@ if [[ "$missing_architecture" -ne 0 ]]; then
     exit 1
 fi
 
-codesign --force --deep --sign - --timestamp=none "$APP" >/dev/null
+codesign --force --sign - --timestamp=none "$APP" >/dev/null
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 while IFS= read -r -d '' file_path; do
@@ -156,13 +156,13 @@ while IFS= read -r -d '' file_path; do
     fi
 done < <(find "$APP" -type f -print0)
 
-if grep -R -a -l -E '/Users/runner|/Users/jash|/\.venv/' "$CONTENTS" >/dev/null; then
+if grep -R -I -l -E '/Users/runner|/Users/jash|/\.venv/' "$CONTENTS" >/dev/null; then
     echo "Bundle contains a development or CI path." >&2
     exit 1
 fi
 
 test "$(find "$MODEL_DESTINATION/voices" -type f -name '*.pt' | wc -l | tr -d ' ')" -eq 37
-"$CONTENTS/Helpers/atten-backend/atten-backend" --list-voices --json >/dev/null
+"$CONTENTS/Resources/Backend/atten-backend/atten-backend" --list-voices --json >/dev/null
 
 if [[ "${RUN_SYNTHESIS_SMOKE:-0}" == "1" ]]; then
     "$ROOT/scripts/smoke-packaged-backend" "$APP"

@@ -6,12 +6,15 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import sys
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from atten_backend.catalog import VOICES
 
 
 MODEL_REPOSITORY = "hexgrad/Kokoro-82M"
-MODEL_REVISION = "7884269d6fd3f9beabc271b6f1308e5699281fa9"
+MODEL_REVISION = "f3ff3571791e39611d31c381e3a41a3af07b4987"
 
 
 def sha256(path):

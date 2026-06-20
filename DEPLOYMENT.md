@@ -11,7 +11,7 @@ model files. The stable website download target is:
 The DMG contains `Atten.app` with four relevant layers:
 
 - `Contents/MacOS/Atten`: the native SwiftUI application.
-- `Contents/Helpers/atten-backend/`: a PyInstaller 6 one-directory helper with
+- `Contents/Resources/Backend/atten-backend/`: a PyInstaller 6 one-directory helper with
   Python 3.12, Kokoro 0.9.4, PyTorch, SoundFile, spaCy, eSpeak NG, and all
   transitive runtime dependencies.
 - `Contents/Resources/Models/Kokoro-82M/`: pinned model config and weights,
@@ -51,7 +51,7 @@ scripts/build-release --version 0.2.0
 To reuse an already downloaded pinned model snapshot:
 
 ```bash
-ATTEN_MODEL_SOURCE="$HOME/.cache/huggingface/hub/models--hexgrad--Kokoro-82M/snapshots/7884269d6fd3f9beabc271b6f1308e5699281fa9" \
+ATTEN_MODEL_SOURCE="$HOME/.cache/huggingface/hub/models--hexgrad--Kokoro-82M/snapshots/f3ff3571791e39611d31c381e3a41a3af07b4987" \
   scripts/build-release --version 0.2.0
 ```
 
@@ -167,7 +167,7 @@ locations and the three-year physical-source offer are documented in
 - **Permission denied while exporting:** choose another writable folder in
   Settings → Storage; Atten never requires Full Disk Access.
 - **Maintainer build cannot find a voice:** ensure the model source is revision
-  `7884269d6fd3f9beabc271b6f1308e5699281fa9` and rerun `scripts/prepare-model`.
+  `f3ff3571791e39611d31c381e3a41a3af07b4987` and rerun `scripts/prepare-model`.
 
 ## Future signed distribution
 
