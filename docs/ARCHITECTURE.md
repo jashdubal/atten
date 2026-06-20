@@ -65,12 +65,16 @@ controls for Kokoro.
 6. Verify Python and Swift tests, debug/release builds, documentation, and launch
    workflow after each milestone.
 
-## Constraints
+## Distribution
 
-- The Python environment and Kokoro model remain external to the `.app` in this
-  repository. A distributable signed app would need an embedded runtime/model or
-  an installer; development builds locate the repository backend.
-- Kokoro model startup and first-run model download can be slow. The native UI
-  must remain responsive and allow cancellation while a child process runs.
+Release builds embed a PyInstaller one-directory Python 3.12 helper and the
+pinned Kokoro model beneath the app bundle. The Swift client resolves the
+bundled installation before development overrides, launches it directly, and
+forces an offline environment. Repository builds continue to locate `cli.py`
+through `ATTEN_BACKEND_ROOT`, the current directory, or the development app's
+ancestor directories.
+
+Kokoro model startup can be slow. The native UI remains responsive and allows
+cancellation while the child process runs.
 - Only controls supported by Kokoro are exposed: voice, language (derived from
   voice), speed, and WAV/MP3 format.

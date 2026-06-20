@@ -1,8 +1,8 @@
 # Atten
 
-Atten is a native macOS voice studio for local text-to-speech. It pairs a
-colorful, minimal SwiftUI interface with the existing Kokoro backend, so text
-and generated audio stay on your Mac.
+Atten is a native macOS voice studio for local text-to-speech. Its compact,
+cool-toned terminal interface runs a bundled Kokoro backend, so text and
+generated audio stay on your Mac.
 
 ## What Atten includes
 
@@ -20,12 +20,23 @@ and generated audio stay on your Mac.
 
 The original `bin/tts` and `bin/play` commands remain compatible.
 
-## Requirements
+## Download
 
-- macOS 14 or newer
+The release DMG includes Python 3.12, Kokoro, eSpeak NG, model weights, and all
+supported voices. End users need an Apple Silicon Mac running macOS 14 or newer;
+no Python or Homebrew setup is required.
+
+<https://github.com/jashdubal/atten/releases/latest/download/Atten-macOS-arm64.dmg>
+
+Current releases are ad-hoc signed and not Apple-notarized. See
+[DEPLOYMENT.md](DEPLOYMENT.md#user-installation-and-gatekeeper) for safe
+first-launch and checksum instructions.
+
+## Development requirements
+
+- Apple Silicon macOS 14 or newer
 - Xcode 16 or newer with Swift 6
-- Python 3.9+ and `uv`
-- `espeak-ng` for Kokoro language fallback
+- Python 3.12 and `uv`
 
 ## Setup and launch
 
@@ -41,7 +52,8 @@ Launch Atten directly from the repository:
 bin/atten
 ```
 
-The first synthesis can download roughly 330 MB of Kokoro model weights.
+Development setup can download roughly 350 MB of Kokoro model weights. Published
+DMGs already contain the pinned model.
 
 ## Build a macOS app bundle
 
@@ -123,4 +135,4 @@ swift build -c release
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for boundaries, compatibility
-decisions, and current distribution constraints.
+decisions, and [DEPLOYMENT.md](DEPLOYMENT.md) for release and distribution.
