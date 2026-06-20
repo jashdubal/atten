@@ -21,15 +21,15 @@
   <sub>Free and open source · macOS 14+ · Apple Silicon</sub>
 </p>
 
-<p align="center">
-  <a href="https://jashdubal.github.io/atten/" title="Watch the Atten demo">
-    <img src="website/public/atten-demo-poster.jpg" alt="Atten local text-to-speech studio" width="960">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://jashdubal.github.io/atten/atten-demo.mp4">▶ Watch the 27-second demo</a>
-</p>
+<video
+  src="https://jashdubal.github.io/atten/atten-demo.mp4"
+  poster="website/public/atten-demo-poster.jpg"
+  controls
+  muted
+  playsinline
+  width="960"
+  aria-label="Demonstration of Atten's Studio, Playground, Voices, Projects, and Exports"
+></video>
 
 ## Local speech, without the setup
 
