@@ -18,6 +18,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/jashdubal/atten/releases/latest/download/Atten-macOS-arm64.dmg"><img src="https://img.shields.io/github/downloads/jashdubal/atten/Atten-macOS-arm64.dmg?style=flat-square&amp;label=DMG%20downloads&amp;labelColor=0a101b&amp;color=197f99" alt="Total Atten DMG downloads"></a>
+</p>
+
+<p align="center">
   <sub>Free and open source · macOS 14+ · Apple Silicon</sub>
 </p>
 
