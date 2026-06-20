@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img src="website/public/atten-demo.gif" alt="Atten Studio, Playground, Voices, Projects, and Exports demo" width="800">
+  <img src="docs/assets/atten_screenshot.png" alt="Atten local text-to-speech studio" width="960">
 </p>
 
 ## Local speech, without the setup
