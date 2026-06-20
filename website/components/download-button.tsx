@@ -4,7 +4,7 @@ import { motion, useMotionTemplate, useMotionValue } from "framer-motion";
 import type { MouseEvent } from "react";
 import { Apple, ArrowDown } from "./icons";
 
-export const PLACEHOLDER_DOWNLOAD = "https://example.com/Atten-macOS-arm64.dmg";
+export const PLACEHOLDER_DOWNLOAD = "http://github.com/jashdubal/atten/releases/download/v1.0/Atten-macOS-arm64.dmg";
 export function DownloadButton({ compact = false }: { compact?: boolean }) {
   const x = useMotionValue(120), y = useMotionValue(30);
   const glow = useMotionTemplate`radial-gradient(110px circle at ${x}px ${y}px, rgba(255,255,255,.42), transparent 72%)`;
