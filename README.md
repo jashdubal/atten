@@ -22,9 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://jashdubal.github.io/atten/atten-demo.mp4">
-    <img src="website/public/atten-demo-poster.jpg" alt="Watch the 27-second Atten demo" width="960">
-  </a>
+  <img src="website/public/atten-demo.gif" alt="Atten Studio, Playground, Voices, Projects, and Exports demo" width="800">
 </p>
 
 ## Local speech, without the setup
