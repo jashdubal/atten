@@ -10,6 +10,7 @@ import os
 import uuid
 
 from .catalog import voice_for_id
+from .device import resolve_device
 
 
 def _configure_espeak():
@@ -58,12 +59,13 @@ class GenerationResult:
 class KokoroProvider:
     """Lazily creates one Kokoro pipeline per requested language."""
 
-    def __init__(self, model_root=None):
+    def __init__(self, model_root=None, device_mode="auto"):
         self._pipelines = {}
         self._espeak_assets = None
         configured_root = model_root or os.environ.get("ATTEN_MODEL_ROOT")
         self._model_root = Path(configured_root).resolve() if configured_root else None
         self._model = None
+        self.device_info = resolve_device(device_mode)
         if self._model_root:
             required = [
                 self._model_root / "config.json",
@@ -89,12 +91,19 @@ class KokoroProvider:
                     self._model = KModel(
                         config=str(self._model_root / "config.json"),
                         model=str(self._model_root / "kokoro-v1_0.pth"),
-                    ).eval()
+                    )
+                    if hasattr(self._model, "to"):
+                        self._model = self._model.to(self.device_info.selected_device)
+                    self._model = self._model.eval()
                 self._pipelines[language_code] = KPipeline(
                     lang_code=language_code, model=self._model
                 )
             else:
-                self._pipelines[language_code] = KPipeline(lang_code=language_code)
+                pipeline = KPipeline(lang_code=language_code)
+                pipeline_model = getattr(pipeline, "model", None)
+                if hasattr(pipeline_model, "to"):
+                    pipeline_model.to(self.device_info.selected_device)
+                self._pipelines[language_code] = pipeline
 
         voice_reference = voice
         if self._model_root:
@@ -125,8 +134,8 @@ class SoundFileAudioIO:
 class GenerationService:
     """Synthesizes segments and atomically publishes one audio file."""
 
-    def __init__(self, provider=None, audio_io=None):
-        self.provider = provider or KokoroProvider()
+    def __init__(self, provider=None, audio_io=None, device_mode="auto"):
+        self.provider = provider or KokoroProvider(device_mode=device_mode)
         self.audio_io = audio_io or SoundFileAudioIO()
 
     def generate(

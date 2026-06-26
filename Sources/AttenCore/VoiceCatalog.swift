@@ -1,7 +1,57 @@
 import Foundation
 
 public enum VoiceCatalog {
-    public static let all: [Voice] = [
+    public static let all: [Voice] = loadSharedCatalog() ?? fallback
+
+    public static func voice(id: String) -> Voice? {
+        all.first { $0.id == id }
+    }
+
+    private static func loadSharedCatalog() -> [Voice]? {
+        let candidates = [
+            Bundle.main.url(forResource: "voices", withExtension: "json"),
+            Bundle.main.resourceURL?.appendingPathComponent("resources/voices.json"),
+            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("resources/voices.json"),
+        ].compactMap { $0 }
+
+        for url in candidates where FileManager.default.fileExists(atPath: url.path) {
+            if let data = try? Data(contentsOf: url),
+               let decoded = try? JSONDecoder().decode([CatalogVoice].self, from: data) {
+                return decoded.map(\.voice)
+            }
+        }
+        return nil
+    }
+
+    private struct CatalogVoice: Decodable {
+        let id: String
+        let name: String
+        let language: String
+        let languageCode: String
+        let gender: String
+        let traits: [String]
+        let quality: String
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, language, gender, traits, quality
+            case languageCode = "language_code"
+        }
+
+        var voice: Voice {
+            Voice(
+                id: id,
+                name: name,
+                language: language,
+                languageCode: languageCode,
+                gender: gender,
+                traits: traits,
+                quality: quality
+            )
+        }
+    }
+
+    private static let fallback: [Voice] = [
         voice("af_heart", "Heart", "English (US)", "a", "Female", ["warm", "expressive"], "A"),
         voice("af_bella", "Bella", "English (US)", "a", "Female", ["bright", "confident"], "A-"),
         voice("af_nicole", "Nicole", "English (US)", "a", "Female", ["calm", "studio"], "B-"),
@@ -40,10 +90,6 @@ public enum VoiceCatalog {
         voice("pm_alex", "Alex", "Portuguese (Brazil)", "p", "Male", ["Brazilian"], "Unrated"),
         voice("pm_santa", "Santa", "Portuguese (Brazil)", "p", "Male", ["character", "Brazilian"], "Unrated"),
     ]
-
-    public static func voice(id: String) -> Voice? {
-        all.first { $0.id == id }
-    }
 
     private static func voice(
         _ id: String,

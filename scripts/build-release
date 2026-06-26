@@ -84,6 +84,7 @@ cp "$ROOT/.build/arm64-apple-macosx/release/Atten" "$CONTENTS/MacOS/Atten"
 cp "$ROOT/macOS/Info.plist" "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$CONTENTS/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${GITHUB_RUN_NUMBER:-1}" "$CONTENTS/Info.plist"
+cp "$ROOT/resources/voices.json" "$CONTENTS/Resources/voices.json"
 cp -R "$PYINSTALLER_DIST/atten-backend" "$CONTENTS/Resources/Backend/atten-backend"
 
 # PyInstaller rewrites Mach-O binaries while collecting them. Its rewrite of

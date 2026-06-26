@@ -1,5 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+# Build this spec from a Windows environment whose Python environment installed
+# the CUDA-enabled PyTorch wheel. The runtime still falls back to CPU when the
+# user has no usable CUDA device and the frontend requests --device auto.
+
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
@@ -7,10 +11,10 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 ROOT = Path(SPECPATH).resolve().parent
 if not (ROOT / "cli.py").is_file():
     raise SystemExit(f"Could not locate Atten repository root from spec path: {SPECPATH}")
-datas = []
+
+datas = [(str(ROOT / "resources" / "voices.json"), "resources")]
 binaries = []
 hiddenimports = []
-datas.append((str(ROOT / "resources" / "voices.json"), "resources"))
 
 for package in (
     "espeakng_loader",
@@ -53,7 +57,6 @@ exe = EXE(
     strip=False,
     upx=False,
     console=True,
-    target_arch="arm64",
 )
 
 coll = COLLECT(

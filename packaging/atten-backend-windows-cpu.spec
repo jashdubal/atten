@@ -7,10 +7,10 @@ from PyInstaller.utils.hooks import collect_all, copy_metadata
 ROOT = Path(SPECPATH).resolve().parent
 if not (ROOT / "cli.py").is_file():
     raise SystemExit(f"Could not locate Atten repository root from spec path: {SPECPATH}")
-datas = []
+
+datas = [(str(ROOT / "resources" / "voices.json"), "resources")]
 binaries = []
 hiddenimports = []
-datas.append((str(ROOT / "resources" / "voices.json"), "resources"))
 
 for package in (
     "espeakng_loader",
@@ -53,7 +53,6 @@ exe = EXE(
     strip=False,
     upx=False,
     console=True,
-    target_arch="arm64",
 )
 
 coll = COLLECT(

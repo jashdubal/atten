@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
+import sys
 from tempfile import TemporaryDirectory
 import types
 import unittest
 from unittest.mock import patch
 
 import cli
+from atten_backend.device import resolve_device
 from atten_backend.service import GenerationRequest, GenerationService, KokoroProvider
 
 
@@ -151,11 +153,61 @@ class CLICompatibilityTests(unittest.TestCase):
         self.assertEqual(args.speed, 1.0)
         self.assertEqual(args.format, "mp3")
         self.assertEqual(args.output, "outputs")
+        self.assertEqual(args.device, "auto")
 
     def test_voice_catalog_is_json_serializable(self):
         args = cli.build_parser().parse_args(["--list-voices", "--json"])
         self.assertTrue(args.list_voices)
         json.dumps(cli.VOICES)
+
+    def test_backend_info_is_json_serializable(self):
+        info = cli.backend_info("cpu")
+        self.assertEqual(info["selected_device"], "cpu")
+        self.assertEqual(info["voice_count"], len(cli.VOICES))
+        json.dumps(info)
+
+    def test_device_parser_supports_cuda_cpu_mps_and_auto(self):
+        for device in ("auto", "cpu", "cuda", "mps"):
+            args = cli.build_parser().parse_args(["hello", "--device", device])
+            self.assertEqual(args.device, device)
+
+
+class DeviceSelectionTests(unittest.TestCase):
+    def fake_torch(self, cuda_available=False, mps_available=False):
+        return types.SimpleNamespace(
+            __version__="2.test",
+            version=types.SimpleNamespace(cuda="12.test"),
+            cuda=types.SimpleNamespace(is_available=lambda: cuda_available),
+            backends=types.SimpleNamespace(
+                mps=types.SimpleNamespace(is_available=lambda: mps_available)
+            ),
+        )
+
+    def test_auto_uses_cuda_on_windows_or_linux_when_available(self):
+        fake_torch = self.fake_torch(cuda_available=True)
+        with patch.dict("sys.modules", {"torch": fake_torch}), patch.object(
+            sys, "platform", "win32"
+        ):
+            info = resolve_device("auto")
+
+        self.assertEqual(info.selected_device, "cuda")
+        self.assertTrue(info.cuda_available)
+
+    def test_auto_uses_mps_on_macos_when_available(self):
+        fake_torch = self.fake_torch(mps_available=True)
+        with patch.dict("sys.modules", {"torch": fake_torch}), patch.object(
+            sys, "platform", "darwin"
+        ):
+            info = resolve_device("auto")
+
+        self.assertEqual(info.selected_device, "mps")
+        self.assertTrue(info.mps_available)
+
+    def test_explicit_cuda_fails_when_unavailable(self):
+        fake_torch = self.fake_torch(cuda_available=False)
+        with patch.dict("sys.modules", {"torch": fake_torch}):
+            with self.assertRaisesRegex(RuntimeError, "CUDA was requested"):
+                resolve_device("cuda")
 
 
 if __name__ == "__main__":

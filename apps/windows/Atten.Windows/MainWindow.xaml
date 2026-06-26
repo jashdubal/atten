@@ -1,0 +1,130 @@
+<Window
+    x:Class="Atten.Windows.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Atten.Windows"
+    Title="Atten">
+    <Grid x:Name="Root">
+        <NavigationView x:Name="Navigation"
+                        PaneDisplayMode="Left"
+                        IsBackButtonVisible="Collapsed"
+                        SelectionChanged="OnNavigationSelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Studio" Tag="Studio" IsSelected="True" />
+                <NavigationViewItem Content="Playground" Tag="Playground" />
+                <NavigationViewItem Content="Voices" Tag="Voices" />
+                <NavigationViewItem Content="Projects" Tag="Projects" />
+                <NavigationViewItem Content="Exports" Tag="Exports" />
+                <NavigationViewItem Content="Settings" Tag="Settings" />
+            </NavigationView.MenuItems>
+
+            <Grid Padding="28" RowSpacing="18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+
+                <Grid x:Name="StudioPanel" Grid.Row="1" ColumnSpacing="20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="320" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="Create speech" Style="{StaticResource TitleTextBlockStyle}" />
+                        <TextBox Header="Project title"
+                                 Text="{Binding DraftTitle, Mode=TwoWay}"
+                                 PlaceholderText="Untitled narration" />
+                        <TextBox Header="Script"
+                                 Text="{Binding DraftText, Mode=TwoWay}"
+                                 AcceptsReturn="True"
+                                 TextWrapping="Wrap"
+                                 MinHeight="360"
+                                 PlaceholderText="Start writing here..." />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Spacing="16">
+                        <ComboBox Header="Voice"
+                                  ItemsSource="{Binding Voices}"
+                                  DisplayMemberPath="Name"
+                                  SelectedValuePath="Id"
+                                  SelectedValue="{Binding SelectedVoiceID, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" />
+                        <Slider Header="Speed"
+                                Minimum="0.5"
+                                Maximum="2"
+                                StepFrequency="0.05"
+                                Value="{Binding Speed, Mode=TwoWay}" />
+                        <ComboBox Header="Format"
+                                  ItemsSource="{Binding Formats}"
+                                  SelectedItem="{Binding Format, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" />
+                        <ComboBox Header="Acceleration"
+                                  ItemsSource="{Binding DeviceModes}"
+                                  SelectedItem="{Binding DeviceMode, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" />
+                        <Button x:Name="GenerateButton"
+                                Content="Generate Speech"
+                                Click="OnGenerateClicked"
+                                HorizontalAlignment="Stretch" />
+                        <Button Content="Cancel"
+                                Click="OnCancelClicked"
+                                HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                </Grid>
+
+                <StackPanel x:Name="PlaygroundPanel" Grid.Row="1" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Playground" Style="{StaticResource TitleTextBlockStyle}" />
+                    <TextBlock Text="Use Studio controls for the first Windows scaffold. Voice preview and temporary generation will be added on this screen." TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel x:Name="VoicesPanel" Grid.Row="1" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Voices" Style="{StaticResource TitleTextBlockStyle}" />
+                    <ListView ItemsSource="{Binding Voices}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:Voice">
+                                <StackPanel Padding="0,8">
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind Language}" Opacity="0.7" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <StackPanel x:Name="ProjectsPanel" Grid.Row="1" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Projects" Style="{StaticResource TitleTextBlockStyle}" />
+                    <ListView ItemsSource="{Binding Projects}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:ProjectRecord">
+                                <StackPanel Padding="0,8">
+                                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind AudioPath}" Opacity="0.7" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+
+                <StackPanel x:Name="ExportsPanel" Grid.Row="1" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Exports" Style="{StaticResource TitleTextBlockStyle}" />
+                    <TextBlock Text="{Binding OutputDirectory}" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel x:Name="SettingsPanel" Grid.Row="1" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Settings" Style="{StaticResource TitleTextBlockStyle}" />
+                    <TextBox Header="Export folder" Text="{Binding OutputDirectory, Mode=TwoWay}" />
+                    <TextBlock Text="Kokoro runs locally. No account, cloud API key, or Windows credential store is required." TextWrapping="Wrap" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+                    <Button Content="Play Output" Click="OnPlayClicked" />
+                    <Button Content="Reveal Output" Click="OnRevealClicked" />
+                </StackPanel>
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

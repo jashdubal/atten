@@ -84,7 +84,7 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
             "--filename", request.filename,
             "--json",
         ]
-        if request.useMPS { arguments.append("--mps") }
+        arguments += ["--device", request.useMPS ? "auto" : "cpu"]
         child.arguments = arguments
 
         setProcess(child)

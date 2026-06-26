@@ -10,6 +10,7 @@ from tempfile import TemporaryDirectory
 import warnings
 
 from atten_backend.catalog import VOICES
+from atten_backend.device import SUPPORTED_DEVICE_MODES, model_status, resolve_device
 from atten_backend.service import GenerationRequest, GenerationService
 from play import play_audio_file
 
@@ -55,8 +56,8 @@ def log_progress(message, emoji="⏳"):
 def process_input(args, service=None):
     """Load input, generate one file, optionally play it, and return its path."""
     if args.mps:
-        os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-        log_info("GPU acceleration (MPS) enabled", "🚀")
+        args.device = "mps"
+        log_info("--mps is deprecated; use --device mps instead.", "ℹ️")
 
     if args.source:
         text = Path(args.source).read_text(encoding="utf-8")
@@ -64,7 +65,12 @@ def process_input(args, service=None):
     else:
         text = args.text
 
-    service = service or GenerationService()
+    service = service or GenerationService(device_mode=args.device)
+    device_info = getattr(service.provider, "device_info", None)
+    if device_info and device_info.warning:
+        emit("warning", message=device_info.warning)
+    if device_info and device_info.selected_device != "cpu":
+        log_info(f"Acceleration enabled: {device_info.selected_device}", "🚀")
 
     def segment_progress(count):
         emit("segment", count=count)
@@ -134,7 +140,13 @@ def build_parser():
     parser.add_argument(
         "-v", "--voice", default="af_heart", help="Kokoro voice (default: af_heart)."
     )
-    parser.add_argument("--mps", action="store_true", help="Enable macOS MPS fallback.")
+    parser.add_argument("--mps", action="store_true", help="Deprecated alias for --device mps.")
+    parser.add_argument(
+        "--device",
+        choices=SUPPORTED_DEVICE_MODES,
+        default="auto",
+        help="Acceleration device: auto, cpu, cuda, or mps.",
+    )
     parser.add_argument(
         "--format", choices=["mp3", "wav"], default="mp3", help="Output format."
     )
@@ -155,7 +167,21 @@ def build_parser():
     parser.add_argument(
         "--list-voices", action="store_true", help="Print the supported voice catalog."
     )
+    parser.add_argument(
+        "--backend-info",
+        action="store_true",
+        help="Print backend platform, model, and acceleration information.",
+    )
     return parser
+
+
+def backend_info(device_mode="auto"):
+    device = resolve_device(device_mode)
+    return {
+        **device.to_dict(),
+        **model_status(),
+        "voice_count": len(VOICES),
+    }
 
 
 def main(argv=None):
@@ -170,6 +196,25 @@ def main(argv=None):
         else:
             for voice in VOICES:
                 print(f"{voice['id']}\t{voice['name']}\t{voice['language']}")
+        return 0
+
+    if args.backend_info:
+        try:
+            info = backend_info(args.device)
+        except (RuntimeError, ValueError) as error:
+            log_error(str(error))
+            return 1
+        if args.json:
+            emit("backend_info", **info)
+        else:
+            print(f"Platform: {info['platform']}")
+            print(f"Python: {info['python_version']}")
+            print(f"PyTorch: {info['torch_version'] or 'unavailable'}")
+            print(f"Device: {info['selected_device']} (requested {info['requested_device']})")
+            print(f"CUDA available: {info['cuda_available']}")
+            print(f"MPS available: {info['mps_available']}")
+            print(f"Model root valid: {info['model_root_valid']}")
+            print(f"Voices: {info['voice_count']}")
         return 0
 
     if not args.text and not args.source:
