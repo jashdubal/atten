@@ -37,11 +37,24 @@ try {
     }
     uv run --frozen python (Join-Path $Root "scripts/prepare-model") @prepareArgs
 
-    dotnet publish $AppProject `
-        -c $Configuration `
-        -r $Runtime `
-        -o $Publish `
-        /p:SelfContained=true
+    $publishDir = "$Publish\"
+    if (Get-Command msbuild -ErrorAction SilentlyContinue) {
+        msbuild $AppProject `
+            /restore `
+            /t:Publish `
+            /p:Configuration=$Configuration `
+            /p:Platform=x64 `
+            /p:RuntimeIdentifier=$Runtime `
+            /p:SelfContained=true `
+            /p:PublishDir=$publishDir
+    }
+    else {
+        dotnet publish $AppProject `
+            -c $Configuration `
+            -r $Runtime `
+            -o $Publish `
+            /p:SelfContained=true
+    }
 
     New-Item -ItemType Directory -Force (Join-Path $Publish "Backend") | Out-Null
     Copy-Item -Recurse (Join-Path $Dist "atten-backend") (Join-Path $Publish "Backend/atten-backend")
