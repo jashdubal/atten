@@ -90,7 +90,7 @@ DMGs already include the pinned model and do not require Python or Homebrew.
 Build and open a development app bundle:
 
 ```bash
-scripts/build-app
+scripts/build-app-macos
 open .build/Atten.app
 ```
 

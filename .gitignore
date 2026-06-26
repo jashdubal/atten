@@ -2,8 +2,16 @@
 tmp/*
 outputs/*
 !outputs/.gitkeep
+
+# Python
+__pycache__/
+.venv/
+dist/
+*.egg-info/
+
 # Pixi environments
 .pixi/*
 !.pixi/config.toml
-__pycache__/
+
+# Swift / Xcode
 .build/

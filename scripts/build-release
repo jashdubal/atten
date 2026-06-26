@@ -77,7 +77,7 @@ uv run --frozen --group release pyinstaller \
     --noconfirm \
     --distpath "$PYINSTALLER_DIST" \
     --workpath "$BUILD_ROOT/pyinstaller-work" \
-    "$ROOT/packaging/atten-backend.spec"
+    "$ROOT/packaging/atten-backend-macos.spec"
 
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/Licenses" "$CONTENTS/Resources/Backend"
 cp "$ROOT/.build/arm64-apple-macosx/release/Atten" "$CONTENTS/MacOS/Atten"

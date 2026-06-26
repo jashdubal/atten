@@ -25,7 +25,7 @@ jobs:
       - name: Test Swift application
         run: swift test
       - name: Test Python backend
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        run: uv run python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build release configuration
         run: swift build -c release
 
