@@ -13,6 +13,11 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode 16
+        run: |
+          XCODE="$(ls -d /Applications/Xcode_16*.app | tail -1)"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          swift --version
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.7.2"
@@ -28,4 +33,3 @@ jobs:
         run: uv run python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build release configuration
         run: swift build -c release
-
