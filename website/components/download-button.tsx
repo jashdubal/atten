@@ -68,16 +68,16 @@ function PlatformButton({
   }
 
   const contents = <>
-    <motion.span className="pointer-events-none absolute inset-0" style={{ background: glow }} />
+    {!secondary && <motion.span className="pointer-events-none absolute inset-0" style={{ background: glow }} />}
     <Icon className={`relative ${compact ? "size-4" : "size-5"}`} />
     <span className="relative">{label}</span>
     {!compact && (guide
       ? <ArrowRight className="relative ml-1 size-4 transition-transform duration-300 group-hover:translate-x-0.5" />
       : <ArrowDown className="relative ml-1 size-4 transition-transform duration-300 group-hover:translate-y-0.5" />)}
   </>;
-  const className = `group relative inline-flex overflow-hidden rounded-xl font-semibold shadow-[0_16px_50px_rgba(93,219,255,.16)] ${compact ? "items-center gap-2 px-3.5 py-2 text-[13px]" : "items-center gap-3 px-5 py-3.5"} ${secondary ? "border border-white/15 bg-[#0a101b]/88 text-[#dce8f5] hover:border-[#5ddbff]/45" : "bg-[#5ddbff] text-[#061018] shadow-[0_0_0_1px_rgba(145,232,255,.5),0_16px_50px_rgba(93,219,255,.2)]"}`;
+  const className = `group relative inline-flex overflow-hidden rounded-xl font-semibold transition-colors ${compact ? "items-center gap-2 px-3.5 py-2 text-[13px]" : "items-center gap-3 px-5 py-3.5"} ${secondary ? "border border-white/15 bg-[#0a101b] text-[#dce8f5] shadow-[0_8px_24px_rgba(0,0,0,.24)] hover:border-white/25 hover:bg-[#0d1522]" : "bg-[#5ddbff] text-[#061018] shadow-[0_0_0_1px_rgba(145,232,255,.5),0_16px_50px_rgba(93,219,255,.2)]"}`;
   const motionProps = {
-    onMouseMove: track,
+    onMouseMove: secondary ? undefined : track,
     whileHover: { y: -2, scale: 1.012 },
     whileTap: { scale: .98 },
     className,
