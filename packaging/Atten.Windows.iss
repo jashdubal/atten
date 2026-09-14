@@ -128,14 +128,20 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   MemoryStatus: TMemoryStatusEx;
-  FreeSpace, TotalSpace: Cardinal;
+  FreeSpace, TotalSpace: Int64;
+  InstallDrive: String;
 begin
   Result := True;
   if CurPageID <> wpSelectDir then
     exit;
 
-  if not GetSpaceOnDisk(WizardDirValue, True, FreeSpace, TotalSpace) or
-     (FreeSpace < RequiredDiskMiB) then begin
+  InstallDrive := ExtractFileDrive(WizardDirValue);
+  if InstallDrive = '' then
+    InstallDrive := WizardDirValue;
+  InstallDrive := AddBackslash(InstallDrive);
+
+  if not GetSpaceOnDisk64(InstallDrive, FreeSpace, TotalSpace) or
+     (FreeSpace < Int64(RequiredDiskMiB) * 1024 * 1024) then begin
     MsgBox(
       'Atten needs at least ' + IntToStr(RequiredDiskMiB div 1024) +
       ' GB of free disk space in the selected installation location.',
