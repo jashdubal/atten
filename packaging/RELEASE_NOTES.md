@@ -19,6 +19,20 @@ ID signing and notarization without changing the stable download URL.
 Source, license notices, the SPDX dependency manifest, and GitHub provenance
 attestations are published beside the DMG.
 
+## Windows fixes in this release
+
+Atten 0.2.2 and earlier installed correctly on Windows but never opened a
+window. The published app was missing its own compiled XAML resources, so it
+started, loaded the Windows App SDK, and then terminated while building its
+main window, with no error shown. This release fixes that, and the build now
+launches the real window on a Windows machine before an installer is
+published, so the failure cannot ship again unnoticed.
+
+The installer also now includes the Microsoft Visual C++ runtime the Windows
+App SDK depends on, and Atten writes a startup log to
+`%LOCALAPPDATA%\Atten\logs\startup.log` so any future launch problem can be
+reported precisely.
+
 ## Windows installation
 
 Download `Atten-Windows-x64-Setup.exe` and run it. The guided installer checks
