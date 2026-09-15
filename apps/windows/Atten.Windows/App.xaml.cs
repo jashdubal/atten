@@ -38,6 +38,12 @@ public partial class App : Application
             StartProbeWatchdog();
         }
 
+        if (isProbe)
+        {
+            Diagnostics.Log($"Application resource count: {Resources.Count}. " +
+                $"TitleTextBlockStyle present: {Resources.ContainsKey("TitleTextBlockStyle")}.");
+        }
+
         Diagnostics.Log(isProbe ? "Creating the main window for a launch probe." : "Creating the main window.");
         window = new MainWindow();
         window.Activate();
