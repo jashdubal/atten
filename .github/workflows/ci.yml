@@ -42,13 +42,21 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - uses: microsoft/setup-msbuild@v2
+      # MSBuild resolves a relative PublishDir against the project directory,
+      # not the repository root, so this passes an absolute path and then
+      # confirms the executable is really there.
       - name: Publish the self-contained Windows app
         shell: pwsh
-        run: >-
-          msbuild apps/windows/Atten.Windows/Atten.Windows.csproj
-          /restore /t:Publish /p:Configuration=Release /p:Platform=x64
-          /p:RuntimeIdentifier=win-x64 /p:SelfContained=true
-          /p:PublishDir=.build/windows-ci-publish\
+        run: |
+          $Publish = Join-Path $env:GITHUB_WORKSPACE ".build/windows-ci-publish"
+          msbuild apps/windows/Atten.Windows/Atten.Windows.csproj `
+            /restore /t:Publish /p:Configuration=Release /p:Platform=x64 `
+            /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
+            ("/p:PublishDir=" + $Publish + [IO.Path]::DirectorySeparatorChar)
+          $AppExe = Join-Path $Publish "Atten.Windows.exe"
+          if (-not (Test-Path $AppExe)) {
+            throw "The publish step did not produce $AppExe."
+          }
 
       # The app is a windowed executable, so a crash while its first window is
       # built produces no output at all: the process simply disappears. Start
@@ -56,11 +64,11 @@ jobs:
       - name: Probe the published app's launch path
         shell: pwsh
         run: |
+          $AppExe = Join-Path $env:GITHUB_WORKSPACE ".build/windows-ci-publish/Atten.Windows.exe"
           $Log = Join-Path $env:LOCALAPPDATA "Atten/logs/startup.log"
           Remove-Item $Log -Force -ErrorAction SilentlyContinue
-          $Probe = Start-Process -FilePath ".build/windows-ci-publish/Atten.Windows.exe" `
-            -ArgumentList "--validate-launch" -Wait -PassThru
-          if (Test-Path $Log) { Get-Content $Log }
+          $Probe = Start-Process -FilePath $AppExe -ArgumentList "--validate-launch" -Wait -PassThru
+          if (Test-Path $Log) { Get-Content $Log } else { Write-Host "No startup log was written." }
           if ($Probe.ExitCode -ne 0) {
             throw "Atten could not open its main window (exit code $($Probe.ExitCode))."
           }
