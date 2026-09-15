@@ -38,6 +38,7 @@ MinVersion=10.0.17763
 PrivilegesRequired=admin
 UninstallDisplayName=Atten
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=AttenIcon.ico
 WizardStyle=modern
 DisableWelcomePage=no
 

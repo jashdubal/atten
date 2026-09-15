@@ -148,6 +148,16 @@ def build_parser():
         help="Acceleration device: auto, cpu, cuda, or mps.",
     )
     parser.add_argument(
+        "--engine",
+        choices=["auto", "kokoro", "xtts-v2"],
+        default="auto",
+        help="Speech synthesis engine: auto, kokoro, or xtts-v2.",
+    )
+    parser.add_argument(
+        "--download-model",
+        help="Download on-demand model weights from Hugging Face (e.g. xtts-v2, facebook/mms-tts-ara, etc.).",
+    )
+    parser.add_argument(
         "--format", choices=["mp3", "wav"], default="mp3", help="Output format."
     )
     parser.add_argument(
@@ -176,10 +186,12 @@ def build_parser():
 
 
 def backend_info(device_mode="auto"):
+    from atten_backend.downloader import is_xtts_installed
     device = resolve_device(device_mode)
     return {
         **device.to_dict(),
         **model_status(),
+        "xtts_installed": is_xtts_installed(),
         "voice_count": len(VOICES),
     }
 
@@ -189,6 +201,25 @@ def main(argv=None):
     global SILENT_MODE, JSON_MODE
     SILENT_MODE = args.silent
     JSON_MODE = args.json
+
+    if args.download_model:
+        from atten_backend.downloader import download_hf_model
+        log_info(f"Starting download for {args.download_model}...", "⬇️")
+
+        def download_progress(payload):
+            if JSON_MODE:
+                emit("download_progress", **payload)
+            elif not SILENT_MODE:
+                print(f"⏳ {payload.get('status', '')} [{payload.get('percent', 0)}%]")
+
+        try:
+            download_hf_model(args.download_model, download_progress)
+            log_success(f"Model {args.download_model} downloaded successfully!", "🎉")
+            emit("download_completed", model=args.download_model)
+            return 0
+        except Exception as error:
+            log_error(f"Download failed: {error}")
+            return 1
 
     if args.list_voices:
         if args.json:
@@ -214,6 +245,7 @@ def main(argv=None):
             print(f"CUDA available: {info['cuda_available']}")
             print(f"MPS available: {info['mps_available']}")
             print(f"Model root valid: {info['model_root_valid']}")
+            print(f"XTTS-v2 installed: {info.get('xtts_installed', False)}")
             print(f"Voices: {info['voice_count']}")
         return 0
 
@@ -227,7 +259,7 @@ def main(argv=None):
         with warnings.catch_warnings():
             process_input(args)
         return 0
-    except (OSError, RuntimeError, ValueError) as error:
+    except Exception as error:
         log_error(str(error))
         return 1
 

@@ -9,7 +9,31 @@ public static class VoiceCatalog
         PropertyNameCaseInsensitive = true
     };
 
-    public static IReadOnlyList<Voice> All { get; } = Load();
+    private static readonly List<Voice> DynamicVoices = [];
+    private static readonly IReadOnlyList<Voice> BundledVoices = Load();
+
+    public static IReadOnlyList<Voice> All
+    {
+        get
+        {
+            lock (DynamicVoices)
+            {
+                if (DynamicVoices.Count == 0) return BundledVoices;
+                var list = new List<Voice>(BundledVoices);
+                list.AddRange(DynamicVoices);
+                return list;
+            }
+        }
+    }
+
+    public static void SetDynamicVoices(IEnumerable<Voice> voices)
+    {
+        lock (DynamicVoices)
+        {
+            DynamicVoices.Clear();
+            DynamicVoices.AddRange(voices);
+        }
+    }
 
     public static Voice ById(string id)
     {

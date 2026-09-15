@@ -96,10 +96,10 @@ class KokoroProvider:
                         self._model = self._model.to(self.device_info.selected_device)
                     self._model = self._model.eval()
                 self._pipelines[language_code] = KPipeline(
-                    lang_code=language_code, model=self._model
+                    lang_code=language_code, model=self._model, repo_id="hexgrad/Kokoro-82M"
                 )
             else:
-                pipeline = KPipeline(lang_code=language_code)
+                pipeline = KPipeline(lang_code=language_code, repo_id="hexgrad/Kokoro-82M")
                 pipeline_model = getattr(pipeline, "model", None)
                 if hasattr(pipeline_model, "to"):
                     pipeline_model.to(self.device_info.selected_device)
@@ -131,12 +131,37 @@ class SoundFileAudioIO:
         return audio
 
 
+from .xtts_provider import XTTSv2Provider
+from .downloader import is_xtts_installed
+
+
 class GenerationService:
     """Synthesizes segments and atomically publishes one audio file."""
 
-    def __init__(self, provider=None, audio_io=None, device_mode="auto"):
-        self.provider = provider or KokoroProvider(device_mode=device_mode)
+    def __init__(self, provider=None, audio_io=None, device_mode="auto", engine="auto"):
+        self.device_mode = device_mode
+        self.engine = engine
+        self._explicit_provider = provider
+        self._kokoro_provider = None
+        self._xtts_provider = None
         self.audio_io = audio_io or SoundFileAudioIO()
+
+    @property
+    def provider(self):
+        return self._explicit_provider or self.get_provider_for_voice("af_heart")
+
+    def get_provider_for_voice(self, voice: str):
+        if self._explicit_provider:
+            return self._explicit_provider
+        kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_")
+        if self.engine != "xtts-v2" and voice.startswith(kokoro_prefixes):
+            if self._kokoro_provider is None:
+                self._kokoro_provider = KokoroProvider(device_mode=self.device_mode)
+            return self._kokoro_provider
+
+        if self._xtts_provider is None:
+            self._xtts_provider = XTTSv2Provider(device_mode=self.device_mode)
+        return self._xtts_provider
 
     def generate(
         self,
@@ -166,8 +191,9 @@ class GenerationService:
         try:
             with TemporaryDirectory(prefix="atten-") as temporary_directory:
                 segment_paths = []
+                provider = self.get_provider_for_voice(request.voice)
                 for index, (_graphemes, _phonemes, audio) in enumerate(
-                    self.provider.segments(text, request.voice, request.speed)
+                    provider.segments(text, request.voice, request.speed)
                 ):
                     segment_path = Path(temporary_directory) / (
                         f"segment-{index}.{request.output_format}"

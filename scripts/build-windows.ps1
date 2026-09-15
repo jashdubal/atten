@@ -20,6 +20,7 @@ $Publish = Join-Path $BuildRoot "publish"
 $ArtifactRoot = Join-Path $Root $Output
 $InstallerScript = Join-Path $Root "packaging/Atten.Windows.iss"
 
+Get-Process Atten.Windows -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $BuildRoot, $ArtifactRoot -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $BuildRoot, $ArtifactRoot | Out-Null
 
@@ -43,14 +44,30 @@ try {
     # App SDK workload. Prefer its MSBuild when available; the fallback keeps
     # the script usable on a dotnet-only development machine.
     $publishDir = "$Publish\"
+    $msbuildPath = $null
     if (Get-Command msbuild -ErrorAction SilentlyContinue) {
-        msbuild $AppProject `
+        $msbuildPath = "msbuild"
+    } else {
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
+        if (Test-Path $vswhere) {
+            $msbuildFound = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+            if ($msbuildFound -and (Test-Path $msbuildFound)) {
+                $msbuildPath = $msbuildFound
+            }
+        }
+    }
+
+    if ($msbuildPath) {
+        & $msbuildPath $AppProject `
             /restore `
             /t:Publish `
             /p:Configuration=$Configuration `
             /p:Platform=x64 `
             /p:RuntimeIdentifier=$Runtime `
             /p:SelfContained=true `
+            /p:EnableMsixTooling=true `
+            /p:PublishTrimmed=false `
+            /p:PublishSingleFile=false `
             /p:PublishDir=$publishDir
     }
     else {
@@ -58,13 +75,17 @@ try {
             -c $Configuration `
             -r $Runtime `
             -o $Publish `
-            /p:SelfContained=true
+            /p:SelfContained=true `
+            /p:EnableMsixTooling=true `
+            /p:PublishTrimmed=false `
+            /p:PublishSingleFile=false
     }
 
     New-Item -ItemType Directory -Force (Join-Path $Publish "Backend") | Out-Null
-    Copy-Item -Recurse (Join-Path $Dist "atten-backend") (Join-Path $Publish "Backend/atten-backend")
+    Copy-Item -Recurse -Force (Join-Path $Dist "atten-backend") (Join-Path $Publish "Backend")
     New-Item -ItemType Directory -Force (Join-Path $Publish "Models") | Out-Null
-    Copy-Item -Recurse $ModelDestination (Join-Path $Publish "Models/Kokoro-82M")
+    Copy-Item -Recurse -Force $ModelDestination (Join-Path $Publish "Models")
+    New-Item -ItemType Directory -Force (Join-Path $Publish "resources") | Out-Null
     Copy-Item (Join-Path $Root "resources/voices.json") (Join-Path $Publish "resources/voices.json") -Force
 
     $Licenses = Join-Path $Publish "Licenses"
@@ -143,12 +164,17 @@ try {
     }
 
     $IsccCandidates = @(
+        (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 7/ISCC.exe"),
+        (Join-Path $env:ProgramFiles "Inno Setup 7/ISCC.exe"),
         (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"),
         (Join-Path $env:ProgramFiles "Inno Setup 6/ISCC.exe")
     )
     $Iscc = $IsccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if ($null -eq $Iscc -and (Get-Command iscc -ErrorAction SilentlyContinue)) {
+        $Iscc = "iscc"
+    }
     if ($null -eq $Iscc) {
-        throw "Inno Setup 6 was not found. Install it from https://jrsoftware.org/isinfo.php before building a Windows installer."
+        throw "Inno Setup (6 or 7) was not found. Install it from https://jrsoftware.org/isinfo.php before building a Windows installer."
     }
 
     $AssetBaseName = if ($BackendFlavor -eq "cuda") { "Atten-Windows-x64-CUDA-Setup" } else { "Atten-Windows-x64-Setup" }

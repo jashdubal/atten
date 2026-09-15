@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.17763.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Atten.Windows</RootNamespace>
     <Version>0.2.3</Version>
@@ -25,8 +25,11 @@
     -->
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishSingleFile>false</PublishSingleFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationIcon>AttenIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,5 +38,7 @@
 
   <ItemGroup>
     <Content Include="..\..\..\resources\voices.json" Link="resources\voices.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="AttenIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="AttenIcon.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

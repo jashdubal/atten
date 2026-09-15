@@ -31,20 +31,22 @@ def resolve_source(source, offline):
 
     from huggingface_hub import snapshot_download
 
-    voices = [f"voices/{voice['id']}.pt" for voice in VOICES]
     return Path(
         snapshot_download(
             repo_id=MODEL_REPOSITORY,
             revision=MODEL_REVISION,
-            allow_patterns=["config.json", "kokoro-v1_0.pth", "README.md", *voices],
+            allow_patterns=["config.json", "kokoro-v1_0.pth", "README.md", "voices/*.pt"],
             local_files_only=offline,
         )
     ).resolve()
 
 
 def stage_model(source, destination):
+    kokoro_voices = [
+        v for v in VOICES if (source / "voices" / f"{v['id']}.pt").is_file()
+    ]
     files = ["config.json", "kokoro-v1_0.pth"]
-    files.extend(f"voices/{voice['id']}.pt" for voice in VOICES)
+    files.extend(f"voices/{voice['id']}.pt" for voice in kokoro_voices)
     missing = [relative for relative in files if not (source / relative).is_file()]
     if missing:
         raise SystemExit("Kokoro snapshot is incomplete: " + ", ".join(missing))
@@ -65,7 +67,7 @@ def stage_model(source, destination):
     manifest = {
         "repository": MODEL_REPOSITORY,
         "revision": MODEL_REVISION,
-        "voice_count": len(VOICES),
+        "voice_count": len(kokoro_voices),
         "files": manifest_files,
     }
     (destination / "MODEL_MANIFEST.json").write_text(

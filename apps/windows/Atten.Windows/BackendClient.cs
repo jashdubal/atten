@@ -20,12 +20,16 @@ public sealed class BackendClient
 
         foreach (var line in result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            using var document = JsonDocument.Parse(line);
-            if (document.RootElement.GetProperty("event").GetString() == "backend_info")
+            try
             {
-                return JsonSerializer.Deserialize<BackendInfo>(line, options)
-                    ?? throw new InvalidOperationException("Backend info was unreadable.");
+                using var document = JsonDocument.Parse(line);
+                if (document.RootElement.TryGetProperty("event", out var ev) && ev.GetString() == "backend_info")
+                {
+                    return JsonSerializer.Deserialize<BackendInfo>(line, options)
+                        ?? throw new InvalidOperationException("Backend info was unreadable.");
+                }
             }
+            catch (JsonException) { }
         }
 
         throw new InvalidOperationException("Backend did not return backend_info.");
@@ -63,24 +67,45 @@ public sealed class BackendClient
                 cancellationToken);
 
             string? completedPath = null;
+            string? errorMessage = null;
             var segments = 0;
             var sampleRate = 24000;
             foreach (var line in result.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
-                if (root.GetProperty("event").GetString() == "completed")
+                try
                 {
-                    completedPath = root.GetProperty("path").GetString();
-                    if (root.TryGetProperty("segments", out var segmentValue))
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
+                    if (root.TryGetProperty("event", out var ev))
                     {
-                        segments = segmentValue.GetInt32();
-                    }
-                    if (root.TryGetProperty("sample_rate", out var rateValue))
-                    {
-                        sampleRate = rateValue.GetInt32();
+                        var eventType = ev.GetString();
+                        if (eventType == "completed")
+                        {
+                            completedPath = root.GetProperty("path").GetString();
+                            if (root.TryGetProperty("segments", out var segmentValue))
+                            {
+                                segments = segmentValue.GetInt32();
+                            }
+                            if (root.TryGetProperty("sample_rate", out var rateValue))
+                            {
+                                sampleRate = rateValue.GetInt32();
+                            }
+                        }
+                        else if (eventType == "error")
+                        {
+                            if (root.TryGetProperty("message", out var msg))
+                            {
+                                errorMessage = msg.GetString();
+                            }
+                        }
                     }
                 }
+                catch (JsonException) { }
+            }
+
+            if (!string.IsNullOrWhiteSpace(errorMessage))
+            {
+                throw new InvalidOperationException(errorMessage);
             }
 
             return completedPath is null
@@ -90,6 +115,85 @@ public sealed class BackendClient
         finally
         {
             try { File.Delete(input); } catch { }
+        }
+    }
+
+    public async Task DownloadModelAsync(
+        string modelId,
+        IProgress<ModelDownloadProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        var command = LocateCommand();
+        using var process = new Process();
+        process.StartInfo.FileName = command.Executable;
+        process.StartInfo.WorkingDirectory = command.WorkingDirectory ?? AppContext.BaseDirectory;
+        process.StartInfo.RedirectStandardOutput = true;
+        process.StartInfo.RedirectStandardError = true;
+        process.StartInfo.UseShellExecute = false;
+        process.StartInfo.CreateNoWindow = true;
+
+        foreach (var arg in command.Arguments.Concat(["--download-model", modelId, "--json"]))
+        {
+            process.StartInfo.ArgumentList.Add(arg);
+        }
+
+        process.Start();
+
+        using var reg = cancellationToken.Register(() =>
+        {
+            try { process.Kill(true); } catch { }
+        });
+
+        var readerTask = Task.Run(async () =>
+        {
+            while (!process.StandardOutput.EndOfStream)
+            {
+                var line = await process.StandardOutput.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
+                    if (root.TryGetProperty("event", out var eventElem))
+                    {
+                        var eventType = eventElem.GetString();
+                        if (eventType == "download_progress")
+                        {
+                            var percent = root.TryGetProperty("percent", out var p) ? p.GetInt32() : 0;
+                            var status = root.TryGetProperty("status", out var s) ? s.GetString() ?? "" : "";
+                            var speed = root.TryGetProperty("speed", out var sp) ? sp.GetString() ?? "" : "";
+                            var eta = root.TryGetProperty("eta", out var et) ? et.GetString() ?? "" : "";
+                            var sizeText = root.TryGetProperty("size_text", out var st) ? st.GetString() ?? "" : "";
+                            progress.Report(new ModelDownloadProgress(percent, status, speed, eta, sizeText));
+                        }
+                    }
+                }
+                catch { }
+            }
+        });
+
+        var errorTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(true); } catch { }
+            throw;
+        }
+
+        await readerTask;
+        var error = await errorTask;
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Model download failed." : error);
         }
     }
 
@@ -109,6 +213,15 @@ public sealed class BackendClient
             ?? FindRepositoryRoot(Directory.GetCurrentDirectory());
         if (root is not null && File.Exists(Path.Combine(root, "cli.py")))
         {
+            var venvPython = Path.Combine(root, ".venv", "Scripts", "python.exe");
+            if (File.Exists(venvPython))
+            {
+                return new BackendCommand(venvPython, [Path.Combine(root, "cli.py")])
+                {
+                    WorkingDirectory = root
+                };
+            }
+
             return new BackendCommand("python", [Path.Combine(root, "cli.py")])
             {
                 WorkingDirectory = root

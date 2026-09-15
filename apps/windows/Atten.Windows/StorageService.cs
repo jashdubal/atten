@@ -15,6 +15,7 @@ public sealed class StorageService
     public string ApplicationRoot { get; }
     public string ProjectsFile => Path.Combine(ApplicationRoot, "projects.json");
     public string SettingsFile => Path.Combine(ApplicationRoot, "settings.json");
+    public string ModelSizesCacheFile => Path.Combine(ApplicationRoot, "model_sizes_cache.json");
     public string DefaultExports => Path.Combine(ApplicationRoot, "Exports");
     public string VoicePreviews => Path.Combine(ApplicationRoot, "Voice Previews");
 
@@ -76,5 +77,37 @@ public sealed class StorageService
         Directory.CreateDirectory(ApplicationRoot);
         await using var stream = File.Create(ProjectsFile);
         await JsonSerializer.SerializeAsync(stream, projects, options);
+    }
+
+    public async Task<Dictionary<string, string>> LoadModelSizesCacheAsync()
+    {
+        if (!File.Exists(ModelSizesCacheFile))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(ModelSizesCacheFile);
+            var result = await JsonSerializer.DeserializeAsync<Dictionary<string, string>>(stream, options);
+            return result != null ? new Dictionary<string, string>(result, StringComparer.OrdinalIgnoreCase) : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public async Task SaveModelSizesCacheAsync(IDictionary<string, string> cache)
+    {
+        try
+        {
+            Directory.CreateDirectory(ApplicationRoot);
+            await using var stream = File.Create(ModelSizesCacheFile);
+            await JsonSerializer.SerializeAsync(stream, cache, options);
+        }
+        catch
+        {
+        }
     }
 }
