@@ -11,6 +11,14 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <!--
+      Generates the app's resources.pri, which is where the compiled XAML for
+      App and MainWindow lives. Without it the framework loads but the app's
+      own markup cannot be found, and the window throws XamlParseException
+      before anything is shown. Unpackaged apps need this just as much as
+      packaged ones.
+    -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!--
       An unpackaged WinUI app otherwise expects Microsoft.WindowsAppRuntime to
       have been installed separately.  Bundle it beside the application so a
       freshly installed copy can start on a clean Windows machine.

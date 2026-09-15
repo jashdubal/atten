@@ -42,10 +42,44 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - uses: microsoft/setup-msbuild@v2
+      # MSBuild resolves a relative PublishDir against the project directory,
+      # not the repository root, so this passes an absolute path and then
+      # confirms the executable is really there.
       - name: Publish the self-contained Windows app
         shell: pwsh
-        run: >-
-          msbuild apps/windows/Atten.Windows/Atten.Windows.csproj
-          /restore /t:Publish /p:Configuration=Release /p:Platform=x64
-          /p:RuntimeIdentifier=win-x64 /p:SelfContained=true
-          /p:PublishDir=.build/windows-ci-publish\
+        run: |
+          $Publish = Join-Path $env:GITHUB_WORKSPACE ".build/windows-ci-publish"
+          msbuild apps/windows/Atten.Windows/Atten.Windows.csproj `
+            /restore /t:Publish /p:Configuration=Release /p:Platform=x64 `
+            /p:RuntimeIdentifier=win-x64 /p:SelfContained=true `
+            ("/p:PublishDir=" + $Publish + [IO.Path]::DirectorySeparatorChar)
+          $AppExe = Join-Path $Publish "Atten.Windows.exe"
+          if (-not (Test-Path $AppExe)) {
+            throw "The publish step did not produce $AppExe."
+          }
+          # resources.pri carries the app's compiled XAML. If it is absent the
+          # app builds and installs perfectly and then dies parsing its first
+          # window, which is the failure this job exists to prevent.
+          if (-not (Test-Path (Join-Path $Publish "resources.pri"))) {
+            throw "The publish step did not produce resources.pri, so the app's XAML would not load."
+          }
+
+      # The app is a windowed executable, so a crash while its first window is
+      # built produces no output at all: the process simply disappears. Start
+      # it for real and fail the build when it cannot show its window.
+      - name: Probe the published app's launch path
+        shell: pwsh
+        run: |
+          $AppExe = Join-Path $env:GITHUB_WORKSPACE ".build/windows-ci-publish/Atten.Windows.exe"
+          $Log = Join-Path $env:LOCALAPPDATA "Atten/logs/startup.log"
+          Remove-Item $Log -Force -ErrorAction SilentlyContinue
+          $Probe = Start-Process -FilePath $AppExe -ArgumentList "--validate-launch" -PassThru
+          if (-not $Probe.WaitForExit(120000)) {
+            $Probe.Kill($true)
+            if (Test-Path $Log) { Get-Content $Log }
+            throw "Atten hung for two minutes without showing its main window."
+          }
+          if (Test-Path $Log) { Get-Content $Log } else { Write-Host "No startup log was written." }
+          if ($Probe.ExitCode -ne 0) {
+            throw "Atten could not open its main window (exit code $($Probe.ExitCode))."
+          }

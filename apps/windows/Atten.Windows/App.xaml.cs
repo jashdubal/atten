@@ -8,19 +8,79 @@ public partial class App : Application
 
     public App()
     {
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+            Diagnostics.Fatal("runtime", args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+            Diagnostics.Log($"Unobserved task exception: {args.Exception}");
+
         InitializeComponent();
+        UnhandledException += (_, args) =>
+        {
+            args.Handled = true;
+            Diagnostics.Fatal("xaml", args.Exception);
+            Environment.Exit(1);
+        };
+        Diagnostics.Log("Application initialized.");
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        if (Environment.GetCommandLineArgs().Contains("--validate-install", StringComparer.OrdinalIgnoreCase))
+        var commandLine = Environment.GetCommandLineArgs();
+        if (commandLine.Contains("--validate-install", StringComparer.OrdinalIgnoreCase))
         {
             _ = ValidateInstallationAsync();
             return;
         }
 
+        var isProbe = commandLine.Contains("--validate-launch", StringComparer.OrdinalIgnoreCase);
+        if (isProbe)
+        {
+            StartProbeWatchdog();
+        }
+
+        Diagnostics.Log(isProbe ? "Creating the main window for a launch probe." : "Creating the main window.");
         window = new MainWindow();
         window.Activate();
+        Diagnostics.Log("Main window activated.");
+
+        if (isProbe)
+        {
+            ExitAfterFirstFrame(window);
+        }
+    }
+
+    // A probe that hangs is as useless as one that never runs, and a build
+    // agent has nobody to close a stuck window. Always terminate with a
+    // logged result instead.
+    private static void StartProbeWatchdog()
+    {
+        var watchdog = new Thread(() =>
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(60));
+            Diagnostics.Log("Launch probe timed out before the window became ready.");
+            Environment.Exit(2);
+        })
+        {
+            IsBackground = true
+        };
+        watchdog.Start();
+    }
+
+    // The launch probe proves that XAML, the Windows App SDK, and the window's
+    // own startup work on a clean machine. It runs in the release build and in
+    // CI, because a crash while the first window is built is invisible to a
+    // user: the process simply disappears with no window and no message.
+    private static void ExitAfterFirstFrame(Window probeWindow)
+    {
+        var timer = probeWindow.DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(3);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            Diagnostics.Log("Launch probe succeeded.");
+            Environment.Exit(0);
+        };
+        timer.Start();
     }
 
     // The release build invokes this mode from the staged publish directory.
@@ -48,6 +108,7 @@ public partial class App : Application
         }
         catch (Exception error)
         {
+            Diagnostics.Log($"Installation validation failed: {error}");
             try { File.WriteAllText(errorPath, error.ToString()); } catch { }
             Environment.Exit(1);
         }

@@ -8,18 +8,42 @@ namespace Atten.Windows;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel model = new();
-    private readonly MediaPlayer player = new();
+    // Windows N and KN editions have no media stack until the Media Feature
+    // Pack is installed, and constructing a MediaPlayer there throws. Creating
+    // it on first playback keeps that failure out of the window's constructor,
+    // where it would take the whole app down before anything is shown.
+    private MediaPlayer? player;
 
     public MainWindow()
     {
         InitializeComponent();
         Root.DataContext = model;
-        _ = model.StartAsync();
+        _ = StartModelAsync();
+    }
+
+    private async Task StartModelAsync()
+    {
+        try
+        {
+            await model.StartAsync();
+        }
+        catch (Exception error)
+        {
+            Diagnostics.Log($"Model startup failed: {error}");
+            model.Status = error.Message;
+        }
     }
 
     private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string tag)
+        {
+            return;
+        }
+
+        // Selection can be raised while the window's content is still being
+        // built, before the named panels below have been assigned.
+        if (StudioPanel is null)
         {
             return;
         }
@@ -80,7 +104,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        player.Source = MediaSource.CreateFromUri(new Uri(model.CurrentAudioPath));
-        player.Play();
+        try
+        {
+            player ??= new MediaPlayer();
+            player.Source = MediaSource.CreateFromUri(new Uri(model.CurrentAudioPath));
+            player.Play();
+        }
+        catch (Exception error)
+        {
+            Diagnostics.Log($"Playback failed: {error}");
+            model.Status = "Windows could not play this audio file on this system.";
+        }
     }
 }
