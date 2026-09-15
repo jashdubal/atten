@@ -57,6 +57,12 @@ jobs:
           if (-not (Test-Path $AppExe)) {
             throw "The publish step did not produce $AppExe."
           }
+          # resources.pri carries the app's compiled XAML. If it is absent the
+          # app builds and installs perfectly and then dies parsing its first
+          # window, which is the failure this job exists to prevent.
+          if (-not (Test-Path (Join-Path $Publish "resources.pri"))) {
+            throw "The publish step did not produce resources.pri, so the app's XAML would not load."
+          }
 
       # A WinUI window's first theme-resource lookup fails if the merged
       # resources.pri is missing, so record what the publish actually produced.
