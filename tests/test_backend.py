@@ -97,9 +97,10 @@ class GenerationServiceTests(unittest.TestCase):
                     return self
 
             class FakePipeline:
-                def __init__(self, lang_code, model):
+                def __init__(self, lang_code, model, repo_id=None):
                     calls["language"] = lang_code
                     calls["pipeline_model"] = model
+                    calls["repo_id"] = repo_id
 
                 def __call__(self, text, voice, speed, split_pattern):
                     calls["voice"] = voice
