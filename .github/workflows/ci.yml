@@ -49,3 +49,18 @@ jobs:
           /restore /t:Publish /p:Configuration=Release /p:Platform=x64
           /p:RuntimeIdentifier=win-x64 /p:SelfContained=true
           /p:PublishDir=.build/windows-ci-publish\
+
+      # The app is a windowed executable, so a crash while its first window is
+      # built produces no output at all: the process simply disappears. Start
+      # it for real and fail the build when it cannot show its window.
+      - name: Probe the published app's launch path
+        shell: pwsh
+        run: |
+          $Log = Join-Path $env:LOCALAPPDATA "Atten/logs/startup.log"
+          Remove-Item $Log -Force -ErrorAction SilentlyContinue
+          $Probe = Start-Process -FilePath ".build/windows-ci-publish/Atten.Windows.exe" `
+            -ArgumentList "--validate-launch" -Wait -PassThru
+          if (Test-Path $Log) { Get-Content $Log }
+          if ($Probe.ExitCode -ne 0) {
+            throw "Atten could not open its main window (exit code $($Probe.ExitCode))."
+          }

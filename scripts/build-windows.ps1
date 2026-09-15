@@ -92,16 +92,43 @@ try {
         $env:HF_HUB_OFFLINE = $PreviousOffline
     }
 
-    # Start the published WinUI executable without showing its main window.
-    # This validates the self-contained Windows App SDK deployment as well as
-    # the app's own resource and backend discovery paths.
+    # Atten.Windows.exe is a windowed executable, so PowerShell does not wait
+    # for it and $LASTEXITCODE says nothing about how it finished. Start-Process
+    # -Wait is what makes these checks real rather than decorative.
+    $AppExe = Join-Path $Publish "Atten.Windows.exe"
     $ValidationError = Join-Path $Publish "install-validation-error.txt"
-    Remove-Item $ValidationError -Force -ErrorAction SilentlyContinue
-    & (Join-Path $Publish "Atten.Windows.exe") --validate-install
-    if ($LASTEXITCODE -ne 0) {
-        $ValidationDetail = if (Test-Path $ValidationError) { Get-Content $ValidationError -Raw } else { "No diagnostic file was written." }
-        throw "The published Windows app failed its startup check: $ValidationDetail"
+    $LaunchLog = Join-Path $env:LOCALAPPDATA "Atten/logs/startup.log"
+
+    function Invoke-AppCheck([string] $Mode, [string] $Description) {
+        Remove-Item $ValidationError, $LaunchLog -Force -ErrorAction SilentlyContinue
+        $Probe = Start-Process -FilePath $AppExe -ArgumentList $Mode -Wait -PassThru
+        if ($Probe.ExitCode -ne 0) {
+            $Detail = if (Test-Path $ValidationError) { Get-Content $ValidationError -Raw }
+                      elseif (Test-Path $LaunchLog) { Get-Content $LaunchLog -Raw }
+                      else { "The app exited with $($Probe.ExitCode) before it could write a diagnostic." }
+            throw "$Description $Detail"
+        }
     }
+
+    # Proves the self-contained Windows App SDK deployment and the app's
+    # resource, backend, and model discovery all work from the staged build.
+    Invoke-AppCheck "--validate-install" "The published Windows app failed its installation check:"
+
+    # Proves the app can actually build and show its main window. Without this
+    # a crash during window creation ships silently: the user launches Atten
+    # and nothing at all appears.
+    Invoke-AppCheck "--validate-launch" "The published Windows app failed its launch check:"
+
+    # Diagnostics written by the checks above must not reach the installer.
+    Remove-Item $ValidationError -Force -ErrorAction SilentlyContinue
+
+    # The Windows App SDK's native components need the Microsoft Visual C++
+    # runtime, which a clean Windows machine does not necessarily have. Ship
+    # the redistributable so the installed app still starts entirely offline.
+    $Prerequisites = Join-Path $Publish "Prerequisites"
+    New-Item -ItemType Directory -Force $Prerequisites | Out-Null
+    Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" `
+        -OutFile (Join-Path $Prerequisites "VC_redist.x64.exe") -UseBasicParsing
 
     if ([string]::IsNullOrWhiteSpace($Version)) {
         [xml] $ProjectXml = Get-Content $AppProject

@@ -57,14 +57,32 @@ scripts/build-windows.ps1 -BackendFlavor cuda
 
 The script publishes the self-contained WinUI app, builds the Windows
 PyInstaller backend, stages the Kokoro 82M model, runs the packaged backend's
-offline capability check, starts the published app in a no-window validation
-mode, and creates an Inno Setup installer. It produces
+offline capability check, runs the app's two startup checks
+(`--validate-install` for resources and backend, `--validate-launch` for the
+main window itself), stages the Visual C++ redistributable, and creates an Inno
+Setup installer. Both startup checks use `Start-Process -Wait`: `Atten.Windows.exe`
+is a windowed executable, so PowerShell does not wait for it and `$LASTEXITCODE`
+would report nothing about how it finished. It produces
 `.build/windows-artifacts/Atten-Windows-x64-Setup.exe` for CPU builds or
 `.build/windows-artifacts/Atten-Windows-x64-CUDA-Setup.exe` for CUDA builds.
 The installer presents the end-user requirements before installation, blocks
 unsupported 32-bit systems and computers with less than 8 GB RAM, checks for
 4 GB free install space, and warns if less than 4 GB RAM is currently free for
 model loading.
+
+## Diagnosing a launch failure
+
+Every launch appends to `%LOCALAPPDATA%\Atten\logs\startup.log`, and a crash
+inside the app also shows a message box naming that file. The first line is
+written by a module initializer, before any Windows App SDK type is touched, so
+the log distinguishes the two ways Atten can fail to start:
+
+- **The log has entries.** The app reached managed code; the logged exception
+  says what went wrong.
+- **The log is missing or empty after a launch attempt.** The process died in
+  the loader before running any of Atten's code, which means a missing runtime
+  dependency rather than an app bug. The installer ships the Visual C++
+  redistributable for exactly this case.
 
 ## Current status
 
