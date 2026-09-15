@@ -67,7 +67,12 @@ jobs:
           $AppExe = Join-Path $env:GITHUB_WORKSPACE ".build/windows-ci-publish/Atten.Windows.exe"
           $Log = Join-Path $env:LOCALAPPDATA "Atten/logs/startup.log"
           Remove-Item $Log -Force -ErrorAction SilentlyContinue
-          $Probe = Start-Process -FilePath $AppExe -ArgumentList "--validate-launch" -Wait -PassThru
+          $Probe = Start-Process -FilePath $AppExe -ArgumentList "--validate-launch" -PassThru
+          if (-not $Probe.WaitForExit(120000)) {
+            $Probe.Kill($true)
+            if (Test-Path $Log) { Get-Content $Log }
+            throw "Atten hung for two minutes without showing its main window."
+          }
           if (Test-Path $Log) { Get-Content $Log } else { Write-Host "No startup log was written." }
           if ($Probe.ExitCode -ne 0) {
             throw "Atten could not open its main window (exit code $($Probe.ExitCode))."

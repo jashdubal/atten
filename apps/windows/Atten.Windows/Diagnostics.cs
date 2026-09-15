@@ -38,11 +38,26 @@ public static class Diagnostics
     public static void Fatal(string phase, Exception? error)
     {
         Log($"FATAL ({phase}): {error}");
+
+        // A modal dialog would hang forever during an automated check, where
+        // there is nobody to dismiss it. The log is the report in that case.
+        if (IsAutomatedCheck())
+        {
+            return;
+        }
+
         MessageBox(
             IntPtr.Zero,
             $"Atten could not start.\n\n{error?.Message}\n\nDetails were written to:\n{LogPath}",
             "Atten",
             0x00000010 /* MB_ICONERROR */);
+    }
+
+    public static bool IsAutomatedCheck()
+    {
+        return Environment.GetCommandLineArgs().Any(argument =>
+            argument.Equals("--validate-launch", StringComparison.OrdinalIgnoreCase) ||
+            argument.Equals("--validate-install", StringComparison.OrdinalIgnoreCase));
     }
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]

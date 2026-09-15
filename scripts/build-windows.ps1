@@ -101,7 +101,11 @@ try {
 
     function Invoke-AppCheck([string] $Mode, [string] $Description) {
         Remove-Item $ValidationError, $LaunchLog -Force -ErrorAction SilentlyContinue
-        $Probe = Start-Process -FilePath $AppExe -ArgumentList $Mode -Wait -PassThru
+        $Probe = Start-Process -FilePath $AppExe -ArgumentList $Mode -PassThru
+        if (-not $Probe.WaitForExit(300000)) {
+            $Probe.Kill($true)
+            throw "$Description The app never finished its $Mode check."
+        }
         if ($Probe.ExitCode -ne 0) {
             $Detail = if (Test-Path $ValidationError) { Get-Content $ValidationError -Raw }
                       elseif (Test-Path $LaunchLog) { Get-Content $LaunchLog -Raw }

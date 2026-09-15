@@ -33,6 +33,11 @@ public partial class App : Application
         }
 
         var isProbe = commandLine.Contains("--validate-launch", StringComparer.OrdinalIgnoreCase);
+        if (isProbe)
+        {
+            StartProbeWatchdog();
+        }
+
         Diagnostics.Log(isProbe ? "Creating the main window for a launch probe." : "Creating the main window.");
         window = new MainWindow();
         window.Activate();
@@ -42,6 +47,23 @@ public partial class App : Application
         {
             ExitAfterFirstFrame(window);
         }
+    }
+
+    // A probe that hangs is as useless as one that never runs, and a build
+    // agent has nobody to close a stuck window. Always terminate with a
+    // logged result instead.
+    private static void StartProbeWatchdog()
+    {
+        var watchdog = new Thread(() =>
+        {
+            Thread.Sleep(TimeSpan.FromSeconds(60));
+            Diagnostics.Log("Launch probe timed out before the window became ready.");
+            Environment.Exit(2);
+        })
+        {
+            IsBackground = true
+        };
+        watchdog.Start();
     }
 
     // The launch probe proves that XAML, the Windows App SDK, and the window's
