@@ -170,7 +170,8 @@ if grep -R -I -l -E '/Users/runner|/Users/jash|/\.venv/' "$CONTENTS" >/dev/null;
     exit 1
 fi
 
-test "$(find "$MODEL_DESTINATION/voices" -type f -name '*.pt' | wc -l | tr -d ' ')" -eq 37
+EXPECTED_VOICE_COUNT="$(python3 -c 'import json; print(json.load(open("'"$MODEL_DESTINATION"'/MODEL_MANIFEST.json"))["voice_count"])')"
+test "$(find "$MODEL_DESTINATION/voices" -type f -name '*.pt' | wc -l | tr -d ' ')" -eq "$EXPECTED_VOICE_COUNT"
 "$CONTENTS/Resources/Backend/atten-backend/atten-backend" --list-voices --json >/dev/null
 "$ROOT/scripts/smoke-packaged-backend" --quick "$APP"
 
