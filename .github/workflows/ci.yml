@@ -64,17 +64,6 @@ jobs:
             throw "The publish step did not produce resources.pri, so the app's XAML would not load."
           }
 
-      # A WinUI window's first theme-resource lookup fails if the merged
-      # resources.pri is missing, so record what the publish actually produced.
-      - name: Inspect the publish output
-        shell: pwsh
-        run: |
-          $Publish = Join-Path $env:GITHUB_WORKSPACE ".build/windows-ci-publish"
-          Get-ChildItem $Publish -Filter "*.pri" | Format-Table Name, Length
-          Get-ChildItem $Publish -Filter "Microsoft.UI.Xaml*" | Format-Table Name, Length
-          Get-ChildItem $Publish -Filter "*.xbf" -Recurse | Format-Table FullName, Length
-          Write-Host "Total files: $((Get-ChildItem $Publish -Recurse -File).Count)"
-
       # The app is a windowed executable, so a crash while its first window is
       # built produces no output at all: the process simply disappears. Start
       # it for real and fail the build when it cannot show its window.
