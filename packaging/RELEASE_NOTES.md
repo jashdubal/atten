@@ -19,19 +19,18 @@ ID signing and notarization without changing the stable download URL.
 Source, license notices, the SPDX dependency manifest, and GitHub provenance
 attestations are published beside the DMG.
 
-## Windows fixes in this release
+## Windows improvements in this release
 
-Atten 0.2.2 and earlier installed correctly on Windows but never opened a
-window. The published app was missing its own compiled XAML resources, so it
-started, loaded the Windows App SDK, and then terminated while building its
-main window, with no error shown. This release fixes that, and the build now
-launches the real window on a Windows machine before an installer is
-published, so the failure cannot ship again unnoticed.
+Atten for Windows gains live Hugging Face model discovery and search, with
+filtering by language and sorting by downloads, stars, size, or provider.
+Downloads are now resumable, with pause/cancel controls, live speed and ETA,
+and state that persists across app restarts.
 
-The installer also now includes the Microsoft Visual C++ runtime the Windows
-App SDK depends on, and Atten writes a startup log to
-`%LOCALAPPDATA%\Atten\logs\startup.log` so any future launch problem can be
-reported precisely.
+This release also adds multilingual neural engine support (XTTS-v2,
+Kokoro-82M, GGUF, MMS-TTS), including Arabic, German, Spanish, French,
+Italian, Portuguese, Russian, Turkish, Dutch, Polish, Japanese, Chinese, and
+Hindi voices, plus an integrated audio player bar with seek, play/pause, and
+auto-play when generation completes.
 
 ## Windows installation
 
