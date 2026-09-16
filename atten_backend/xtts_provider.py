@@ -80,14 +80,37 @@ def _resample_and_speed(
 class XTTSv2Provider:
     """TTS provider for Arabic (العربية) and Multilingual neural synthesis."""
 
-    def __init__(self, model_root: Path = None, device_mode: str = "auto"):
+    def __init__(self, model_root: Path = None, device_mode: str = "auto", hf_model_id: str = None):
         self.device_info = resolve_device(device_mode)
         self._model_dir = model_root or (get_models_directory() / "XTTS-v2")
         self._models: Dict[str, Tuple[object, object]] = {}
         self._coqui_model = None
         self._coqui_config = None
+        self._hf_model_id = hf_model_id
+        if hf_model_id and "xtts" in hf_model_id.lower():
+            self._hf_model_id = None
+
+    def _local_directory_for(self, model_id: str) -> Path:
+        """Returns the on-disk directory the downloader uses for a Hugging Face repo."""
+        return get_models_directory() / model_id.replace("/", "--")
 
     def _ensure_loaded(self, language: str = "ar"):
+        # An explicitly requested Hugging Face repo wins over language guessing.
+        if self._hf_model_id:
+            if self._hf_model_id in self._models:
+                return
+            from transformers import AutoTokenizer, VitsModel
+
+            local_dir = self._local_directory_for(self._hf_model_id)
+            load_path = str(local_dir) if (local_dir / "config.json").is_file() else self._hf_model_id
+            tokenizer = AutoTokenizer.from_pretrained(load_path)
+            model = VitsModel.from_pretrained(load_path)
+            if hasattr(model, "to"):
+                model.to(self.device_info.selected_device)
+            model.eval()
+            self._models[self._hf_model_id] = (tokenizer, model)
+            return
+
         # If Coqui model already loaded
         if self._coqui_model is not None:
             return
@@ -166,6 +189,8 @@ class XTTSv2Provider:
                 language = p
 
         self._ensure_loaded(language=language)
+        if self._hf_model_id:
+            language = self._hf_model_id
 
         if self._coqui_model is not None:
             lines = [line.strip() for line in text.split("\n") if line.strip()]

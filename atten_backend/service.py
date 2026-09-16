@@ -138,9 +138,10 @@ from .downloader import is_xtts_installed
 class GenerationService:
     """Synthesizes segments and atomically publishes one audio file."""
 
-    def __init__(self, provider=None, audio_io=None, device_mode="auto", engine="auto"):
+    def __init__(self, provider=None, audio_io=None, device_mode="auto", engine="auto", model_id=None):
         self.device_mode = device_mode
         self.engine = engine
+        self.model_id = model_id
         self._explicit_provider = provider
         self._kokoro_provider = None
         self._xtts_provider = None
@@ -154,13 +155,16 @@ class GenerationService:
         if self._explicit_provider:
             return self._explicit_provider
         kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_")
-        if self.engine != "xtts-v2" and voice.startswith(kokoro_prefixes):
+        uses_kokoro = self.model_id is None or "kokoro" in self.model_id.lower()
+        if self.engine != "xtts-v2" and uses_kokoro and voice.startswith(kokoro_prefixes):
             if self._kokoro_provider is None:
                 self._kokoro_provider = KokoroProvider(device_mode=self.device_mode)
             return self._kokoro_provider
 
         if self._xtts_provider is None:
-            self._xtts_provider = XTTSv2Provider(device_mode=self.device_mode)
+            self._xtts_provider = XTTSv2Provider(
+                device_mode=self.device_mode, hf_model_id=self.model_id
+            )
         return self._xtts_provider
 
     def generate(

@@ -1,10 +1,57 @@
 import Foundation
 
 public enum VoiceCatalog {
-    public static let all: [Voice] = loadSharedCatalog() ?? fallback
+    public static let bundled: [Voice] = loadSharedCatalog() ?? fallback
+
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var downloaded: [Voice] = []
+
+    /// Bundled voices followed by one voice per downloaded Hugging Face model.
+    public static var all: [Voice] {
+        lock.withLock { bundled + downloaded }
+    }
 
     public static func voice(id: String) -> Voice? {
         all.first { $0.id == id }
+    }
+
+    public static let kokoroProvider = "Kokoro-82M"
+    public static let multilingualProvider = "XTTS-v2 & Multilingual"
+
+    /// Replaces the voices contributed by downloaded models. Kokoro and XTTS-v2
+    /// already have catalog voices, so they do not add a new one.
+    public static func setInstalledModels(_ models: [InstalledModel]) {
+        let voices = models
+            .filter { !$0.isBundled && $0.id != ModelStore.xttsID }
+            .map(voice(for:))
+        lock.withLock { downloaded = voices }
+    }
+
+    public static func voice(for model: InstalledModel) -> Voice {
+        let slug = model.id.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "_" }
+        let language = model.languages
+            .split(separator: ",")
+            .first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? "Multilingual"
+        return Voice(
+            id: "dyn_" + String(slug),
+            name: model.name,
+            language: language,
+            languageCode: "dyn",
+            gender: "Neutral",
+            traits: ["Neural", "Downloaded"],
+            quality: "Community",
+            provider: model.name,
+            modelID: model.id
+        )
+    }
+
+    static func provider(forVoiceID id: String) -> String {
+        let kokoroPrefixes = [
+            "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_",
+            "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_",
+        ]
+        return kokoroPrefixes.contains(where: id.hasPrefix) ? kokoroProvider : multilingualProvider
     }
 
     private static func loadSharedCatalog() -> [Voice]? {
@@ -46,7 +93,8 @@ public enum VoiceCatalog {
                 languageCode: languageCode,
                 gender: gender,
                 traits: traits,
-                quality: quality
+                quality: quality,
+                provider: VoiceCatalog.provider(forVoiceID: id)
             )
         }
     }
@@ -107,7 +155,8 @@ public enum VoiceCatalog {
             languageCode: languageCode,
             gender: gender,
             traits: traits,
-            quality: quality
+            quality: quality,
+            provider: kokoroProvider
         )
     }
 }

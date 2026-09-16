@@ -68,6 +68,29 @@ class GenerationServiceTests(unittest.TestCase):
             self.assertEqual(provider.calls, [("Hello woods", "bf_emma", 1.2)])
             self.assertEqual(audio_io.writes[-1][1], [0.1, 0.2, 0.3])
 
+    def test_explicit_model_routes_to_multilingual_provider(self):
+        created = {}
+
+        class FakeXTTS:
+            def __init__(self, device_mode="auto", hf_model_id=None):
+                created["hf_model_id"] = hf_model_id
+
+        with patch("atten_backend.service.XTTSv2Provider", FakeXTTS), patch(
+            "atten_backend.service.KokoroProvider"
+        ) as kokoro:
+            service = GenerationService(model_id="facebook/mms-tts-ara")
+            provider = service.get_provider_for_voice("dyn_facebook_mms_tts_ara")
+            self.assertIsInstance(provider, FakeXTTS)
+            self.assertEqual(created["hf_model_id"], "facebook/mms-tts-ara")
+
+            GenerationService().get_provider_for_voice("af_heart")
+            kokoro.assert_called_once()
+
+    def test_cli_accepts_model_flag(self):
+        args = cli.build_parser().parse_args(["hello", "--model", "facebook/mms-tts-ara"])
+        self.assertEqual(args.model, "facebook/mms-tts-ara")
+        self.assertIsNone(cli.build_parser().parse_args(["hello"]).model)
+
     def test_provider_failure_does_not_publish_partial_file(self):
         with TemporaryDirectory() as directory:
             service = GenerationService(

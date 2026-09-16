@@ -65,7 +65,7 @@ def process_input(args, service=None):
     else:
         text = args.text
 
-    service = service or GenerationService(device_mode=args.device)
+    service = service or GenerationService(device_mode=args.device, model_id=args.model)
     device_info = getattr(service.provider, "device_info", None)
     if device_info and device_info.warning:
         emit("warning", message=device_info.warning)
@@ -152,6 +152,11 @@ def build_parser():
         choices=["auto", "kokoro", "xtts-v2"],
         default="auto",
         help="Speech synthesis engine: auto, kokoro, or xtts-v2.",
+    )
+    parser.add_argument(
+        "--model",
+        help="Hugging Face repository of a downloaded model to synthesize with "
+        "(e.g. facebook/mms-tts-ara). Defaults to the bundled Kokoro model.",
     )
     parser.add_argument(
         "--download-model",

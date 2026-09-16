@@ -6,6 +6,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case studio
     case playground
     case voices
+    case models
     case projects
     case exports
 
@@ -17,6 +18,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .studio: "waveform"
         case .playground: "flask"
         case .voices: "person.2"
+        case .models: "shippingbox"
         case .projects: "doc.on.doc"
         case .exports: "waveform.badge.magnifyingglass"
         }
@@ -43,6 +45,11 @@ struct RootView: View {
             ZStack {
                 AttenBackdrop()
                 detail
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if model.playerTitle != nil {
+                    PlayerBar(model: model)
+                }
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -109,7 +116,7 @@ struct RootView: View {
                 .overlay(AttenColor.separator)
 
             StatusIndicator(
-                title: "KOKORO_82M",
+                title: "\(model.library.installed.count) MODELS",
                 detail: model.backendIsAvailable ? "STATUS: READY" : "STATUS: OFFLINE",
                 isAvailable: model.backendIsAvailable
             )
@@ -126,6 +133,8 @@ struct RootView: View {
             PlaygroundView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
         case .voices:
             VoicesView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
+        case .models:
+            ModelsView(model: model)
         case .projects:
             ProjectsView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
         case .exports:

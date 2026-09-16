@@ -268,12 +268,13 @@ struct StudioView: View {
             .buttonStyle(AttenPrimaryButtonStyle())
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .accessibilityHint("Generates speech locally with the selected Kokoro voice")
+            .accessibilityHint("Generates speech locally with the selected voice")
         }
     }
 
     private var groupedLanguages: [String] {
-        Array(Set(VoiceCatalog.all.map(\.language))).sorted()
+        _ = model.voiceCatalogRevision
+        return Array(Set(VoiceCatalog.all.map(\.language))).sorted()
     }
 
     private var wordCount: Int {
