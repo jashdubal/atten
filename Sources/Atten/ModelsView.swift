@@ -122,9 +122,15 @@ struct ModelsView: View {
 
             Spacer()
 
-            Button("", systemImage: "arrow.clockwise") { self.library.refresh() }
-                .buttonStyle(.bordered)
-                .disabled(self.library.isSearching)
+            Button {
+                self.library.refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .disabled(self.library.isSearching)
+            .help("Refresh")
+            .accessibilityLabel("Refresh")
         }
     }
 }

@@ -58,6 +58,7 @@ struct RootView: View {
         .font(AttenTypography.body)
         .foregroundStyle(AttenColor.textPrimary)
         .background(WindowTitleHider())
+        .toolbarBackground(AttenColor.appBackground, for: .windowToolbar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 ToolbarIconButton(
