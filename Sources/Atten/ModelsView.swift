@@ -122,7 +122,7 @@ struct ModelsView: View {
 
             Spacer()
 
-            Button("Refresh", systemImage: "arrow.clockwise") { self.library.refresh() }
+            Button("", systemImage: "arrow.clockwise") { self.library.refresh() }
                 .buttonStyle(.bordered)
                 .disabled(self.library.isSearching)
         }
