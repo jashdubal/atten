@@ -34,6 +34,11 @@ final class AppModel {
     /// Bumped when downloaded models add or remove voices, since the voice
     /// catalog itself is not observable.
     private(set) var voiceCatalogRevision = 0
+    var availableUpdate: AppRelease?
+    private(set) var isInstallingUpdate = false
+    var updateError: String?
+    var updateMessage: String?
+    private(set) var isCheckingForUpdate = false
     let library: ModelLibrary
 
     @ObservationIgnored private let directories: AppDirectories
@@ -133,6 +138,43 @@ final class AppModel {
             startupError = error.localizedDescription
         }
         library.start()
+        await checkForUpdate()
+    }
+
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.4"
+    }
+
+    /// Launch checks stay silent when offline; manual checks report the outcome.
+    func checkForUpdate(manual: Bool = false) async {
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            if manual { updateMessage = "Update checks only run in the installed app." }
+            return
+        }
+        guard !isCheckingForUpdate else { return }
+        isCheckingForUpdate = true
+        defer { isCheckingForUpdate = false }
+        do {
+            availableUpdate = try await UpdateChecker.newerRelease(than: appVersion)
+            if manual, availableUpdate == nil { updateMessage = "You're on the latest version (\(appVersion))." }
+        } catch {
+            if manual { updateMessage = "Couldn't reach GitHub. Check your internet connection." }
+        }
+    }
+
+    func installUpdate() {
+        guard let release = availableUpdate, !isInstallingUpdate else { return }
+        isInstallingUpdate = true
+        Task {
+            do {
+                let stagedApp = try await UpdateChecker.downloadAndStage(release)
+                try UpdateChecker.scheduleReplacement(of: Bundle.main.bundleURL, with: stagedApp)
+                NSApp.terminate(nil)
+            } catch {
+                isInstallingUpdate = false
+                updateError = error.localizedDescription
+            }
+        }
     }
 
     var playerTitle: String? {
