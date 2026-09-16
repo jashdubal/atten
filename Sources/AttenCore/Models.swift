@@ -17,6 +17,8 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
     public let traits: [String]
     public let quality: String
     public let provider: String
+    /// Hugging Face repository that synthesizes this voice; nil for Kokoro.
+    public let modelID: String?
 
     public init(
         id: String,
@@ -26,7 +28,8 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
         gender: String,
         traits: [String],
         quality: String,
-        provider: String = "Kokoro"
+        provider: String = "Kokoro",
+        modelID: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -36,6 +39,7 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
         self.traits = traits
         self.quality = quality
         self.provider = provider
+        self.modelID = modelID
     }
 }
 
@@ -47,6 +51,7 @@ public struct GenerationRequest: Equatable, Sendable {
     public var outputDirectory: URL
     public var filename: String
     public var useMPS: Bool
+    public var modelID: String?
 
     public init(
         text: String,
@@ -55,7 +60,8 @@ public struct GenerationRequest: Equatable, Sendable {
         format: AudioFormat,
         outputDirectory: URL,
         filename: String,
-        useMPS: Bool = true
+        useMPS: Bool = true,
+        modelID: String? = nil
     ) {
         self.text = text
         self.voiceID = voiceID
@@ -64,6 +70,7 @@ public struct GenerationRequest: Equatable, Sendable {
         self.outputDirectory = outputDirectory
         self.filename = filename
         self.useMPS = useMPS
+        self.modelID = modelID
     }
 }
 
@@ -135,6 +142,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var selectedVoiceID: String
     public var favoriteVoiceIDs: Set<String>
     public var useMPS: Bool
+    /// Downloads that were running or paused, resumed on the next launch.
+    public var pendingDownloadModelIDs: Set<String>
 
     public init(
         appearance: AppearancePreference = .system,
@@ -143,7 +152,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         defaultSpeed: Double = 1.0,
         selectedVoiceID: String = "af_heart",
         favoriteVoiceIDs: Set<String> = ["af_heart", "af_bella", "bf_emma"],
-        useMPS: Bool = true
+        useMPS: Bool = true,
+        pendingDownloadModelIDs: Set<String> = []
     ) {
         self.appearance = appearance
         self.outputDirectory = outputDirectory
@@ -152,5 +162,23 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.selectedVoiceID = selectedVoiceID
         self.favoriteVoiceIDs = favoriteVoiceIDs
         self.useMPS = useMPS
+        self.pendingDownloadModelIDs = pendingDownloadModelIDs
+    }
+
+    // Settings saved by earlier versions lack newer keys; decode them leniently
+    // so upgrading never resets a user's preferences.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appearance = try container.decode(AppearancePreference.self, forKey: .appearance)
+        outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
+        defaultFormat = try container.decode(AudioFormat.self, forKey: .defaultFormat)
+        defaultSpeed = try container.decode(Double.self, forKey: .defaultSpeed)
+        selectedVoiceID = try container.decode(String.self, forKey: .selectedVoiceID)
+        favoriteVoiceIDs = try container.decode(Set<String>.self, forKey: .favoriteVoiceIDs)
+        useMPS = try container.decode(Bool.self, forKey: .useMPS)
+        pendingDownloadModelIDs = try container.decodeIfPresent(
+            Set<String>.self,
+            forKey: .pendingDownloadModelIDs
+        ) ?? []
     }
 }

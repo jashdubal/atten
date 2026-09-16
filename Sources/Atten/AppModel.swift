@@ -29,6 +29,17 @@ final class AppModel {
     var startupError: String?
     var voicePreviewID: String?
     var playgroundState: GenerationState = .idle
+    var playbackPosition: TimeInterval = 0
+    var playbackDuration: TimeInterval = 0
+    /// Bumped when downloaded models add or remove voices, since the voice
+    /// catalog itself is not observable.
+    private(set) var voiceCatalogRevision = 0
+    var availableUpdate: AppRelease?
+    private(set) var isInstallingUpdate = false
+    var updateError: String?
+    var updateMessage: String?
+    private(set) var isCheckingForUpdate = false
+    let library: ModelLibrary
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -40,6 +51,7 @@ final class AppModel {
     @ObservationIgnored private var audioDelegate: AudioPlaybackDelegate?
     @ObservationIgnored private var activeGenerationID: UUID?
     @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private var playbackTimer: Timer?
 
     private var playgroundDirectory: URL {
         FileManager.default.temporaryDirectory
@@ -50,7 +62,8 @@ final class AppModel {
     init(
         directories: AppDirectories = AppDirectories(),
         settingsStore: SettingsStore = SettingsStore(),
-        generator: (any TTSGenerating)? = nil
+        generator: (any TTSGenerating)? = nil,
+        library: ModelLibrary? = nil
     ) {
         self.directories = directories
         self.repository = ProjectRepository(fileURL: directories.projectsFile)
@@ -64,6 +77,20 @@ final class AppModel {
             wrapping: ProcessBackendClient(),
             maximumAttempts: 2
         )
+        self.library = library ?? ModelLibrary(
+            sizeCacheURL: directories.applicationSupport.appendingPathComponent("model_sizes_cache.json")
+        )
+        self.library.loadPendingDownloads = { [weak self] in
+            self?.settings.pendingDownloadModelIDs ?? []
+        }
+        self.library.savePendingDownloads = { [weak self] pending in
+            guard let self, settings.pendingDownloadModelIDs != pending else { return }
+            settings.pendingDownloadModelIDs = pending
+            saveSettings()
+        }
+        self.library.onInstalledModelsChanged = { [weak self] in
+            self?.installedModelsChanged()
+        }
     }
 
     var selectedVoice: Voice {
@@ -110,6 +137,65 @@ final class AppModel {
         } catch {
             startupError = error.localizedDescription
         }
+        library.start()
+        await checkForUpdate()
+    }
+
+    var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.4"
+    }
+
+    /// Launch checks stay silent when offline; manual checks report the outcome.
+    func checkForUpdate(manual: Bool = false) async {
+        guard Bundle.main.bundleURL.pathExtension == "app" else {
+            if manual { updateMessage = "Update checks only run in the installed app." }
+            return
+        }
+        guard !isCheckingForUpdate else { return }
+        isCheckingForUpdate = true
+        defer { isCheckingForUpdate = false }
+        do {
+            availableUpdate = try await UpdateChecker.newerRelease(than: appVersion)
+            if manual, availableUpdate == nil { updateMessage = "You're on the latest version (\(appVersion))." }
+        } catch {
+            if manual { updateMessage = "Couldn't reach GitHub. Check your internet connection." }
+        }
+    }
+
+    func installUpdate() {
+        guard let release = availableUpdate, !isInstallingUpdate else { return }
+        isInstallingUpdate = true
+        Task {
+            do {
+                let stagedApp = try await UpdateChecker.downloadAndStage(release)
+                try UpdateChecker.scheduleReplacement(of: Bundle.main.bundleURL, with: stagedApp)
+                NSApp.terminate(nil)
+            } catch {
+                isInstallingUpdate = false
+                updateError = error.localizedDescription
+            }
+        }
+    }
+
+    var playerTitle: String? {
+        activeAudioURL?.deletingPathExtension().lastPathComponent
+    }
+
+    func seek(to time: TimeInterval) {
+        guard let audioPlayer else { return }
+        audioPlayer.currentTime = min(max(0, time), audioPlayer.duration)
+        playbackPosition = audioPlayer.currentTime
+    }
+
+    func closePlayer() {
+        stopPlayback()
+    }
+
+    private func installedModelsChanged() {
+        voiceCatalogRevision += 1
+        if VoiceCatalog.voice(id: selectedVoiceID) == nil {
+            selectVoice(VoiceCatalog.all[0])
+        }
     }
 
     func newDraft() {
@@ -144,7 +230,8 @@ final class AppModel {
             format: format,
             outputDirectory: outputDirectory,
             filename: filename,
-            useMPS: settings.useMPS
+            useMPS: settings.useMPS,
+            modelID: VoiceCatalog.voice(id: selectedVoiceID)?.modelID
         )
 
         generationTask = Task { [weak self] in
@@ -197,9 +284,11 @@ final class AppModel {
         if audioPlayer?.url == target, audioPlayer?.isPlaying == true {
             audioPlayer?.pause()
             isPlaying = false
+            stopPlaybackTimer()
         } else if audioPlayer?.url == target {
             audioPlayer?.play()
             isPlaying = true
+            startPlaybackTimer()
         } else {
             play(url: target)
         }
@@ -230,7 +319,8 @@ final class AppModel {
             format: .wav,
             outputDirectory: previewDirectory,
             filename: "preview-\(voice.id)",
-            useMPS: settings.useMPS
+            useMPS: settings.useMPS,
+            modelID: voice.modelID
         )
         generationTask = Task { [weak self] in
             guard let self else { return }
@@ -283,7 +373,8 @@ final class AppModel {
             format: format,
             outputDirectory: playgroundDirectory,
             filename: "sample-\(UUID().uuidString)",
-            useMPS: useMPS
+            useMPS: useMPS,
+            modelID: VoiceCatalog.voice(id: voiceID)?.modelID
         )
 
         generationTask = Task { [weak self] in
@@ -491,7 +582,12 @@ final class AppModel {
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             let delegate = AudioPlaybackDelegate { [weak self] in
-                Task { @MainActor in self?.isPlaying = false }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.isPlaying = false
+                    self.stopPlaybackTimer()
+                    self.playbackPosition = self.playbackDuration
+                }
             }
             audioDelegate = delegate
             audioPlayer?.delegate = delegate
@@ -499,6 +595,9 @@ final class AppModel {
             audioPlayer?.play()
             activeAudioURL = url
             isPlaying = true
+            playbackDuration = audioPlayer?.duration ?? 0
+            playbackPosition = 0
+            startPlaybackTimer()
         } catch {
             activeAudioURL = nil
             isPlaying = false
@@ -516,6 +615,26 @@ final class AppModel {
         audioPlayer = nil
         activeAudioURL = nil
         isPlaying = false
+        stopPlaybackTimer()
+        playbackPosition = 0
+        playbackDuration = 0
+    }
+
+    private func startPlaybackTimer() {
+        stopPlaybackTimer()
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let player = self.audioPlayer else { return }
+                self.playbackPosition = player.currentTime
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        playbackTimer = timer
+    }
+
+    private func stopPlaybackTimer() {
+        playbackTimer?.invalidate()
+        playbackTimer = nil
     }
 
     private func saveSettings() {

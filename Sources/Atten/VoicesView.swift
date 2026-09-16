@@ -7,6 +7,7 @@ struct VoicesView: View {
     @State private var query = ""
     @State private var favoritesOnly = false
     @State private var language = "All languages"
+    @State private var engine = "All engines"
 
     var body: some View {
         GeometryReader { proxy in
@@ -69,7 +70,7 @@ struct VoicesView: View {
             PageHeader(
                 eyebrow: "Voices",
                 title: "Voice library",
-                detail: "Preview Kokoro voices and keep favorites close."
+                detail: "Preview bundled and downloaded voices and keep favorites close."
             )
             Spacer()
             Text("\(filteredVoices.count) voices")
@@ -85,6 +86,12 @@ struct VoicesView: View {
                 ForEach(languages, id: \.self) { Text($0).tag($0) }
             }
             .frame(width: 210)
+
+            Picker("Engine", selection: $engine) {
+                Text("All engines").tag("All engines")
+                ForEach(engines, id: \.self) { Text($0).tag($0) }
+            }
+            .frame(width: 260)
 
             Toggle("Favorites", systemImage: "heart.fill", isOn: $favoritesOnly)
                 .toggleStyle(.button)
@@ -104,17 +111,25 @@ struct VoicesView: View {
     }
 
     private var languages: [String] {
-        Array(Set(VoiceCatalog.all.map(\.language))).sorted()
+        _ = model.voiceCatalogRevision
+        return Array(Set(VoiceCatalog.all.map(\.language))).sorted()
+    }
+
+    private var engines: [String] {
+        _ = model.voiceCatalogRevision
+        return Array(Set(VoiceCatalog.all.map(\.provider))).sorted()
     }
 
     private var filteredVoices: [Voice] {
-        VoiceCatalog.all.filter { voice in
-            let searchable = ([voice.name, voice.id, voice.language, voice.gender] + voice.traits)
+        _ = model.voiceCatalogRevision
+        return VoiceCatalog.all.filter { voice in
+            let searchable = ([voice.name, voice.id, voice.language, voice.gender, voice.provider] + voice.traits)
                 .joined(separator: " ")
             let matchesQuery = query.isEmpty || searchable.localizedCaseInsensitiveContains(query)
             let matchesFavorite = !favoritesOnly || model.settings.favoriteVoiceIDs.contains(voice.id)
             let matchesLanguage = language == "All languages" || voice.language == language
-            return matchesQuery && matchesFavorite && matchesLanguage
+            let matchesEngine = engine == "All engines" || voice.provider == engine
+            return matchesQuery && matchesFavorite && matchesLanguage && matchesEngine
         }
     }
 }
@@ -147,7 +162,7 @@ private struct VoiceRow: View {
                             .foregroundStyle(AttenColor.accent)
                     }
                 }
-                Text("\(voice.language) · \(voice.gender)")
+                Text("\(voice.language) · \(voice.gender) · \(voice.provider)")
                     .font(AttenTypography.caption)
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)

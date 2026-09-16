@@ -85,6 +85,9 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
             "--json",
         ]
         arguments += ["--device", request.useMPS ? "auto" : "cpu"]
+        if let modelID = request.modelID {
+            arguments += ["--model", modelID]
+        }
         child.arguments = arguments
 
         setProcess(child)
