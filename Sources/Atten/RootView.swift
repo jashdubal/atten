@@ -319,6 +319,7 @@ private final class WindowTitleHidingView: NSView {
     }
 }
 
+@MainActor
 private enum GitHubMark {
     static let image: NSImage = {
         let svg = """
