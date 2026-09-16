@@ -19,33 +19,12 @@ ID signing and notarization without changing the stable download URL.
 Source, license notices, the SPDX dependency manifest, and GitHub provenance
 attestations are published beside the DMG.
 
-## macOS improvements in this release
+## macOS fixes in this release
 
-Atten for macOS now matches the Windows app's Hugging Face model library: a
-new **Models** page searches the Hub as you type, filters by language and by
-installed/available, and sorts by downloads, stars, size, provider, or name.
-Downloads are resumable, with pause/cancel/delete, live progress, and state
-that survives an app restart. Every downloaded model adds a matching voice to
-Studio, Playground, and Voices. A new player bar at the bottom of every page
-adds seek, play/pause (⌥Space), and close.
-
-Atten now checks GitHub for new releases on launch and via a manual refresh
-button in the sidebar, and can download, verify, and install an update in
-place on your approval. A subtle GitHub mark in the sidebar links back to
-this repository.
-
-## Windows improvements in this release
-
-Atten for Windows gains live Hugging Face model discovery and search, with
-filtering by language and sorting by downloads, stars, size, or provider.
-Downloads are now resumable, with pause/cancel controls, live speed and ETA,
-and state that persists across app restarts.
-
-This release also adds multilingual neural engine support (XTTS-v2,
-Kokoro-82M, GGUF, MMS-TTS), including Arabic, German, Spanish, French,
-Italian, Portuguese, Russian, Turkish, Dutch, Polish, Japanese, Chinese, and
-Hindi voices, plus an integrated audio player bar with seek, play/pause, and
-auto-play when generation completes.
+The Models page's refresh button rendered as an oversized bordered control
+instead of a plain icon button. It now matches the icon-only styling used
+elsewhere in the app. The native window toolbar also showed a gray bar that
+didn't match the app's dark theme; it now blends with the rest of the window.
 
 ## Windows installation
 
