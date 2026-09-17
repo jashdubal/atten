@@ -53,10 +53,12 @@ installation.
 3. Launch Atten and start generating speech—everything required is included.
 
 Atten currently requires an Apple Silicon Mac running macOS 14 or newer. The
-release is ad-hoc signed and not yet notarized. If macOS blocks the first launch,
-Control-click Atten, choose **Open**, then confirm. See the
-[installation notes](DEPLOYMENT.md#user-installation-and-gatekeeper) for the
-alternative Privacy & Security flow and download verification.
+release is ad-hoc signed and not yet notarized, so macOS blocks the first launch
+with "Apple could not verify Atten is free of malware". To open it: double-click
+Atten and dismiss the warning, then open **System Settings → Privacy & Security**,
+scroll to Security, and choose **Open Anyway** next to Atten. You do this once.
+See the [installation notes](DEPLOYMENT.md#user-installation-and-gatekeeper) for
+download verification.
 
 ### Windows
 
