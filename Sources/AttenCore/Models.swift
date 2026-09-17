@@ -24,8 +24,6 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
     /// once, after which they work offline like everything else.
     public let requiresModelID: String?
 
-    public var isAvailableOffline: Bool { requiresModelID == nil }
-
     public init(
         id: String,
         name: String,
@@ -201,11 +199,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.checksForUpdates = checksForUpdates
     }
 
-    // Every key is optional on the way in. A blob written by an older Atten
-    // lacks newer keys, and one written by a newer Atten may hold values this
-    // version does not know, such as an appearance or format added later.
-    // Neither may cost the user the preferences that still make sense, so each
-    // field falls back on its own rather than the whole blob being discarded.
+    // Only the export folder is required, because no default for it exists
+    // here. Every other key falls back on its own, so a blob written by an
+    // older Atten missing newer keys — or by a newer one holding an appearance
+    // or format this version has never heard of — still keeps the preferences
+    // that make sense rather than being discarded whole.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
