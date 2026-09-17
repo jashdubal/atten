@@ -30,6 +30,7 @@ struct VoicesView: View {
                                 VoiceRow(
                                     voice: voice,
                                     availableWidth: proxy.size.width,
+                                    requiredModelID: model.requiredModelID(for: voice.id),
                                     isSelected: model.selectedVoiceID == voice.id,
                                     isFavorite: model.settings.favoriteVoiceIDs.contains(voice.id),
                                     isPreviewing: model.voicePreviewID == voice.id,
@@ -137,6 +138,8 @@ struct VoicesView: View {
 private struct VoiceRow: View {
     let voice: Voice
     let availableWidth: CGFloat
+    /// Set when this voice needs a model the user has not downloaded yet.
+    let requiredModelID: String?
     let isSelected: Bool
     let isFavorite: Bool
     let isPreviewing: Bool
@@ -162,10 +165,15 @@ private struct VoiceRow: View {
                             .foregroundStyle(AttenColor.accent)
                     }
                 }
-                Text("\(voice.language) · \(voice.gender) · \(voice.provider)")
-                    .font(AttenTypography.caption)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .lineLimit(1)
+                Text(
+                    requiredModelID.map { "\(voice.language) · Needs \($0)" }
+                        ?? "\(voice.language) · \(voice.gender) · \(voice.provider)"
+                )
+                .font(AttenTypography.caption)
+                .foregroundStyle(
+                    requiredModelID == nil ? AttenColor.textSecondary : AttenColor.accentSecondary
+                )
+                .lineLimit(1)
             }
             .frame(minWidth: 150, alignment: .leading)
 

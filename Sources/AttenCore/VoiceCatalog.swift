@@ -88,10 +88,12 @@ public enum VoiceCatalog {
         let gender: String
         let traits: [String]
         let quality: String
+        let requiresModel: String?
 
         enum CodingKeys: String, CodingKey {
             case id, name, language, gender, traits, quality
             case languageCode = "language_code"
+            case requiresModel = "requires_model"
         }
 
         var voice: Voice {
@@ -103,7 +105,8 @@ public enum VoiceCatalog {
                 gender: gender,
                 traits: traits,
                 quality: quality,
-                provider: VoiceCatalog.provider(forVoiceID: id)
+                provider: VoiceCatalog.provider(forVoiceID: id),
+                requiresModelID: requiresModel
             )
         }
     }

@@ -232,6 +232,31 @@ class DurabilityTests(unittest.TestCase):
             self.assertEqual(len(year), 4)
             self.assertGreaterEqual(int(year), 2024)
 
+    def test_a_voice_that_needs_a_download_says_which_one(self):
+        with patch("atten_backend.service.is_model_installed", return_value=False):
+            service = GenerationService()
+            with self.assertRaisesRegex(RuntimeError, "facebook/mms-tts-ara"):
+                service.get_provider_for_voice("ar_mariam")
+
+    def test_every_catalogued_voice_either_ships_or_names_its_model(self):
+        # The library must never offer a voice that can only fail: a voice is
+        # either spoken by the bundled engine or declares the one model it needs.
+        from atten_backend.catalog import VOICES, required_model_for
+
+        for voice in VOICES:
+            with self.subTest(voice=voice["id"]):
+                bundled_prefixes = (
+                    "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_",
+                    "pf_", "pm_",
+                )
+                speaks_here = voice["id"].startswith(bundled_prefixes)
+                self.assertEqual(speaks_here, required_model_for(voice["id"]) is None)
+
+    def test_an_unknown_voice_is_named_as_unknown(self):
+        service = GenerationService()
+        with self.assertRaisesRegex(RuntimeError, "no voice called"):
+            service.get_provider_for_voice("zz_nobody")
+
     def test_segments_are_joined_end_to_end_in_both_formats(self):
         # A book-length narration is far more audio than fits in memory, so the
         # merge streams; this proves streaming still yields every sample, in

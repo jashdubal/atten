@@ -10,7 +10,7 @@ import errno
 import os
 import uuid
 
-from .catalog import voice_for_id
+from .catalog import is_known_voice, required_model_for, voice_for_id
 from .device import resolve_device
 
 
@@ -167,7 +167,7 @@ class SoundFileAudioIO:
 
 
 from .xtts_provider import XTTSv2Provider
-from .downloader import is_xtts_installed
+from .downloader import is_model_installed
 
 
 class GenerationService:
@@ -189,6 +189,30 @@ class GenerationService:
     def get_provider_for_voice(self, voice: str):
         if self._explicit_provider:
             return self._explicit_provider
+
+        # A voice that names its own model is answered by that model alone.
+        # Atten never reaches the network to speak, so a model that is not on
+        # disk is a missing download to report, not a request to make.
+        required = required_model_for(voice) if self.model_id is None else None
+        if required:
+            if not is_model_installed(required):
+                raise RuntimeError(
+                    f"The voice '{voice}' speaks through the {required} model, which is "
+                    "not downloaded yet. Open Models, download it once, and this voice "
+                    "works offline from then on."
+                )
+            if self._xtts_provider is None:
+                self._xtts_provider = XTTSv2Provider(
+                    device_mode=self.device_mode, hf_model_id=required
+                )
+            return self._xtts_provider
+
+        if self.model_id is None and not is_known_voice(voice):
+            raise RuntimeError(
+                f"There is no voice called '{voice}'. Run with --list-voices to see "
+                "every voice this copy of Atten can speak."
+            )
+
         kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_")
         uses_kokoro = self.model_id is None or "kokoro" in self.model_id.lower()
         if self.engine != "xtts-v2" and uses_kokoro and voice.startswith(kokoro_prefixes):

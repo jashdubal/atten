@@ -19,6 +19,12 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
     public let provider: String
     /// Hugging Face repository that synthesizes this voice; nil for Kokoro.
     public let modelID: String?
+    /// A model this voice cannot speak without. Atten's bundled engine covers
+    /// most voices; the rest name the single model that has to be downloaded
+    /// once, after which they work offline like everything else.
+    public let requiresModelID: String?
+
+    public var isAvailableOffline: Bool { requiresModelID == nil }
 
     public init(
         id: String,
@@ -29,7 +35,8 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
         traits: [String],
         quality: String,
         provider: String = "Kokoro",
-        modelID: String? = nil
+        modelID: String? = nil,
+        requiresModelID: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -40,6 +47,7 @@ public struct Voice: Codable, Identifiable, Hashable, Sendable {
         self.quality = quality
         self.provider = provider
         self.modelID = modelID
+        self.requiresModelID = requiresModelID
     }
 }
 

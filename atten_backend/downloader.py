@@ -68,6 +68,29 @@ def is_xtts_installed() -> bool:
     return True
 
 
+def is_model_installed(model_id: str) -> bool:
+    """Whether a Hugging Face model has already been downloaded in full.
+
+    Atten never reaches the network to synthesize, so this is what decides
+    between speaking and explaining which model is missing.
+    """
+    if model_id.strip().lower() in ("xtts-v2", "coqui/xtts-v2"):
+        return is_xtts_installed()
+
+    directory = get_models_directory() / model_id.strip().replace("/", "--")
+    if not directory.is_dir():
+        return False
+    if (directory / ".atten_complete").is_file():
+        return True
+    if any(directory.glob("*.part")) or any(directory.glob(".*.part")):
+        return False
+    weights = (".bin", ".pt", ".pth", ".safetensors", ".onnx", ".gguf")
+    return any(
+        path.is_file() and path.stat().st_size > 1024 * 1024 and path.suffix in weights
+        for path in directory.iterdir()
+    )
+
+
 def download_xtts_model(progress_callback: Optional[Callable[[dict], None]] = None) -> Path:
     """Downloads XTTS-v2 weights with resumable downloads, live speed, ETA, and progress."""
     xtts_dir = get_models_directory() / "XTTS-v2"

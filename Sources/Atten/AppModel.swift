@@ -118,6 +118,24 @@ final class AppModel {
 
     var backendIsAvailable: Bool { BackendLocator.locateInstallation() != nil }
 
+    /// Most voices run on the bundled engine. The rest name one model that has
+    /// to be downloaded once; until it is, Atten says so rather than starting a
+    /// generation that can only fail.
+    func requiredModelID(for voiceID: String) -> String? {
+        guard let required = VoiceCatalog.voice(id: voiceID)?.requiresModelID,
+              !library.isInstalled(required) else { return nil }
+        return required
+    }
+
+    private func missingModelMessage(for voiceID: String) -> String? {
+        guard let required = requiredModelID(for: voiceID) else { return nil }
+        let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
+        return """
+        \(name) speaks through the \(required) model, which is not downloaded yet. \
+        Open Models and download it once — after that this voice works offline like the rest.
+        """
+    }
+
     func start() async {
         guard !hasStarted else { return }
         hasStarted = true
@@ -220,6 +238,10 @@ final class AppModel {
             generationState = .failed("Enter or import text before generating speech.")
             return
         }
+        if let message = missingModelMessage(for: selectedVoiceID) {
+            generationState = .failed(message)
+            return
+        }
         cancelGeneration()
         stopPlayback()
         generationState = .generating
@@ -316,6 +338,10 @@ final class AppModel {
             return
         }
         guard !isGenerating, !isPlaygroundGenerating, voicePreviewID == nil else { return }
+        if let message = missingModelMessage(for: voice.id) {
+            generationState = .failed(message)
+            return
+        }
         voicePreviewID = voice.id
         let generationID = UUID()
         activeGenerationID = generationID
@@ -358,6 +384,10 @@ final class AppModel {
         let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             playgroundState = .failed("Enter a short sample before generating.")
+            return
+        }
+        if let message = missingModelMessage(for: voiceID) {
+            playgroundState = .failed(message)
             return
         }
 
