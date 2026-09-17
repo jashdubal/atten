@@ -156,6 +156,23 @@ final class DurabilityTests: XCTestCase {
         XCTAssertFalse(VoiceCatalog.defaultVoice.id.isEmpty)
     }
 
+    // MARK: - Names
+
+    func testTitlesAreReducedToNamesTheDiskAccepts() {
+        XCTAssertEqual(ExportService.safeFilename("chapter/one: draft"), "chapter-one- draft")
+        XCTAssertEqual(ExportService.safeFilename("...hidden"), "hidden")
+        XCTAssertEqual(ExportService.safeFilename("   "), "")
+
+        let long = ExportService.safeFilename(String(repeating: "x", count: 400))
+        XCTAssertEqual(long.utf8.count, 180)
+
+        // A budget counted in characters would let an emoji title run four
+        // times over the filesystem's limit.
+        let emoji = ExportService.safeFilename(String(repeating: "\u{1F389}", count: 200))
+        XCTAssertLessThanOrEqual(emoji.utf8.count, 180)
+        XCTAssertFalse(emoji.isEmpty)
+    }
+
     private static func record(title: String) -> ProjectRecord {
         ProjectRecord(
             title: title,

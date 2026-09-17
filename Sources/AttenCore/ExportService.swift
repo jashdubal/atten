@@ -32,12 +32,25 @@ public struct ExportService: Sendable {
         return destination
     }
 
-    public static func safeFilename(_ value: String) -> String {
+    /// Reduces a title to a name every filesystem Atten writes to will accept.
+    /// Names are budgeted in bytes, not characters, because one emoji or one
+    /// CJK title character costs three or four of the 255 a path component
+    /// gets; the backend reserves the rest for its extension and partial-file
+    /// suffix. Leading dots are dropped so a title never produces a file the
+    /// user cannot see in Finder.
+    public static func safeFilename(_ value: String, maximumByteCount: Int = 180) -> String {
         let invalid = CharacterSet(charactersIn: "/:\\?%*|\"<>")
             .union(.newlines)
             .union(.controlCharacters)
-        return value.components(separatedBy: invalid)
+        var cleaned = value.components(separatedBy: invalid)
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        while cleaned.hasPrefix(".") { cleaned.removeFirst() }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        while cleaned.utf8.count > maximumByteCount, !cleaned.isEmpty {
+            cleaned.removeLast()
+        }
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

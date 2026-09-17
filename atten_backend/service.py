@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional
+import errno
 import os
 import uuid
 
@@ -37,6 +38,28 @@ def _configure_espeak():
     EspeakWrapper.set_library(str(library))
     EspeakWrapper.set_data_path(str(data))
     return temporary_assets
+
+
+def safe_filename(name, reserved=0):
+    """Reduces a requested name to one the filesystem will actually accept.
+
+    Titles arrive here as whatever the user typed or imported, so they can
+    carry path separators, control characters, leading dots, or hundreds of
+    characters. `reserved` is the space the caller still needs for extensions
+    and suffixes; the budget is counted in bytes because a title in a
+    non-Latin script costs several bytes per character.
+    """
+    cleaned = "".join(
+        "-" if character in '/\\:*?"<>|' or ord(character) < 32 else character
+        for character in str(name)
+    ).strip()
+    cleaned = cleaned.lstrip(".").strip() or "atten-audio"
+
+    budget = max(1, 255 - reserved)
+    encoded = cleaned.encode("utf-8")
+    if len(encoded) > budget:
+        cleaned = encoded[:budget].decode("utf-8", "ignore").rstrip() or "atten-audio"
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -124,11 +147,23 @@ class SoundFileAudioIO:
 
         sf.write(str(path), audio, self.sample_rate)
 
-    def read(self, path):
+    def merge(self, destination, segment_paths):
+        """Joins segments into one file a block at a time.
+
+        Whole books are a supported input, and an hour of speech is far too
+        much to hold in memory at once, so nothing larger than a block is ever
+        resident regardless of how long the text is.
+        """
         import soundfile as sf
 
-        audio, _sample_rate = sf.read(str(path))
-        return audio
+        block_frames = self.sample_rate * 30
+        with sf.SoundFile(
+            str(destination), mode="w", samplerate=self.sample_rate, channels=1
+        ) as output:
+            for segment_path in segment_paths:
+                with sf.SoundFile(str(segment_path)) as segment:
+                    for block in segment.blocks(blocksize=block_frames, dtype="float32"):
+                        output.write(block)
 
 
 from .xtts_provider import XTTSv2Provider
@@ -180,16 +215,33 @@ class GenerationService:
         if request.output_format not in {"mp3", "wav"}:
             raise ValueError("Output format must be mp3 or wav.")
 
+        # The finished file and the hidden partial file that precedes it both
+        # have to fit the filesystem's limit on one path component, so the name
+        # is budgeted against the longer of the two.
+        partial_suffix = f".atten-{uuid.uuid4().hex}.part.{request.output_format}"
+        filename = safe_filename(
+            request.filename or datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
+            reserved=len(partial_suffix.encode("utf-8")) + 1,
+        )
         output_directory = Path(request.output_directory).expanduser()
-        output_directory.mkdir(parents=True, exist_ok=True)
-        filename = request.filename or datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+        try:
+            output_directory.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise RuntimeError(
+                f"The folder '{output_directory}' could not be created: {error.strerror}. "
+                "Choose a different folder for generated audio."
+            ) from error
+        if not os.access(output_directory, os.W_OK):
+            raise RuntimeError(
+                f"The folder '{output_directory}' cannot be written to. It may be "
+                "read-only, or on a disk that is disconnected or full. Choose a "
+                "different folder for generated audio."
+            )
         output_path = output_directory / f"{filename}.{request.output_format}"
         if output_path.exists():
             raise FileExistsError(f"File '{output_path}' already exists.")
 
-        temporary_output = output_directory / (
-            f".{filename}.atten-{uuid.uuid4().hex}.part.{request.output_format}"
-        )
+        temporary_output = output_directory / f".{filename}{partial_suffix}"
         segment_count = 0
 
         try:
@@ -209,13 +261,20 @@ class GenerationService:
                         progress(segment_count)
 
                 if not segment_paths:
-                    raise RuntimeError("The TTS provider returned no audio.")
+                    raise RuntimeError(
+                        "This text produced no speech. Add words the selected "
+                        "voice can pronounce and try again."
+                    )
 
-                merged_audio = []
-                for segment_path in segment_paths:
-                    merged_audio.extend(self.audio_io.read(segment_path))
-                self.audio_io.write(temporary_output, merged_audio)
+                self.audio_io.merge(temporary_output, segment_paths)
                 os.replace(temporary_output, output_path)
+        except OSError as error:
+            if error.errno == errno.ENOSPC:
+                raise RuntimeError(
+                    f"The disk holding '{output_directory}' is full, so the audio "
+                    "could not be saved. Free some space or choose another folder."
+                ) from error
+            raise
         finally:
             temporary_output.unlink(missing_ok=True)
 

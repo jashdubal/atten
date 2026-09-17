@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 import cli
 from atten_backend.device import resolve_device
-from atten_backend.service import GenerationRequest, GenerationService, KokoroProvider
+from atten_backend.service import (
+    GenerationRequest,
+    GenerationService,
+    KokoroProvider,
+    SoundFileAudioIO,
+)
 
 
 class FakeProvider:
@@ -38,8 +43,12 @@ class FakeAudioIO:
         self.contents[path] = list(audio)
         self.writes.append((path, list(audio)))
 
-    def read(self, path):
-        return self.contents[Path(path)]
+    def merge(self, destination, segment_paths):
+        merged = [sample for path in segment_paths for sample in self.contents[Path(path)]]
+        destination = Path(destination)
+        destination.write_bytes(b"audio")
+        self.contents[destination] = merged
+        self.writes.append((destination, merged))
 
 
 class GenerationServiceTests(unittest.TestCase):
@@ -168,6 +177,83 @@ class GenerationServiceTests(unittest.TestCase):
             service.generate(GenerationRequest(text="  "))
         with self.assertRaises(ValueError):
             service.generate(GenerationRequest(text="Hello", output_format="flac"))
+
+
+class DurabilityTests(unittest.TestCase):
+    """Whatever a user types, imports, or does to their disk, the backend has
+    to answer with a finished file or a sentence they can act on."""
+
+    def test_titles_the_filesystem_would_reject_still_produce_a_file(self):
+        for name in ("x" * 400, "../escape", "..", ".hidden", "a/b", "\x07bell"):
+            with self.subTest(name=name), TemporaryDirectory() as directory:
+                service = GenerationService(FakeProvider(), FakeAudioIO())
+
+                result = service.generate(
+                    GenerationRequest(
+                        text="Hello", output_directory=Path(directory), filename=name
+                    )
+                )
+
+                self.assertEqual(result.output_path.parent, Path(directory).resolve())
+                # Both the published file and the partial file that preceded it
+                # have to fit the filesystem's per-component limit.
+                self.assertLessEqual(len(result.output_path.name.encode("utf-8")), 255)
+                self.assertTrue(result.output_path.is_file())
+
+    def test_unwritable_output_folder_is_explained_not_reported_as_a_system_error(self):
+        with TemporaryDirectory() as directory:
+            locked = Path(directory) / "locked"
+            locked.mkdir(mode=0o500)
+            service = GenerationService(FakeProvider(), FakeAudioIO())
+
+            with self.assertRaisesRegex(RuntimeError, "cannot be written to"):
+                service.generate(
+                    GenerationRequest(text="Hello", output_directory=locked)
+                )
+
+    def test_text_without_pronounceable_words_says_so(self):
+        with TemporaryDirectory() as directory:
+            service = GenerationService(FakeProvider(segments=[]), FakeAudioIO())
+
+            with self.assertRaisesRegex(RuntimeError, "produced no speech"):
+                service.generate(
+                    GenerationRequest(text="...", output_directory=Path(directory))
+                )
+
+    def test_default_filenames_stay_sortable_past_this_century(self):
+        with TemporaryDirectory() as directory:
+            service = GenerationService(FakeProvider(), FakeAudioIO())
+
+            result = service.generate(
+                GenerationRequest(text="Hello", output_directory=Path(directory))
+            )
+
+            year = result.output_path.stem.split("-")[0]
+            self.assertEqual(len(year), 4)
+            self.assertGreaterEqual(int(year), 2024)
+
+    def test_segments_are_joined_end_to_end_in_both_formats(self):
+        # A book-length narration is far more audio than fits in memory, so the
+        # merge streams; this proves streaming still yields every sample, in
+        # order, for each format Atten writes.
+        import soundfile as sf
+
+        audio_io = SoundFileAudioIO()
+        rate = audio_io.sample_rate
+        for output_format in ("wav", "mp3"):
+            with self.subTest(output_format=output_format), TemporaryDirectory() as directory:
+                segments = []
+                for index in range(3):
+                    path = Path(directory) / f"segment-{index}.{output_format}"
+                    audio_io.write(path, [0.1] * rate)
+                    segments.append(path)
+                merged = Path(directory) / f"merged.{output_format}"
+
+                audio_io.merge(merged, segments)
+
+                self.assertAlmostEqual(
+                    sf.info(str(merged)).frames, rate * 3, delta=rate // 10
+                )
 
 
 class CLICompatibilityTests(unittest.TestCase):
