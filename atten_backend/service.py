@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from typing import Callable, Optional
 import errno
 import os
+import time
 import uuid
 
 from .catalog import is_known_voice, required_model_for, voice_for_id
@@ -38,6 +39,37 @@ def _configure_espeak():
     EspeakWrapper.set_library(str(library))
     EspeakWrapper.set_data_path(str(data))
     return temporary_assets
+
+
+def _disk_is_full(directory, margin=8 * 1024 * 1024):
+    """Whether the volume has so little room left that a failed write is best
+    explained as a full disk."""
+    try:
+        return shutil.disk_usage(directory).free < margin
+    except OSError:
+        return False
+
+
+def _remove_abandoned_partials(directory, older_than_seconds=24 * 60 * 60):
+    """Clears partial files left by a run that was killed before it finished.
+
+    A generation writes to a hidden file and renames it into place, so a crash
+    or a force quit leaves that hidden file behind. Over years of use those
+    would pile up unseen in the user's export folder. Only files older than a
+    day are touched, so a second Atten generating into the same folder right
+    now is never disturbed.
+    """
+    cutoff = time.time() - older_than_seconds
+    try:
+        candidates = list(directory.glob(".*.atten-*.part.*"))
+    except OSError:
+        return
+    for path in candidates:
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
 
 
 def safe_filename(name, reserved=0):
@@ -265,6 +297,7 @@ class GenerationService:
         if output_path.exists():
             raise FileExistsError(f"File '{output_path}' already exists.")
 
+        _remove_abandoned_partials(output_directory)
         temporary_output = output_directory / f".{filename}{partial_suffix}"
         segment_count = 0
 
@@ -292,8 +325,10 @@ class GenerationService:
 
                 self.audio_io.merge(temporary_output, segment_paths)
                 os.replace(temporary_output, output_path)
-        except OSError as error:
-            if error.errno == errno.ENOSPC:
+        except Exception as error:
+            # libsndfile reports a full disk as its own "System error", so the
+            # disk itself is asked rather than the exception being read.
+            if getattr(error, "errno", None) == errno.ENOSPC or _disk_is_full(output_directory):
                 raise RuntimeError(
                     f"The disk holding '{output_directory}' is full, so the audio "
                     "could not be saved. Free some space or choose another folder."

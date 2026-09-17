@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -256,6 +257,41 @@ class DurabilityTests(unittest.TestCase):
         service = GenerationService()
         with self.assertRaisesRegex(RuntimeError, "no voice called"):
             service.get_provider_for_voice("zz_nobody")
+
+    def test_a_full_disk_is_reported_as_a_full_disk(self):
+        # libsndfile reports a full disk as its own "System error", which told
+        # the user nothing, so the disk is asked directly.
+        with TemporaryDirectory() as directory:
+            audio_io = FakeAudioIO()
+
+            def fail(destination, segment_paths):
+                raise RuntimeError("System error.")
+
+            audio_io.merge = fail
+            service = GenerationService(FakeProvider(), audio_io)
+
+            with patch("atten_backend.service._disk_is_full", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "is full"):
+                    service.generate(
+                        GenerationRequest(text="Hello", output_directory=Path(directory))
+                    )
+
+    def test_partial_files_from_a_killed_run_do_not_accumulate(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            stale = folder / ".old.atten-abc123.part.mp3"
+            recent = folder / ".busy.atten-def456.part.mp3"
+            for path in (stale, recent):
+                path.write_bytes(b"partial")
+            # A force quit last week, and another Atten writing right now.
+            os.utime(stale, (0, 0))
+
+            GenerationService(FakeProvider(), FakeAudioIO()).generate(
+                GenerationRequest(text="Hello", output_directory=folder)
+            )
+
+            self.assertFalse(stale.exists())
+            self.assertTrue(recent.exists())
 
     def test_segments_are_joined_end_to_end_in_both_formats(self):
         # A book-length narration is far more audio than fits in memory, so the
