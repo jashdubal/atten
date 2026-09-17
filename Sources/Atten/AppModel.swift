@@ -201,7 +201,7 @@ final class AppModel {
     }
 
     var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.2"
     }
 
     /// Launch checks stay silent when offline; manual checks report the outcome.
