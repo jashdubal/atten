@@ -68,6 +68,29 @@ def is_xtts_installed() -> bool:
     return True
 
 
+def is_model_installed(model_id: str) -> bool:
+    """Whether a Hugging Face model has already been downloaded in full.
+
+    Atten never reaches the network to synthesize, so this is what decides
+    between speaking and explaining which model is missing.
+    """
+    if model_id.strip().lower() in ("xtts-v2", "coqui/xtts-v2"):
+        return is_xtts_installed()
+
+    directory = get_models_directory() / model_id.strip().replace("/", "--")
+    if not directory.is_dir():
+        return False
+    if (directory / ".atten_complete").is_file():
+        return True
+    if any(directory.glob("*.part")) or any(directory.glob(".*.part")):
+        return False
+    weights = (".bin", ".pt", ".pth", ".safetensors", ".onnx", ".gguf")
+    return any(
+        path.is_file() and path.stat().st_size > 1024 * 1024 and path.suffix in weights
+        for path in directory.iterdir()
+    )
+
+
 def download_xtts_model(progress_callback: Optional[Callable[[dict], None]] = None) -> Path:
     """Downloads XTTS-v2 weights with resumable downloads, live speed, ETA, and progress."""
     xtts_dir = get_models_directory() / "XTTS-v2"
@@ -311,6 +334,10 @@ def download_hf_model(model_id: str, progress_callback: Optional[Callable[[dict]
     start_time = time.time()
     last_update_time = start_time
     session_downloaded = 0
+    # A file that could not be fetched must not be forgotten: a model that is
+    # missing a piece has to look unfinished, or the app will offer a voice
+    # that cannot speak and fail on it later with an opaque error.
+    failed_files = []
 
     for idx, (filename, file_size) in enumerate(files):
         target = dest_dir / filename
@@ -338,8 +365,10 @@ def download_hf_model(model_id: str, progress_callback: Optional[Callable[[dict]
                 req = urllib.request.Request(url, headers=headers)
                 response = urllib.request.urlopen(req)
             else:
+                failed_files.append(filename)
                 continue
         except Exception:
+            failed_files.append(filename)
             continue
 
         content_length = response.headers.get("content-length")
@@ -402,6 +431,13 @@ def download_hf_model(model_id: str, progress_callback: Optional[Callable[[dict]
             if target.exists():
                 target.unlink()
             temp_target.rename(target)
+
+    if failed_files:
+        raise RuntimeError(
+            f"{clean_id} did not download completely; {len(failed_files)} file(s) "
+            f"could not be fetched, starting with {failed_files[0]}. Try the "
+            "download again — the parts already on disk are kept and resumed."
+        )
 
     # Write completion marker
     try:

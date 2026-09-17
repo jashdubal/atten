@@ -15,6 +15,12 @@ public enum VoiceCatalog {
         all.first { $0.id == id }
     }
 
+    /// The voice used when a saved selection no longer exists. `all` is never
+    /// empty, but callers must not have to index into it to find that out.
+    public static var defaultVoice: Voice {
+        all.first ?? fallback[0]
+    }
+
     public static let kokoroProvider = "Kokoro-82M"
     public static let multilingualProvider = "XTTS-v2 & Multilingual"
 
@@ -46,10 +52,13 @@ public enum VoiceCatalog {
         )
     }
 
-    static func provider(forVoiceID id: String) -> String {
+    /// A voice that names a model is spoken by that model, whatever its id
+    /// looks like — several ids that begin like Kokoro voices are not ones
+    /// Kokoro can speak.
+    static func provider(forVoiceID id: String, requiresModel: String? = nil) -> String {
+        if let requiresModel { return requiresModel }
         let kokoroPrefixes = [
-            "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_",
-            "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_",
+            "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_",
         ]
         return kokoroPrefixes.contains(where: id.hasPrefix) ? kokoroProvider : multilingualProvider
     }
@@ -64,7 +73,10 @@ public enum VoiceCatalog {
 
         for url in candidates where FileManager.default.fileExists(atPath: url.path) {
             if let data = try? Data(contentsOf: url),
-               let decoded = try? JSONDecoder().decode([CatalogVoice].self, from: data) {
+               let decoded = try? JSONDecoder().decode([CatalogVoice].self, from: data),
+               // An empty or damaged catalog file must fall through to the
+               // compiled-in list; the app is never allowed to have no voices.
+               !decoded.isEmpty {
                 return decoded.map(\.voice)
             }
         }
@@ -79,10 +91,12 @@ public enum VoiceCatalog {
         let gender: String
         let traits: [String]
         let quality: String
+        let requiresModel: String?
 
         enum CodingKeys: String, CodingKey {
             case id, name, language, gender, traits, quality
             case languageCode = "language_code"
+            case requiresModel = "requires_model"
         }
 
         var voice: Voice {
@@ -94,7 +108,8 @@ public enum VoiceCatalog {
                 gender: gender,
                 traits: traits,
                 quality: quality,
-                provider: VoiceCatalog.provider(forVoiceID: id)
+                provider: VoiceCatalog.provider(forVoiceID: id, requiresModel: requiresModel),
+                requiresModelID: requiresModel
             )
         }
     }

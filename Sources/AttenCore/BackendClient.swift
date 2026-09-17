@@ -6,11 +6,30 @@ public enum BackendError: LocalizedError, Equatable, Sendable {
     case processFailed(String)
     case malformedResponse
     case cancelled
+    case blockedByGatekeeper
+    case stoppedUnexpectedly
 
     public var errorDescription: String? {
         switch self {
+        case .blockedByGatekeeper:
+            """
+            macOS blocked Atten's speech engine because this copy of Atten is still \
+            marked as downloaded. Move Atten to your Applications folder, open it \
+            once from there, and approve it in System Settings under Privacy & \
+            Security.
+            """
+        case .stoppedUnexpectedly:
+            """
+            Atten's speech engine stopped before it finished. Try again, and if it \
+            keeps happening with the same text, try a shorter passage or restart \
+            your Mac.
+            """
         case .backendNotFound:
-            "Atten could not find its bundled speech engine or a development backend."
+            """
+            Atten could not find its bundled speech engine. The app may have been \
+            moved or partly copied — reinstall it from the disk image and drag the \
+            whole Atten app into Applications.
+            """
         case let .invalidRequest(message), let .processFailed(message):
             message
         case .malformedResponse:
@@ -108,8 +127,17 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
                 throw BackendError.processFailed(error.localizedDescription)
             }
 
-            if Task.isCancelled || isCancellationRequested || child.terminationReason == .uncaughtSignal {
+            if Task.isCancelled || isCancellationRequested {
                 throw BackendError.cancelled
+            }
+            // A signal nobody asked for means something killed the engine, so
+            // reporting it as a cancellation told the user their own click had
+            // stopped it. Gatekeeper is the one cause Atten can confirm, and
+            // the only one with a fix the user can act on.
+            if child.terminationReason == .uncaughtSignal {
+                throw installation.isQuarantined
+                    ? BackendError.blockedByGatekeeper
+                    : BackendError.stoppedUnexpectedly
             }
             guard child.terminationStatus == 0 else {
                 let processOutput = String(decoding: outputData, as: UTF8.self)
@@ -196,6 +224,13 @@ public enum BackendInstallation: Equatable, Sendable {
     }
 
     var workingDirectory: URL { root }
+
+    /// Whether macOS still marks the engine Atten launches as downloaded, which
+    /// is the one reason for a killed engine that has a fix the user can apply.
+    public var isQuarantined: Bool {
+        guard case let .bundled(helper, _) = self else { return false }
+        return BundleQuarantine.isQuarantined(helper)
+    }
 
     var entrypointArguments: [String] {
         switch self {
@@ -313,6 +348,9 @@ public struct RetryingBackendClient: TTSGenerating {
                 throw BackendError.cancelled
             } catch BackendError.cancelled {
                 throw BackendError.cancelled
+            } catch BackendError.blockedByGatekeeper {
+                // Gatekeeper does not change its mind on a second attempt.
+                throw BackendError.blockedByGatekeeper
             } catch {
                 lastError = error
                 if attempt < maximumAttempts {

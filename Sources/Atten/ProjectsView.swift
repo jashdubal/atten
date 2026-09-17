@@ -163,7 +163,7 @@ private struct ProjectRow: View {
     @State private var isHovering = false
 
     private var voice: Voice {
-        VoiceCatalog.voice(id: project.voiceID) ?? VoiceCatalog.all[0]
+        VoiceCatalog.voice(id: project.voiceID) ?? VoiceCatalog.defaultVoice
     }
 
     private var fileExists: Bool {

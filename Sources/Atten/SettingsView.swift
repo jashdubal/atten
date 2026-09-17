@@ -92,6 +92,15 @@ struct SettingsView: View {
                 Toggle("Use Metal acceleration fallback", isOn: $model.settings.useMPS)
                     .help("Sets PYTORCH_ENABLE_MPS_FALLBACK for the local Kokoro process")
             }
+
+            Section("Updates") {
+                Toggle("Check GitHub for new versions at launch", isOn: $model.settings.checksForUpdates)
+                    .help("Turn this off to keep this version indefinitely and never use the network")
+
+                Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually from the sidebar.")
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
         }
         .formStyle(.grouped)
     }

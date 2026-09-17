@@ -51,6 +51,7 @@ final class AppModel {
     @ObservationIgnored private var audioDelegate: AudioPlaybackDelegate?
     @ObservationIgnored private var activeGenerationID: UUID?
     @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private var hasAnnouncedQuarantinedHistory = false
     @ObservationIgnored private var playbackTimer: Timer?
 
     private var playgroundDirectory: URL {
@@ -94,7 +95,7 @@ final class AppModel {
     }
 
     var selectedVoice: Voice {
-        VoiceCatalog.voice(id: selectedVoiceID) ?? VoiceCatalog.all[0]
+        VoiceCatalog.voice(id: selectedVoiceID) ?? VoiceCatalog.defaultVoice
     }
 
     var currentAudioURL: URL? {
@@ -118,9 +119,28 @@ final class AppModel {
 
     var backendIsAvailable: Bool { BackendLocator.locateInstallation() != nil }
 
+    /// Most voices run on the bundled engine. The rest name one model that has
+    /// to be downloaded once; until it is, Atten says so rather than starting a
+    /// generation that can only fail.
+    func requiredModelID(for voiceID: String) -> String? {
+        guard let required = VoiceCatalog.voice(id: voiceID)?.requiresModelID,
+              !library.isInstalled(required) else { return nil }
+        return required
+    }
+
+    private func missingModelMessage(for voiceID: String) -> String? {
+        guard let required = requiredModelID(for: voiceID) else { return nil }
+        let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
+        return """
+        \(name) speaks through the \(required) model, which is not downloaded yet. \
+        Open Models and download it once — after that this voice works offline like the rest.
+        """
+    }
+
     func start() async {
         guard !hasStarted else { return }
         hasStarted = true
+        await repairQuarantineIfNeeded()
         do {
             try directories.prepare()
             try? resetPlaygroundDirectory()
@@ -134,11 +154,50 @@ final class AppModel {
                 }
             }
             projects = loaded.sorted { $0.updatedAt > $1.updatedAt }
+            await announceQuarantinedHistory()
         } catch {
-            startupError = error.localizedDescription
+            reportStartupProblem(error.localizedDescription)
         }
         library.start()
-        await checkForUpdate()
+        if settings.checksForUpdates { await checkForUpdate() }
+    }
+
+    /// macOS kills the bundled engine while it is still marked as downloaded,
+    /// which looks to the user like a generation that stops for no reason. The
+    /// user has already opened this app, so Atten clears the flag from its own
+    /// bundle; if macOS will not let it, the user is told what to do instead.
+    ///
+    /// Clearing the flag walks every file in the bundle, model included, so it
+    /// runs off the main actor and the window is never held up by it.
+    private func repairQuarantineIfNeeded() async {
+        guard case let .bundled(helper, _)? = BackendLocator.locateInstallation() else { return }
+        let bundle = Bundle.main.bundleURL
+        let repaired = await Task.detached(priority: .userInitiated) {
+            BundleQuarantine.clear(from: bundle, verifying: helper)
+        }.value
+        if !repaired {
+            reportStartupProblem(BackendError.blockedByGatekeeper.localizedDescription)
+        }
+    }
+
+    /// Startup problems accumulate rather than replace one another, so the one
+    /// the user can act on is never hidden by one that arrived later.
+    private func reportStartupProblem(_ message: String) {
+        startupError = [startupError, message].compactMap { $0 }.joined(separator: "\n\n")
+    }
+
+    /// History that could not be read is set aside instead of overwritten, and
+    /// that can happen on the first save as well as at launch. Either way the
+    /// user is told where their old file went, once.
+    private func announceQuarantinedHistory() async {
+        guard let quarantined = await repository.quarantinedFileURL,
+              !hasAnnouncedQuarantinedHistory else { return }
+        hasAnnouncedQuarantinedHistory = true
+        reportStartupProblem("""
+        Atten could not read its project history, so the old file was kept at \
+        \(quarantined.path) and a fresh history was started. \
+        Your audio files were not touched.
+        """)
     }
 
     var appVersion: String {
@@ -194,7 +253,7 @@ final class AppModel {
     private func installedModelsChanged() {
         voiceCatalogRevision += 1
         if VoiceCatalog.voice(id: selectedVoiceID) == nil {
-            selectVoice(VoiceCatalog.all[0])
+            selectVoice(VoiceCatalog.defaultVoice)
         }
     }
 
@@ -211,6 +270,10 @@ final class AppModel {
         let cleanText = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             generationState = .failed("Enter or import text before generating speech.")
+            return
+        }
+        if let message = missingModelMessage(for: selectedVoiceID) {
+            generationState = .failed(message)
             return
         }
         cancelGeneration()
@@ -253,6 +316,7 @@ final class AppModel {
                 )
                 projects.insert(project, at: 0)
                 try await repository.save(projects)
+                await announceQuarantinedHistory()
                 generationState = .ready(output.url)
                 successMessage = "Speech is ready to review."
                 play(url: output.url)
@@ -309,6 +373,10 @@ final class AppModel {
             return
         }
         guard !isGenerating, !isPlaygroundGenerating, voicePreviewID == nil else { return }
+        if let message = missingModelMessage(for: voice.id) {
+            generationState = .failed(message)
+            return
+        }
         voicePreviewID = voice.id
         let generationID = UUID()
         activeGenerationID = generationID
@@ -351,6 +419,10 @@ final class AppModel {
         let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             playgroundState = .failed("Enter a short sample before generating.")
+            return
+        }
+        if let message = missingModelMessage(for: voiceID) {
+            playgroundState = .failed(message)
             return
         }
 

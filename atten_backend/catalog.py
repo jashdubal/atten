@@ -30,6 +30,17 @@ def load_voices():
 VOICES = load_voices()
 
 
+def required_model_for(voice_id):
+    """The Hugging Face model a voice needs, or None when Atten's own engine
+    speaks it. Voices in languages the bundled Kokoro model cannot pronounce
+    declare the one model that can."""
+    return voice_for_id(voice_id).get("requires_model")
+
+
+def is_known_voice(voice_id):
+    return any(voice["id"] == voice_id for voice in VOICES)
+
+
 def voice_for_id(voice_id):
     """Return catalog metadata for a voice, or a compatible inferred entry."""
     return next(

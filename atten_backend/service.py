@@ -6,10 +6,12 @@ from pathlib import Path
 import shutil
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional
+import errno
 import os
+import time
 import uuid
 
-from .catalog import voice_for_id
+from .catalog import is_known_voice, required_model_for, voice_for_id
 from .device import resolve_device
 
 
@@ -37,6 +39,59 @@ def _configure_espeak():
     EspeakWrapper.set_library(str(library))
     EspeakWrapper.set_data_path(str(data))
     return temporary_assets
+
+
+def _disk_is_full(directory, margin=8 * 1024 * 1024):
+    """Whether the volume has so little room left that a failed write is best
+    explained as a full disk."""
+    try:
+        return shutil.disk_usage(directory).free < margin
+    except OSError:
+        return False
+
+
+def _remove_abandoned_partials(directory, older_than_seconds=24 * 60 * 60):
+    """Clears partial files left by a run that was killed before it finished.
+
+    A generation writes to a hidden file and renames it into place, so a crash
+    or a force quit leaves that hidden file behind. Over years of use those
+    would pile up unseen in the user's export folder. Only files older than a
+    day are touched, so a second Atten generating into the same folder right
+    now is never disturbed.
+    """
+    cutoff = time.time() - older_than_seconds
+    try:
+        candidates = list(directory.glob(".*.atten-*.part.*"))
+    except OSError:
+        return
+    for path in candidates:
+        try:
+            if path.is_file() and path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
+def safe_filename(name, reserved=0):
+    """Reduces a requested name to one the filesystem will actually accept.
+
+    Titles arrive here as whatever the user typed or imported, so they can
+    carry path separators, control characters, leading dots, or hundreds of
+    characters. `reserved` is the space the caller still needs for extensions
+    and suffixes; the budget is counted in bytes because a title in a
+    non-Latin script costs several bytes per character.
+    """
+    cleaned = "".join(
+        "-" if character in '/\\:*?"<>|' or ord(character) < 32 else character
+        for character in str(name)
+    ).strip()
+    cleaned = cleaned.lstrip(".").strip() or "atten-audio"
+
+    budget = max(1, 255 - reserved)
+    encoded = cleaned.encode("utf-8")
+    if len(encoded) > budget:
+        cleaned = encoded[:budget].decode("utf-8", "ignore").rstrip() or "atten-audio"
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -124,15 +179,27 @@ class SoundFileAudioIO:
 
         sf.write(str(path), audio, self.sample_rate)
 
-    def read(self, path):
+    def merge(self, destination, segment_paths):
+        """Joins segments into one file a block at a time.
+
+        Whole books are a supported input, and an hour of speech is far too
+        much to hold in memory at once, so nothing larger than a block is ever
+        resident regardless of how long the text is.
+        """
         import soundfile as sf
 
-        audio, _sample_rate = sf.read(str(path))
-        return audio
+        block_frames = self.sample_rate * 30
+        with sf.SoundFile(
+            str(destination), mode="w", samplerate=self.sample_rate, channels=1
+        ) as output:
+            for segment_path in segment_paths:
+                with sf.SoundFile(str(segment_path)) as segment:
+                    for block in segment.blocks(blocksize=block_frames, dtype="float32"):
+                        output.write(block)
 
 
 from .xtts_provider import XTTSv2Provider
-from .downloader import is_xtts_installed
+from .downloader import is_model_installed
 
 
 class GenerationService:
@@ -154,7 +221,33 @@ class GenerationService:
     def get_provider_for_voice(self, voice: str):
         if self._explicit_provider:
             return self._explicit_provider
-        kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_")
+
+        # A voice that names its own model is answered by that model alone.
+        # Atten never reaches the network to speak, so a model that is not on
+        # disk is a missing download to report, not a request to make.
+        required = required_model_for(voice) if self.model_id is None else None
+        if required:
+            if not is_model_installed(required):
+                raise RuntimeError(
+                    f"The voice '{voice}' speaks through the {required} model, which is "
+                    "not downloaded yet. Open Models, download it once, and this voice "
+                    "works offline from then on."
+                )
+            if self._xtts_provider is None:
+                self._xtts_provider = XTTSv2Provider(
+                    device_mode=self.device_mode, hf_model_id=required
+                )
+            return self._xtts_provider
+
+        if self.model_id is None and not is_known_voice(voice):
+            raise RuntimeError(
+                f"There is no voice called '{voice}'. Run with --list-voices to see "
+                "every voice this copy of Atten can speak."
+            )
+
+        # Every Japanese, Chinese and Hindi voice declares a model above, so
+        # those prefixes are handled there and never reach this list.
+        kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_")
         uses_kokoro = self.model_id is None or "kokoro" in self.model_id.lower()
         if self.engine != "xtts-v2" and uses_kokoro and voice.startswith(kokoro_prefixes):
             if self._kokoro_provider is None:
@@ -180,16 +273,34 @@ class GenerationService:
         if request.output_format not in {"mp3", "wav"}:
             raise ValueError("Output format must be mp3 or wav.")
 
+        # The finished file and the hidden partial file that precedes it both
+        # have to fit the filesystem's limit on one path component, so the name
+        # is budgeted against the longer of the two.
+        partial_suffix = f".atten-{uuid.uuid4().hex}.part.{request.output_format}"
+        filename = safe_filename(
+            request.filename or datetime.now().strftime("%Y-%m-%d-%H-%M-%S"),
+            reserved=len(partial_suffix.encode("utf-8")) + 1,
+        )
         output_directory = Path(request.output_directory).expanduser()
-        output_directory.mkdir(parents=True, exist_ok=True)
-        filename = request.filename or datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+        try:
+            output_directory.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise RuntimeError(
+                f"The folder '{output_directory}' could not be created: {error.strerror}. "
+                "Choose a different folder for generated audio."
+            ) from error
+        if not os.access(output_directory, os.W_OK):
+            raise RuntimeError(
+                f"The folder '{output_directory}' cannot be written to. It may be "
+                "read-only, or on a disk that is disconnected or full. Choose a "
+                "different folder for generated audio."
+            )
         output_path = output_directory / f"{filename}.{request.output_format}"
         if output_path.exists():
             raise FileExistsError(f"File '{output_path}' already exists.")
 
-        temporary_output = output_directory / (
-            f".{filename}.atten-{uuid.uuid4().hex}.part.{request.output_format}"
-        )
+        _remove_abandoned_partials(output_directory)
+        temporary_output = output_directory / f".{filename}{partial_suffix}"
         segment_count = 0
 
         try:
@@ -209,13 +320,29 @@ class GenerationService:
                         progress(segment_count)
 
                 if not segment_paths:
-                    raise RuntimeError("The TTS provider returned no audio.")
+                    raise RuntimeError(
+                        "This text produced no speech. Add words the selected "
+                        "voice can pronounce and try again."
+                    )
 
-                merged_audio = []
-                for segment_path in segment_paths:
-                    merged_audio.extend(self.audio_io.read(segment_path))
-                self.audio_io.write(temporary_output, merged_audio)
-                os.replace(temporary_output, output_path)
+                # Only the writing is translated. A failure anywhere else —
+                # a missing model, a provider that crashed — keeps its own
+                # message instead of being blamed on the disk.
+                try:
+                    self.audio_io.merge(temporary_output, segment_paths)
+                    os.replace(temporary_output, output_path)
+                except Exception as error:
+                    # libsndfile reports a full disk as its own "System error",
+                    # so the disk itself is asked rather than the message read.
+                    if (
+                        getattr(error, "errno", None) == errno.ENOSPC
+                        or _disk_is_full(output_directory)
+                    ):
+                        raise RuntimeError(
+                            f"The disk holding '{output_directory}' is full, so the audio "
+                            "could not be saved. Free some space or choose another folder."
+                        ) from error
+                    raise
         finally:
             temporary_output.unlink(missing_ok=True)
 

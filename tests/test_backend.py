@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
@@ -8,7 +9,12 @@ from unittest.mock import patch
 
 import cli
 from atten_backend.device import resolve_device
-from atten_backend.service import GenerationRequest, GenerationService, KokoroProvider
+from atten_backend.service import (
+    GenerationRequest,
+    GenerationService,
+    KokoroProvider,
+    SoundFileAudioIO,
+)
 
 
 class FakeProvider:
@@ -38,8 +44,12 @@ class FakeAudioIO:
         self.contents[path] = list(audio)
         self.writes.append((path, list(audio)))
 
-    def read(self, path):
-        return self.contents[Path(path)]
+    def merge(self, destination, segment_paths):
+        merged = [sample for path in segment_paths for sample in self.contents[Path(path)]]
+        destination = Path(destination)
+        destination.write_bytes(b"audio")
+        self.contents[destination] = merged
+        self.writes.append((destination, merged))
 
 
 class GenerationServiceTests(unittest.TestCase):
@@ -168,6 +178,143 @@ class GenerationServiceTests(unittest.TestCase):
             service.generate(GenerationRequest(text="  "))
         with self.assertRaises(ValueError):
             service.generate(GenerationRequest(text="Hello", output_format="flac"))
+
+
+class DurabilityTests(unittest.TestCase):
+    """Whatever a user types, imports, or does to their disk, the backend has
+    to answer with a finished file or a sentence they can act on."""
+
+    def test_titles_the_filesystem_would_reject_still_produce_a_file(self):
+        for name in ("x" * 400, "../escape", "..", ".hidden", "a/b", "\x07bell"):
+            with self.subTest(name=name), TemporaryDirectory() as directory:
+                service = GenerationService(FakeProvider(), FakeAudioIO())
+
+                result = service.generate(
+                    GenerationRequest(
+                        text="Hello", output_directory=Path(directory), filename=name
+                    )
+                )
+
+                self.assertEqual(result.output_path.parent, Path(directory).resolve())
+                # Both the published file and the partial file that preceded it
+                # have to fit the filesystem's per-component limit.
+                self.assertLessEqual(len(result.output_path.name.encode("utf-8")), 255)
+                self.assertTrue(result.output_path.is_file())
+
+    def test_unwritable_output_folder_is_explained_not_reported_as_a_system_error(self):
+        with TemporaryDirectory() as directory:
+            locked = Path(directory) / "locked"
+            locked.mkdir(mode=0o500)
+            service = GenerationService(FakeProvider(), FakeAudioIO())
+
+            with self.assertRaisesRegex(RuntimeError, "cannot be written to"):
+                service.generate(
+                    GenerationRequest(text="Hello", output_directory=locked)
+                )
+
+    def test_text_without_pronounceable_words_says_so(self):
+        with TemporaryDirectory() as directory:
+            service = GenerationService(FakeProvider(segments=[]), FakeAudioIO())
+
+            with self.assertRaisesRegex(RuntimeError, "produced no speech"):
+                service.generate(
+                    GenerationRequest(text="...", output_directory=Path(directory))
+                )
+
+    def test_default_filenames_stay_sortable_past_this_century(self):
+        with TemporaryDirectory() as directory:
+            service = GenerationService(FakeProvider(), FakeAudioIO())
+
+            result = service.generate(
+                GenerationRequest(text="Hello", output_directory=Path(directory))
+            )
+
+            year = result.output_path.stem.split("-")[0]
+            self.assertEqual(len(year), 4)
+            self.assertGreaterEqual(int(year), 2024)
+
+    def test_a_voice_that_needs_a_download_says_which_one(self):
+        with patch("atten_backend.service.is_model_installed", return_value=False):
+            service = GenerationService()
+            with self.assertRaisesRegex(RuntimeError, "facebook/mms-tts-ara"):
+                service.get_provider_for_voice("ar_mariam")
+
+    def test_every_catalogued_voice_either_ships_or_names_its_model(self):
+        # The library must never offer a voice that can only fail: a voice is
+        # either spoken by the bundled engine or declares the one model it needs.
+        from atten_backend.catalog import VOICES, required_model_for
+
+        for voice in VOICES:
+            with self.subTest(voice=voice["id"]):
+                bundled_prefixes = (
+                    "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_",
+                    "pf_", "pm_",
+                )
+                speaks_here = voice["id"].startswith(bundled_prefixes)
+                self.assertEqual(speaks_here, required_model_for(voice["id"]) is None)
+
+    def test_an_unknown_voice_is_named_as_unknown(self):
+        service = GenerationService()
+        with self.assertRaisesRegex(RuntimeError, "no voice called"):
+            service.get_provider_for_voice("zz_nobody")
+
+    def test_a_full_disk_is_reported_as_a_full_disk(self):
+        # libsndfile reports a full disk as its own "System error", which told
+        # the user nothing, so the disk is asked directly.
+        with TemporaryDirectory() as directory:
+            audio_io = FakeAudioIO()
+
+            def fail(destination, segment_paths):
+                raise RuntimeError("System error.")
+
+            audio_io.merge = fail
+            service = GenerationService(FakeProvider(), audio_io)
+
+            with patch("atten_backend.service._disk_is_full", return_value=True):
+                with self.assertRaisesRegex(RuntimeError, "is full"):
+                    service.generate(
+                        GenerationRequest(text="Hello", output_directory=Path(directory))
+                    )
+
+    def test_partial_files_from_a_killed_run_do_not_accumulate(self):
+        with TemporaryDirectory() as directory:
+            folder = Path(directory)
+            stale = folder / ".old.atten-abc123.part.mp3"
+            recent = folder / ".busy.atten-def456.part.mp3"
+            for path in (stale, recent):
+                path.write_bytes(b"partial")
+            # A force quit last week, and another Atten writing right now.
+            os.utime(stale, (0, 0))
+
+            GenerationService(FakeProvider(), FakeAudioIO()).generate(
+                GenerationRequest(text="Hello", output_directory=folder)
+            )
+
+            self.assertFalse(stale.exists())
+            self.assertTrue(recent.exists())
+
+    def test_segments_are_joined_end_to_end_in_both_formats(self):
+        # A book-length narration is far more audio than fits in memory, so the
+        # merge streams; this proves streaming still yields every sample, in
+        # order, for each format Atten writes.
+        import soundfile as sf
+
+        audio_io = SoundFileAudioIO()
+        rate = audio_io.sample_rate
+        for output_format in ("wav", "mp3"):
+            with self.subTest(output_format=output_format), TemporaryDirectory() as directory:
+                segments = []
+                for index in range(3):
+                    path = Path(directory) / f"segment-{index}.{output_format}"
+                    audio_io.write(path, [0.1] * rate)
+                    segments.append(path)
+                merged = Path(directory) / f"merged.{output_format}"
+
+                audio_io.merge(merged, segments)
+
+                self.assertAlmostEqual(
+                    sf.info(str(merged)).frames, rate * 3, delta=rate // 10
+                )
 
 
 class CLICompatibilityTests(unittest.TestCase):

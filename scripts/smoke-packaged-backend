@@ -29,24 +29,36 @@ case "$SMOKE_DEVICE" in
         ;;
 esac
 
-voices=(af_heart bf_emma ef_dora ff_siwis if_sara pf_dora)
-texts=(
-    "Atten is ready."
-    "Atten is ready."
-    "Atten esta listo."
-    "Atten est pret."
-    "Atten e pronto."
-    "Atten esta pronto."
+# Every voice the catalog says runs on the bundled engine must actually run on
+# it. Voices that declare a required model are excluded here; those are covered
+# by the app's own check, which names the model instead of failing.
+voices=()
+while IFS= read -r voice; do
+    voices+=("$voice")
+done < <(
+    "$HELPER" --list-voices --json |
+    /usr/bin/python3 -c '
+import json, sys
+for line in sys.stdin:
+    event = json.loads(line)
+    if event.get("event") == "voices":
+        for voice in event["voices"]:
+            if not voice.get("requires_model"):
+                print(voice["id"])
+'
 )
+test "${#voices[@]}" -gt 0 || { echo "No bundled voices were listed." >&2; exit 1; }
 formats=(wav mp3)
 
 if [[ "$quick" -eq 1 ]]; then
     voices=(af_heart)
-    texts=("Atten is ready.")
     formats=(wav)
 fi
 
-for index in "${!voices[@]}"; do
+# Nothing here may reach the network. Sending every protocol at a closed local
+# port turns any attempt into an immediate failure rather than a silent
+# download, so a regression that reintroduces a fetch fails this check.
+for voice in "${voices[@]}"; do
     for format in "${formats[@]}"; do
         /usr/bin/env -i \
             HOME="$WORK/home" \
@@ -55,19 +67,22 @@ for index in "${!voices[@]}"; do
             HF_HUB_OFFLINE=1 \
             PYTHONNOUSERSITE=1 \
             PYTHONDONTWRITEBYTECODE=1 \
-            "$HELPER" "${texts[$index]}" \
+            HTTP_PROXY="http://127.0.0.1:1" \
+            HTTPS_PROXY="http://127.0.0.1:1" \
+            ALL_PROXY="http://127.0.0.1:1" \
+            "$HELPER" "The quick brown fox jumps over the lazy dog." \
             --device "$SMOKE_DEVICE" \
-            --voice "${voices[$index]}" \
+            --voice "$voice" \
             --format "$format" \
             --output "$WORK/output" \
-            --filename "${voices[$index]}-$format" \
+            --filename "$voice-$format" \
             --json
-        test -s "$WORK/output/${voices[$index]}-$format.$format"
+        test -s "$WORK/output/$voice-$format.$format"
     done
 done
 
 if [[ "$quick" -eq 1 ]]; then
     echo "Packaged offline synthesis passed."
 else
-    echo "Packaged offline synthesis passed for all supported languages and formats."
+    echo "Packaged offline synthesis passed for all ${#voices[@]} bundled voices, with no network reachable."
 fi
