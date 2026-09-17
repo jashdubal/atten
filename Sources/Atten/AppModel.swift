@@ -51,6 +51,7 @@ final class AppModel {
     @ObservationIgnored private var audioDelegate: AudioPlaybackDelegate?
     @ObservationIgnored private var activeGenerationID: UUID?
     @ObservationIgnored private var hasStarted = false
+    @ObservationIgnored private var hasAnnouncedQuarantinedHistory = false
     @ObservationIgnored private var playbackTimer: Timer?
 
     private var playgroundDirectory: URL {
@@ -139,7 +140,7 @@ final class AppModel {
     func start() async {
         guard !hasStarted else { return }
         hasStarted = true
-        repairQuarantineIfNeeded()
+        await repairQuarantineIfNeeded()
         do {
             try directories.prepare()
             try? resetPlaygroundDirectory()
@@ -153,15 +154,9 @@ final class AppModel {
                 }
             }
             projects = loaded.sorted { $0.updatedAt > $1.updatedAt }
-            if let quarantined = await repository.quarantinedFileURL {
-                startupError = """
-                Atten could not read its project history, so the old file was kept at \
-                \(quarantined.path) and a fresh history was started. \
-                Your audio files were not touched.
-                """
-            }
+            await announceQuarantinedHistory()
         } catch {
-            startupError = error.localizedDescription
+            reportStartupProblem(error.localizedDescription)
         }
         library.start()
         if settings.checksForUpdates { await checkForUpdate() }
@@ -171,11 +166,38 @@ final class AppModel {
     /// which looks to the user like a generation that stops for no reason. The
     /// user has already opened this app, so Atten clears the flag from its own
     /// bundle; if macOS will not let it, the user is told what to do instead.
-    private func repairQuarantineIfNeeded() {
+    ///
+    /// Clearing the flag walks every file in the bundle, model included, so it
+    /// runs off the main actor and the window is never held up by it.
+    private func repairQuarantineIfNeeded() async {
         guard case let .bundled(helper, _)? = BackendLocator.locateInstallation() else { return }
-        if !BundleQuarantine.clear(from: Bundle.main.bundleURL, verifying: helper) {
-            startupError = BackendError.stoppedBySystem.localizedDescription
+        let bundle = Bundle.main.bundleURL
+        let repaired = await Task.detached(priority: .userInitiated) {
+            BundleQuarantine.clear(from: bundle, verifying: helper)
+        }.value
+        if !repaired {
+            reportStartupProblem(BackendError.blockedByGatekeeper.localizedDescription)
         }
+    }
+
+    /// Startup problems accumulate rather than replace one another, so the one
+    /// the user can act on is never hidden by one that arrived later.
+    private func reportStartupProblem(_ message: String) {
+        startupError = [startupError, message].compactMap { $0 }.joined(separator: "\n\n")
+    }
+
+    /// History that could not be read is set aside instead of overwritten, and
+    /// that can happen on the first save as well as at launch. Either way the
+    /// user is told where their old file went, once.
+    private func announceQuarantinedHistory() async {
+        guard let quarantined = await repository.quarantinedFileURL,
+              !hasAnnouncedQuarantinedHistory else { return }
+        hasAnnouncedQuarantinedHistory = true
+        reportStartupProblem("""
+        Atten could not read its project history, so the old file was kept at \
+        \(quarantined.path) and a fresh history was started. \
+        Your audio files were not touched.
+        """)
     }
 
     var appVersion: String {
@@ -294,6 +316,7 @@ final class AppModel {
                 )
                 projects.insert(project, at: 0)
                 try await repository.save(projects)
+                await announceQuarantinedHistory()
                 generationState = .ready(output.url)
                 successMessage = "Speech is ready to review."
                 play(url: output.url)

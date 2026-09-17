@@ -245,7 +245,9 @@ class GenerationService:
                 "every voice this copy of Atten can speak."
             )
 
-        kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_")
+        # Every Japanese, Chinese and Hindi voice declares a model above, so
+        # those prefixes are handled there and never reach this list.
+        kokoro_prefixes = ("af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_")
         uses_kokoro = self.model_id is None or "kokoro" in self.model_id.lower()
         if self.engine != "xtts-v2" and uses_kokoro and voice.startswith(kokoro_prefixes):
             if self._kokoro_provider is None:
@@ -323,17 +325,24 @@ class GenerationService:
                         "voice can pronounce and try again."
                     )
 
-                self.audio_io.merge(temporary_output, segment_paths)
-                os.replace(temporary_output, output_path)
-        except Exception as error:
-            # libsndfile reports a full disk as its own "System error", so the
-            # disk itself is asked rather than the exception being read.
-            if getattr(error, "errno", None) == errno.ENOSPC or _disk_is_full(output_directory):
-                raise RuntimeError(
-                    f"The disk holding '{output_directory}' is full, so the audio "
-                    "could not be saved. Free some space or choose another folder."
-                ) from error
-            raise
+                # Only the writing is translated. A failure anywhere else —
+                # a missing model, a provider that crashed — keeps its own
+                # message instead of being blamed on the disk.
+                try:
+                    self.audio_io.merge(temporary_output, segment_paths)
+                    os.replace(temporary_output, output_path)
+                except Exception as error:
+                    # libsndfile reports a full disk as its own "System error",
+                    # so the disk itself is asked rather than the message read.
+                    if (
+                        getattr(error, "errno", None) == errno.ENOSPC
+                        or _disk_is_full(output_directory)
+                    ):
+                        raise RuntimeError(
+                            f"The disk holding '{output_directory}' is full, so the audio "
+                            "could not be saved. Free some space or choose another folder."
+                        ) from error
+                    raise
         finally:
             temporary_output.unlink(missing_ok=True)
 

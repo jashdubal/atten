@@ -52,10 +52,13 @@ public enum VoiceCatalog {
         )
     }
 
-    static func provider(forVoiceID id: String) -> String {
+    /// A voice that names a model is spoken by that model, whatever its id
+    /// looks like — several ids that begin like Kokoro voices are not ones
+    /// Kokoro can speak.
+    static func provider(forVoiceID id: String, requiresModel: String? = nil) -> String {
+        if let requiresModel { return requiresModel }
         let kokoroPrefixes = [
-            "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_",
-            "pf_", "pm_", "jf_", "jm_", "zf_", "zm_", "hf_", "hm_",
+            "af_", "am_", "bf_", "bm_", "ef_", "em_", "ff_", "if_", "im_", "pf_", "pm_",
         ]
         return kokoroPrefixes.contains(where: id.hasPrefix) ? kokoroProvider : multilingualProvider
     }
@@ -105,7 +108,7 @@ public enum VoiceCatalog {
                 gender: gender,
                 traits: traits,
                 quality: quality,
-                provider: VoiceCatalog.provider(forVoiceID: id),
+                provider: VoiceCatalog.provider(forVoiceID: id, requiresModel: requiresModel),
                 requiresModelID: requiresModel
             )
         }

@@ -62,8 +62,8 @@ public actor ProjectRepository {
             return []
         }
         let data = try Data(contentsOf: fileURL)
-        hasReadExistingFile = true
         if let projects = try? decoder.decode([ProjectRecord].self, from: data) {
+            hasReadExistingFile = true
             return projects
         }
 
@@ -71,7 +71,11 @@ public actor ProjectRepository {
         // rather than discarding a long history over one damaged entry.
         let salvaged = (try? decoder.decode([Salvaged].self, from: data))?
             .compactMap(\.record) ?? []
+        // Only once the damaged file is safely aside may saving proceed. If the
+        // move fails, this throws with the guard still armed, so the file the
+        // user's history lives in is not written over.
         quarantinedFileURL = try quarantine()
+        hasReadExistingFile = true
         return salvaged
     }
 
