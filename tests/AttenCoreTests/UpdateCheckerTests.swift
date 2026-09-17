@@ -37,4 +37,30 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertEqual(UpdateChecker.expectedChecksum(for: "Atten-macOS-arm64.dmg", in: listing), "abc123")
         XCTAssertNil(UpdateChecker.expectedChecksum(for: "missing.dmg", in: listing))
     }
+
+    /// An update that cannot speak offline must never replace one that can.
+    func testStagedAppIsRejectedUnlessItCarriesItsEngineAndModel() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AttenUpdate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appendingPathComponent("Atten.app")
+
+        func add(_ relativePath: String) throws {
+            let url = app.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("x".utf8).write(to: url)
+        }
+
+        try add("Contents/MacOS/Atten")
+        XCTAssertFalse(UpdateChecker.isCompleteApp(app))
+
+        try add("Contents/Resources/Backend/atten-backend/atten-backend")
+        XCTAssertFalse(UpdateChecker.isCompleteApp(app))
+
+        try add("Contents/Resources/Models/Kokoro-82M/kokoro-v1_0.pth")
+        XCTAssertTrue(UpdateChecker.isCompleteApp(app))
+    }
 }

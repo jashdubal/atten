@@ -78,11 +78,17 @@ public enum UpdateChecker {
 
     public enum InstallError: LocalizedError {
         case checksumMismatch
+        case checksumUnavailable
+        case incompleteDownload
         case command(String)
 
         public var errorDescription: String? {
             switch self {
             case .checksumMismatch: "The downloaded update failed its integrity check."
+            case .checksumUnavailable:
+                "That release does not publish checksums, so Atten will not install it. You can download it yourself from the releases page."
+            case .incompleteDownload:
+                "The downloaded update is missing its speech engine or model, so it was not installed."
             case let .command(message): message
             }
         }
@@ -99,28 +105,56 @@ public enum UpdateChecker {
         let dmg = staging.appendingPathComponent(dmgName)
         try FileManager.default.moveItem(at: downloaded, to: dmg)
 
-        if let checksumsURL = release.checksumsURL {
-            let (data, _) = try await URLSession.shared.data(from: checksumsURL)
-            guard let expected = expectedChecksum(for: dmgName, in: String(decoding: data, as: UTF8.self)),
-                  try sha256(of: dmg) == expected
-            else { throw InstallError.checksumMismatch }
-        }
+        // Verification is not optional. A release without published checksums
+        // is not installed at all, so nothing can quietly replace a working
+        // Atten with bytes that were never checked.
+        guard let checksumsURL = release.checksumsURL else { throw InstallError.checksumUnavailable }
+        let (data, _) = try await URLSession.shared.data(from: checksumsURL)
+        guard let expected = expectedChecksum(for: dmgName, in: String(decoding: data, as: UTF8.self)),
+              try sha256(of: dmg) == expected
+        else { throw InstallError.checksumMismatch }
 
         let mountPoint = staging.appendingPathComponent("mount", isDirectory: true)
         try run("/usr/bin/hdiutil", ["attach", dmg.path, "-nobrowse", "-readonly", "-mountpoint", mountPoint.path])
         defer { try? run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"]) }
         let stagedApp = staging.appendingPathComponent("Atten.app", isDirectory: true)
         try run("/usr/bin/ditto", [mountPoint.appendingPathComponent("Atten.app").path, stagedApp.path])
+        guard isCompleteApp(stagedApp) else { throw InstallError.incompleteDownload }
         try? FileManager.default.removeItem(at: dmg)
         return stagedApp
     }
 
+    /// An update is only worth swapping in if it can actually speak offline,
+    /// so the staged bundle must carry its executable, its engine, and its
+    /// model before the working copy is touched.
+    static func isCompleteApp(_ app: URL) -> Bool {
+        let resources = app.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let required = [
+            app.appendingPathComponent("Contents/MacOS/Atten"),
+            resources.appendingPathComponent("Backend/atten-backend/atten-backend"),
+            resources.appendingPathComponent("Models/Kokoro-82M/kokoro-v1_0.pth"),
+        ]
+        return required.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     /// Spawns a detached helper that waits for this process to exit, swaps the
     /// app bundle in place, and relaunches it. The caller should terminate next.
+    ///
+    /// The working copy is moved aside rather than deleted, and is put back if
+    /// the new bundle cannot take its place — so a swap that fails halfway
+    /// leaves the user with the Atten they already had, never with none.
     public static func scheduleReplacement(of installedApp: URL, with stagedApp: URL) throws {
         let script = """
         while kill -0 \(ProcessInfo.processInfo.processIdentifier) 2>/dev/null; do sleep 0.5; done
-        rm -rf "$1" && mv "$2" "$1"
+        previous="$1.atten-previous"
+        rm -rf "$previous"
+        if mv "$1" "$previous"; then
+            if mv "$2" "$1"; then
+                rm -rf "$previous"
+            else
+                mv "$previous" "$1"
+            fi
+        fi
         xattr -dr com.apple.quarantine "$1" 2>/dev/null
         open "$1"
         """
