@@ -6,11 +6,23 @@ public enum BackendError: LocalizedError, Equatable, Sendable {
     case processFailed(String)
     case malformedResponse
     case cancelled
+    case stoppedBySystem
 
     public var errorDescription: String? {
         switch self {
+        case .stoppedBySystem:
+            """
+            macOS stopped Atten's speech engine before it could finish. This usually \
+            means the copy of Atten you are running is still marked as downloaded. \
+            Move Atten to your Applications folder, open it once from there, and \
+            approve it in System Settings under Privacy & Security.
+            """
         case .backendNotFound:
-            "Atten could not find its bundled speech engine or a development backend."
+            """
+            Atten could not find its bundled speech engine. The app may have been \
+            moved or partly copied — reinstall it from the disk image and drag the \
+            whole Atten app into Applications.
+            """
         case let .invalidRequest(message), let .processFailed(message):
             message
         case .malformedResponse:
@@ -108,8 +120,14 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
                 throw BackendError.processFailed(error.localizedDescription)
             }
 
-            if Task.isCancelled || isCancellationRequested || child.terminationReason == .uncaughtSignal {
+            if Task.isCancelled || isCancellationRequested {
                 throw BackendError.cancelled
+            }
+            // A signal nobody asked for means the system killed the engine —
+            // Gatekeeper is the usual reason. Reporting that as a cancellation
+            // told the user their own click had stopped it.
+            if child.terminationReason == .uncaughtSignal {
+                throw BackendError.stoppedBySystem
             }
             guard child.terminationStatus == 0 else {
                 let processOutput = String(decoding: outputData, as: UTF8.self)
@@ -313,6 +331,9 @@ public struct RetryingBackendClient: TTSGenerating {
                 throw BackendError.cancelled
             } catch BackendError.cancelled {
                 throw BackendError.cancelled
+            } catch BackendError.stoppedBySystem {
+                // Gatekeeper does not change its mind on a second attempt.
+                throw BackendError.stoppedBySystem
             } catch {
                 lastError = error
                 if attempt < maximumAttempts {

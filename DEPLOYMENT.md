@@ -120,14 +120,36 @@ depends on `Atten-macOS-arm64.dmg` being unchanged across releases.
 ## User installation and Gatekeeper
 
 Atten requires Apple Silicon and macOS 14 or newer. Open the DMG and drag Atten
-to Applications. Releases are ad-hoc signed but intentionally not Developer ID
-signed or notarized, so first launch can be blocked by Gatekeeper. Control-click
-Atten, choose **Open**, then confirm. If that option is unavailable, open
-**System Settings → Privacy & Security** and choose **Open Anyway** for Atten.
+to Applications. Releases are ad-hoc signed but not Developer ID signed or
+notarized, so the first launch is blocked by Gatekeeper with "Apple could not
+verify Atten is free of malware".
+
+To open it: double-click Atten once and dismiss the warning, then open
+**System Settings → Privacy & Security**, scroll to Security, and choose
+**Open Anyway** next to Atten. On macOS 15 and newer this is the only route —
+the older Control-click → **Open** shortcut no longer works for applications
+that are not notarized, so do not document it.
 
 Never tell users to run `xattr` or remove quarantine metadata. Those commands
 weaken a macOS safety boundary and conceal whether the downloaded file is the
 one the user intended to open.
+
+Atten does clear the quarantine flag from its own bundle at launch, which is a
+deliberate exception to that rule and not a contradiction of it. macOS marks
+every file inside the disk image, and approving the outer app does not always
+clear the bundled speech engine inside it. A quarantined helper is killed with
+SIGKILL the moment Atten runs it, which the user experiences as a generation
+that stops for no reason. The repair runs only on the bundle the user has
+already opened and approved, grants no access they have not already granted,
+and hides nothing: the approval still happens in System Settings, in full view.
+
+**Notarization is the durable fix and is still outstanding.** Ad-hoc signing
+leaves every new user facing a security warning and leaves the app dependent on
+Gatekeeper's tolerance for unsigned software, which has narrowed with each macOS
+release. Notarizing requires a paid Apple Developer account and a Developer ID
+certificate; the resulting ticket is stapled into the DMG and keeps working
+after the signing certificate expires, so it is a one-time cost that removes the
+warning and the long-term risk of a future macOS refusing the app outright.
 
 Uninstall by quitting Atten and moving it from Applications to Trash. Optional
 user data can be removed from `~/Library/Application Support/Atten`; generated

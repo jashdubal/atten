@@ -139,6 +139,7 @@ final class AppModel {
     func start() async {
         guard !hasStarted else { return }
         hasStarted = true
+        repairQuarantineIfNeeded()
         do {
             try directories.prepare()
             try? resetPlaygroundDirectory()
@@ -164,6 +165,17 @@ final class AppModel {
         }
         library.start()
         if settings.checksForUpdates { await checkForUpdate() }
+    }
+
+    /// macOS kills the bundled engine while it is still marked as downloaded,
+    /// which looks to the user like a generation that stops for no reason. The
+    /// user has already opened this app, so Atten clears the flag from its own
+    /// bundle; if macOS will not let it, the user is told what to do instead.
+    private func repairQuarantineIfNeeded() {
+        guard case let .bundled(helper, _)? = BackendLocator.locateInstallation() else { return }
+        if !BundleQuarantine.clear(from: Bundle.main.bundleURL, verifying: helper) {
+            startupError = BackendError.stoppedBySystem.localizedDescription
+        }
     }
 
     var appVersion: String {

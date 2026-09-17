@@ -173,6 +173,38 @@ final class DurabilityTests: XCTestCase {
         XCTAssertFalse(emoji.isEmpty)
     }
 
+    // MARK: - Gatekeeper
+
+    /// macOS kills a quarantined helper with no message, which is how a first
+    /// run turns into "nothing happens". Atten has to clear its own flag.
+    func testQuarantineIsDetectedAndClearedFromTheBundle() throws {
+        let bundle = directory.appendingPathComponent("Atten.app")
+        let helper = bundle.appendingPathComponent("Contents/Resources/Backend/engine")
+        try FileManager.default.createDirectory(
+            at: helper.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("engine".utf8).write(to: helper)
+
+        let flag = "0083;00000000;Safari;\(UUID().uuidString)"
+        try helper.withUnsafeFileSystemRepresentation { path in
+            let result = setxattr(
+                path, BundleQuarantine.attributeName, flag, flag.utf8.count, 0, XATTR_NOFOLLOW
+            )
+            try XCTSkipIf(result != 0, "This filesystem does not keep extended attributes.")
+        }
+        XCTAssertTrue(BundleQuarantine.isQuarantined(helper))
+
+        XCTAssertTrue(BundleQuarantine.clear(from: bundle, verifying: helper))
+        XCTAssertFalse(BundleQuarantine.isQuarantined(helper))
+    }
+
+    func testClearingIsSkippedWhenNothingIsQuarantined() {
+        let bundle = directory.appendingPathComponent("Atten.app")
+        let helper = bundle.appendingPathComponent("Contents/MacOS/Atten")
+        XCTAssertTrue(BundleQuarantine.clear(from: bundle, verifying: helper))
+    }
+
     private static func record(title: String) -> ProjectRecord {
         ProjectRecord(
             title: title,
