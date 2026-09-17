@@ -6,10 +6,14 @@ public struct AppDirectories: Sendable {
     public let defaultExports: URL
 
     public init(applicationSupport: URL? = nil) {
-        let base = applicationSupport ?? FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first!.appendingPathComponent("Atten", isDirectory: true)
+        // Application Support is always present in practice, but a home
+        // directory that has been emptied or remounted must not crash Atten on
+        // launch, so fall back to the conventional path rather than unwrapping.
+        let base = applicationSupport ?? (
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+        ).appendingPathComponent("Atten", isDirectory: true)
         self.applicationSupport = base
         self.projectsFile = base.appendingPathComponent("projects.json")
         self.defaultExports = base.appendingPathComponent("Exports", isDirectory: true)
@@ -32,6 +36,14 @@ public actor ProjectRepository {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
+    /// Set when `load` had to set an unreadable history file aside, so the app
+    /// can tell the user where their old history went instead of silently
+    /// starting over.
+    public private(set) var quarantinedFileURL: URL?
+    /// Whether this session ever read the file successfully. Until it has,
+    /// saving must not replace whatever is already on disk.
+    private var hasReadExistingFile = false
+
     public init(fileURL: URL) {
         self.fileURL = fileURL
         self.encoder = JSONEncoder()
@@ -39,19 +51,68 @@ public actor ProjectRepository {
         self.decoder = JSONDecoder()
     }
 
+    /// Reads project history. A file that cannot be decoded — truncated by a
+    /// crash, hand-edited, or written by a version this one does not
+    /// understand — is moved aside rather than left in place, because the next
+    /// save would otherwise overwrite it and turn one bad launch into
+    /// permanent data loss.
     public func load() throws -> [ProjectRecord] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
-        return try decoder.decode(
-            [ProjectRecord].self,
-            from: Data(contentsOf: fileURL)
-        )
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            hasReadExistingFile = true
+            return []
+        }
+        let data = try Data(contentsOf: fileURL)
+        hasReadExistingFile = true
+        if let projects = try? decoder.decode([ProjectRecord].self, from: data) {
+            return projects
+        }
+
+        // The file is not wholly readable. Keep every record that still decodes
+        // rather than discarding a long history over one damaged entry.
+        let salvaged = (try? decoder.decode([Salvaged].self, from: data))?
+            .compactMap(\.record) ?? []
+        quarantinedFileURL = try quarantine()
+        return salvaged
     }
 
+    /// One array element that is kept when it decodes and skipped when it does not.
+    private struct Salvaged: Decodable {
+        let record: ProjectRecord?
+
+        init(from decoder: Decoder) throws {
+            record = try? ProjectRecord(from: decoder)
+        }
+    }
+
+    /// Moves the unreadable file next to itself with a timestamped name.
+    private func quarantine() throws -> URL {
+        let stamp = ISO8601DateFormatter.string(
+            from: Date(),
+            timeZone: TimeZone(secondsFromGMT: 0) ?? .current,
+            formatOptions: [.withYear, .withMonth, .withDay, .withTime]
+        )
+        .replacingOccurrences(of: ":", with: "-")
+        let destination = fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(fileURL.deletingPathExtension().lastPathComponent)-unreadable-\(stamp).json")
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: fileURL, to: destination)
+        return destination
+    }
+
+    /// Writes history atomically. If this session never managed to read the
+    /// existing file — an unreadable disk, a permission change — that file is
+    /// preserved under a new name first, because overwriting it would destroy
+    /// history Atten was simply unable to open today.
     public func save(_ projects: [ProjectRecord]) throws {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        if !hasReadExistingFile, FileManager.default.fileExists(atPath: fileURL.path) {
+            quarantinedFileURL = try quarantine()
+            hasReadExistingFile = true
+        }
         try encoder.encode(projects).write(to: fileURL, options: .atomic)
     }
 }

@@ -94,7 +94,7 @@ final class AppModel {
     }
 
     var selectedVoice: Voice {
-        VoiceCatalog.voice(id: selectedVoiceID) ?? VoiceCatalog.all[0]
+        VoiceCatalog.voice(id: selectedVoiceID) ?? VoiceCatalog.defaultVoice
     }
 
     var currentAudioURL: URL? {
@@ -134,11 +134,18 @@ final class AppModel {
                 }
             }
             projects = loaded.sorted { $0.updatedAt > $1.updatedAt }
+            if let quarantined = await repository.quarantinedFileURL {
+                startupError = """
+                Atten could not read its project history, so the old file was kept at \
+                \(quarantined.path) and a fresh history was started. \
+                Your audio files were not touched.
+                """
+            }
         } catch {
             startupError = error.localizedDescription
         }
         library.start()
-        await checkForUpdate()
+        if settings.checksForUpdates { await checkForUpdate() }
     }
 
     var appVersion: String {
@@ -194,7 +201,7 @@ final class AppModel {
     private func installedModelsChanged() {
         voiceCatalogRevision += 1
         if VoiceCatalog.voice(id: selectedVoiceID) == nil {
-            selectVoice(VoiceCatalog.all[0])
+            selectVoice(VoiceCatalog.defaultVoice)
         }
     }
 

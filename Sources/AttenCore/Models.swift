@@ -123,6 +123,28 @@ public struct ProjectRecord: Codable, Identifiable, Equatable, Sendable {
     }
 
     public var audioURL: URL { URL(fileURLWithPath: audioPath) }
+
+    // A record only needs an audio path to stay useful. Everything else falls
+    // back to a sane value so history written by an older or newer Atten — or
+    // an unknown format a future version introduced — still loads.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        audioPath = try container.decode(String.self, forKey: .audioPath)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+            ?? URL(fileURLWithPath: audioPath).deletingPathExtension().lastPathComponent
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        voiceID = try container.decodeIfPresent(String.self, forKey: .voiceID) ?? "af_heart"
+        speed = try container.decodeIfPresent(Double.self, forKey: .speed) ?? 1.0
+        format = (try? container.decodeIfPresent(AudioFormat.self, forKey: .format))
+            .flatMap { $0 }
+            ?? AudioFormat(rawValue: URL(fileURLWithPath: audioPath).pathExtension.lowercased())
+            ?? .mp3
+        let created = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        createdAt = created
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? created
+        isLegacyImport = try container.decodeIfPresent(Bool.self, forKey: .isLegacyImport) ?? false
+    }
 }
 
 public enum AppearancePreference: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -144,6 +166,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var useMPS: Bool
     /// Downloads that were running or paused, resumed on the next launch.
     public var pendingDownloadModelIDs: Set<String>
+    /// Whether Atten contacts GitHub at launch to look for a newer release.
+    /// Turning this off keeps a working installation on its current version
+    /// indefinitely, with no network use at all.
+    public var checksForUpdates: Bool
 
     public init(
         appearance: AppearancePreference = .system,
@@ -153,7 +179,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         selectedVoiceID: String = "af_heart",
         favoriteVoiceIDs: Set<String> = ["af_heart", "af_bella", "bf_emma"],
         useMPS: Bool = true,
-        pendingDownloadModelIDs: Set<String> = []
+        pendingDownloadModelIDs: Set<String> = [],
+        checksForUpdates: Bool = true
     ) {
         self.appearance = appearance
         self.outputDirectory = outputDirectory
@@ -163,22 +190,31 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.favoriteVoiceIDs = favoriteVoiceIDs
         self.useMPS = useMPS
         self.pendingDownloadModelIDs = pendingDownloadModelIDs
+        self.checksForUpdates = checksForUpdates
     }
 
-    // Settings saved by earlier versions lack newer keys; decode them leniently
-    // so upgrading never resets a user's preferences.
+    // Every key is optional on the way in. A blob written by an older Atten
+    // lacks newer keys, and one written by a newer Atten may hold values this
+    // version does not know, such as an appearance or format added later.
+    // Neither may cost the user the preferences that still make sense, so each
+    // field falls back on its own rather than the whole blob being discarded.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        appearance = try container.decode(AppearancePreference.self, forKey: .appearance)
         outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
-        defaultFormat = try container.decode(AudioFormat.self, forKey: .defaultFormat)
-        defaultSpeed = try container.decode(Double.self, forKey: .defaultSpeed)
-        selectedVoiceID = try container.decode(String.self, forKey: .selectedVoiceID)
-        favoriteVoiceIDs = try container.decode(Set<String>.self, forKey: .favoriteVoiceIDs)
-        useMPS = try container.decode(Bool.self, forKey: .useMPS)
+        appearance = (try? container.decodeIfPresent(AppearancePreference.self, forKey: .appearance))
+            .flatMap { $0 } ?? .system
+        defaultFormat = (try? container.decodeIfPresent(AudioFormat.self, forKey: .defaultFormat))
+            .flatMap { $0 } ?? .mp3
+        defaultSpeed = try container.decodeIfPresent(Double.self, forKey: .defaultSpeed) ?? 1.0
+        selectedVoiceID = try container.decodeIfPresent(String.self, forKey: .selectedVoiceID)
+            ?? "af_heart"
+        favoriteVoiceIDs = try container.decodeIfPresent(Set<String>.self, forKey: .favoriteVoiceIDs)
+            ?? ["af_heart", "af_bella", "bf_emma"]
+        useMPS = try container.decodeIfPresent(Bool.self, forKey: .useMPS) ?? true
         pendingDownloadModelIDs = try container.decodeIfPresent(
             Set<String>.self,
             forKey: .pendingDownloadModelIDs
         ) ?? []
+        checksForUpdates = try container.decodeIfPresent(Bool.self, forKey: .checksForUpdates) ?? true
     }
 }

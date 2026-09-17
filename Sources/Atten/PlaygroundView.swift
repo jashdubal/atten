@@ -12,7 +12,7 @@ struct PlaygroundView: View {
     @State private var useMPS = true
 
     private var voice: Voice {
-        VoiceCatalog.voice(id: voiceID) ?? VoiceCatalog.all[0]
+        VoiceCatalog.voice(id: voiceID) ?? VoiceCatalog.defaultVoice
     }
 
     var body: some View {

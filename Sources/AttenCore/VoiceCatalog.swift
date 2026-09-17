@@ -15,6 +15,12 @@ public enum VoiceCatalog {
         all.first { $0.id == id }
     }
 
+    /// The voice used when a saved selection no longer exists. `all` is never
+    /// empty, but callers must not have to index into it to find that out.
+    public static var defaultVoice: Voice {
+        all.first ?? fallback[0]
+    }
+
     public static let kokoroProvider = "Kokoro-82M"
     public static let multilingualProvider = "XTTS-v2 & Multilingual"
 
@@ -64,7 +70,10 @@ public enum VoiceCatalog {
 
         for url in candidates where FileManager.default.fileExists(atPath: url.path) {
             if let data = try? Data(contentsOf: url),
-               let decoded = try? JSONDecoder().decode([CatalogVoice].self, from: data) {
+               let decoded = try? JSONDecoder().decode([CatalogVoice].self, from: data),
+               // An empty or damaged catalog file must fall through to the
+               // compiled-in list; the app is never allowed to have no voices.
+               !decoded.isEmpty {
                 return decoded.map(\.voice)
             }
         }
