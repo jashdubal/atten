@@ -201,6 +201,10 @@ class DurabilityTests(unittest.TestCase):
                 self.assertLessEqual(len(result.output_path.name.encode("utf-8")), 255)
                 self.assertTrue(result.output_path.is_file())
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "Windows ignores POSIX mode bits, so a read-only folder cannot be staged this way.",
+    )
     def test_unwritable_output_folder_is_explained_not_reported_as_a_system_error(self):
         with TemporaryDirectory() as directory:
             locked = Path(directory) / "locked"
