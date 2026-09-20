@@ -126,6 +126,10 @@ struct ReaderPDFView: NSViewRepresentable {
     /// Passed in so a theme change reaches AppKit, which keeps the colour it
     /// was last handed.
     let theme: AttenTheme
+    /// A PDF is already typeset, so the three view modes are three ways of
+    /// arranging pages it already has — which PDFKit does natively, and far
+    /// better than anything built on top of it would.
+    let mode: ReaderViewMode
     let onOpen: (Int) -> Void
     let onPageChange: (Int, String) -> Void
 
@@ -136,6 +140,7 @@ struct ReaderPDFView: NSViewRepresentable {
         var handledJumpID: UUID?
         var highlightKey: String?
         var appliedTheme: AttenTheme?
+        var appliedMode: ReaderViewMode?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -153,6 +158,24 @@ struct ReaderPDFView: NSViewRepresentable {
     func updateNSView(_ view: PDFView, context: Context) {
         let coordinator = context.coordinator
         coordinator.observer.report = onPageChange
+
+        if coordinator.appliedMode != mode {
+            coordinator.appliedMode = mode
+            switch mode {
+            case .page:
+                view.displayMode = .singlePage
+                view.displaysPageBreaks = true
+            case .spread:
+                view.displayMode = .twoUp
+                view.displaysAsBook = true
+                view.displaysPageBreaks = true
+            case .scroll:
+                view.displayMode = .singlePageContinuous
+            }
+            // Re-fitting after the arrangement changes is what makes a page
+            // actually fill the window rather than keeping the zoom it had.
+            view.autoScales = true
+        }
 
         if coordinator.appliedTheme != theme {
             coordinator.appliedTheme = theme

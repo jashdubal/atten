@@ -297,6 +297,18 @@ final class AppModel {
         libraryPath.removeAll()
     }
 
+    func selectReaderViewMode(_ mode: ReaderViewMode) {
+        guard settings.readerViewMode != mode else { return }
+        settings.readerViewMode = mode
+        saveSettings()
+    }
+
+    func setReaderJustifiesText(_ isJustified: Bool) {
+        guard settings.readerJustifiesText != isJustified else { return }
+        settings.readerJustifiesText = isJustified
+        saveSettings()
+    }
+
     func setReaderFocus(_ on: Bool) {
         guard isReaderFocused != on else { return }
         isReaderFocused = on
