@@ -529,6 +529,12 @@ final class AppModel {
         saveSettings()
     }
 
+    func selectAppearance(_ appearance: AppearancePreference) {
+        guard settings.appearance != appearance else { return }
+        settings.appearance = appearance
+        saveSettings()
+    }
+
     func selectTheme(_ theme: AttenTheme) {
         guard settings.theme != theme else { return }
         settings.theme = theme

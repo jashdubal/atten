@@ -160,6 +160,15 @@ public enum AppearancePreference: String, Codable, CaseIterable, Identifiable, S
 
     public var id: String { rawValue }
     public var displayName: String { rawValue.capitalized }
+
+    /// The SF Symbol shown for the choice in menus and pickers.
+    public var icon: String {
+        switch self {
+        case .system: "desktopcomputer"
+        case .light: "sun.max"
+        case .dark: "moon"
+        }
+    }
 }
 
 public struct AppSettings: Codable, Equatable, Sendable {

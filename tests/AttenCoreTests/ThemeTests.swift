@@ -64,6 +64,32 @@ final class ThemeTests: XCTestCase {
         XCTAssertNotEqual(store.palette, AttenTheme.terminal.palette)
     }
 
+    /// Appearance and theme are meant to combine, not override each other, so
+    /// every theme has to be a real pair rather than one palette reused in both
+    /// appearances — and the dark side has to actually be the darker one.
+    func testEveryThemeIsADistinctLightAndDarkPair() {
+        let surfaces: [KeyPath<AttenPalette, AttenThemeColor>] = [
+            \.appBackground, \.sidebar, \.surface, \.surfaceElevated, \.readerSurface,
+        ]
+
+        for theme in AttenTheme.allCases {
+            let palette = theme.palette
+            for surface in surfaces {
+                let color = palette[keyPath: surface]
+                XCTAssertNotEqual(
+                    color.light,
+                    color.dark,
+                    "\(theme.rawValue) uses one colour for both appearances"
+                )
+                XCTAssertGreaterThan(
+                    relativeLuminance(color.light),
+                    relativeLuminance(color.dark),
+                    "\(theme.rawValue) has a dark variant that is lighter than its light one"
+                )
+            }
+        }
+    }
+
     /// Views never mention `ThemeStore`; they read `AttenColor`. SwiftUI only
     /// repaints them on a theme change if reading through that static accessor
     /// registers as an observed access, so assert exactly that.

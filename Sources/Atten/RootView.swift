@@ -167,7 +167,7 @@ struct RootView: View {
                 .help("Check for updates")
                 .accessibilityLabel("Check for updates")
 
-                themeMenu
+                appearanceMenu
 
                 Button {
                     model.openSaveFolder()
@@ -190,17 +190,27 @@ struct RootView: View {
         .background(AttenColor.sidebar)
     }
 
-    /// Switching theme from the footer, rather than only from Settings, because
-    /// it is the kind of choice people make by trying every option in turn.
-    private var themeMenu: some View {
+    /// Both halves of how Atten looks, in one menu and in the order they are
+    /// decided: light or dark first, then which palette. Every theme has both
+    /// variants, so the two choices combine rather than overriding each other.
+    /// Here rather than only in Settings because these are choices people make
+    /// by trying every option in turn.
+    private var appearanceMenu: some View {
         Menu {
+            Picker("Appearance", selection: appearanceSelection) {
+                ForEach(AppearancePreference.allCases) { appearance in
+                    Label(appearance.displayName, systemImage: appearance.icon)
+                        .tag(appearance)
+                }
+            }
+            .pickerStyle(.inline)
+
             Picker("Theme", selection: themeSelection) {
                 ForEach(AttenTheme.allCases) { theme in
                     Label(theme.displayName, systemImage: theme.icon).tag(theme)
                 }
             }
             .pickerStyle(.inline)
-            .labelsHidden()
         } label: {
             Image(systemName: "paintpalette")
                 .font(.system(size: 12, weight: .medium))
@@ -208,9 +218,20 @@ struct RootView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Theme: \(model.settings.theme.displayName)")
-        .accessibilityLabel("Theme")
-        .accessibilityValue(model.settings.theme.displayName)
+        .help("Appearance: \(appearanceSummary)")
+        .accessibilityLabel("Appearance and theme")
+        .accessibilityValue(appearanceSummary)
+    }
+
+    private var appearanceSummary: String {
+        "\(model.settings.theme.displayName), \(model.settings.appearance.displayName.lowercased())"
+    }
+
+    private var appearanceSelection: Binding<AppearancePreference> {
+        Binding(
+            get: { model.settings.appearance },
+            set: { model.selectAppearance($0) }
+        )
     }
 
     private var themeSelection: Binding<AttenTheme> {
