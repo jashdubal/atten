@@ -24,6 +24,8 @@ struct ReaderSidePanel: View {
     let hits: [ReaderHit]
     let isSearching: Bool
     let selectedHitID: String?
+    /// The chapter being read aloud right now, if this book is what is playing.
+    let playingChapterIndex: Int?
     let selectChapter: (Int) -> Void
     let selectHit: (ReaderHit) -> Void
     let selectBookmark: (Bookmark) -> Void
@@ -147,6 +149,7 @@ struct ReaderSidePanel: View {
                                 title: item.title,
                                 page: pagination.startPage(ofChapter: index),
                                 isNarrated: item.isNarrated,
+                                isPlaying: index == playingChapterIndex,
                                 isSelected: index == chapterIndex,
                                 hasBookmark: book.bookmarks.contains { $0.location.chapterIndex == index }
                             ) {
@@ -246,6 +249,7 @@ private struct ContentsRow: View {
     let title: String
     let page: Int
     let isNarrated: Bool
+    let isPlaying: Bool
     let isSelected: Bool
     let hasBookmark: Bool
     let select: () -> Void
@@ -266,7 +270,10 @@ private struct ContentsRow: View {
                         .multilineTextAlignment(.leading)
                     HStack(spacing: AttenSpacing.xxs) {
                         Text("p. \(page)")
-                        if isNarrated {
+                        if isPlaying {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .foregroundStyle(AttenColor.accent)
+                        } else if isNarrated {
                             Image(systemName: "waveform")
                                 .foregroundStyle(AttenColor.success)
                         }
@@ -286,9 +293,14 @@ private struct ContentsRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .accessibilityLabel(
-            "Chapter \(number), \(title), page \(page)\(isNarrated ? ", narrated" : "")"
+            "Chapter \(number), \(title), page \(page)\(stateDescription)"
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var stateDescription: String {
+        if isPlaying { return ", playing now" }
+        return isNarrated ? ", narrated" : ""
     }
 }
 

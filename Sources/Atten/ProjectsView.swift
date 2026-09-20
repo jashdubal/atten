@@ -179,7 +179,16 @@ private struct ProjectRow: View {
 
     var body: some View {
         HStack(spacing: AttenSpacing.sm) {
-            Button { model.togglePlayback(url: project.audioURL) } label: {
+            Button {
+                model.togglePlayback(
+                    track: PlaybackTrack(
+                        id: project.id,
+                        url: project.audioURL,
+                        title: project.title,
+                        subtitle: voice.name
+                    )
+                )
+            } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(AttenTypography.caption.weight(.semibold))
                     .foregroundStyle(fileExists ? AttenColor.accent : AttenColor.textSecondary)

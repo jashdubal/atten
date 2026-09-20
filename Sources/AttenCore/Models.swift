@@ -186,6 +186,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// Turning this off keeps a working installation on its current version
     /// indefinitely, with no network use at all.
     public var checksForUpdates: Bool
+    /// How fast narration is played back. Separate from `defaultSpeed`, which
+    /// is how fast the voice is generated: one is undoable and one is not.
+    public var playbackRate: Double
 
     public init(
         appearance: AppearancePreference = .system,
@@ -197,7 +200,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         favoriteVoiceIDs: Set<String> = ["af_heart", "af_bella", "bf_emma"],
         useMPS: Bool = true,
         pendingDownloadModelIDs: Set<String> = [],
-        checksForUpdates: Bool = true
+        checksForUpdates: Bool = true,
+        playbackRate: Double = 1.0
     ) {
         self.appearance = appearance
         self.theme = theme
@@ -209,6 +213,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.useMPS = useMPS
         self.pendingDownloadModelIDs = pendingDownloadModelIDs
         self.checksForUpdates = checksForUpdates
+        self.playbackRate = playbackRate
     }
 
     // Only the export folder is required, because no default for it exists
@@ -236,5 +241,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
             forKey: .pendingDownloadModelIDs
         ) ?? []
         checksForUpdates = try container.decodeIfPresent(Bool.self, forKey: .checksForUpdates) ?? true
+        // Clamped rather than trusted: a rate of zero would look like a player
+        // that has silently stopped.
+        playbackRate = (try container.decodeIfPresent(Double.self, forKey: .playbackRate))
+            .map { min(max(0.5, $0), 3.0) } ?? 1.0
     }
 }

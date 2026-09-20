@@ -128,7 +128,16 @@ private struct ExportRow: View {
 
     var body: some View {
         HStack(spacing: AttenSpacing.sm) {
-            Button { model.togglePlayback(url: project.audioURL) } label: {
+            Button {
+                model.togglePlayback(
+                    track: PlaybackTrack(
+                        id: project.id,
+                        url: project.audioURL,
+                        title: project.title,
+                        subtitle: "Export"
+                    )
+                )
+            } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(AttenTypography.caption.weight(.semibold))
                     .foregroundStyle(AttenColor.accent)
