@@ -40,6 +40,7 @@ installation.
 
 - Create MP3 or WAV audio with 37 voices
 - Preview voices, speed, format, and acceleration settings in the Playground
+- Add PDFs and EPUBs to the Library, read them, and narrate them chapter by chapter
 - Keep projects and exports organized in one native app
 - Import text, regenerate previous work, and export anywhere
 - Use the compatible CLI for scripts and automation

@@ -5,6 +5,7 @@ import SwiftUI
 enum SidebarItem: String, CaseIterable, Identifiable {
     case studio
     case playground
+    case library
     case voices
     case models
     case projects
@@ -17,6 +18,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         switch self {
         case .studio: "waveform"
         case .playground: "flask"
+        case .library: "books.vertical"
         case .voices: "person.2"
         case .models: "shippingbox"
         case .projects: "doc.on.doc"
@@ -183,6 +185,8 @@ struct RootView: View {
             StudioView(model: model)
         case .playground:
             PlaygroundView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
+        case .library:
+            LibraryView(model: model)
         case .voices:
             VoicesView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
         case .models:

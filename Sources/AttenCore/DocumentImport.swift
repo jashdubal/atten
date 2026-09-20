@@ -1,0 +1,509 @@
+import Foundation
+import PDFKit
+
+/// One readable, narratable unit of an imported book.
+public struct DocumentChapter: Equatable, Sendable {
+    public let title: String
+    public let text: String
+    /// Page the chapter opens on, so a PDF can be read as well as narrated.
+    /// EPUBs have no fixed pagination and leave this nil.
+    public let pageIndex: Int?
+
+    public init(title: String, text: String, pageIndex: Int? = nil) {
+        self.title = title
+        self.text = text
+        self.pageIndex = pageIndex
+    }
+}
+
+public struct ExtractedDocument: Equatable, Sendable {
+    public let title: String
+    public let author: String?
+    public let chapters: [DocumentChapter]
+
+    public init(title: String, author: String?, chapters: [DocumentChapter]) {
+        self.title = title
+        self.author = author
+        self.chapters = chapters
+    }
+}
+
+public enum DocumentImportError: LocalizedError, Equatable {
+    case unsupportedFormat(String)
+    case unreadable(String)
+    case noText(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .unsupportedFormat(pathExtension):
+            "Atten reads PDF and EPUB books. It cannot open a .\(pathExtension) file."
+        case let .unreadable(name):
+            """
+            Atten could not open \(name). The file may be damaged, or protected \
+            with a password Atten cannot supply.
+            """
+        case let .noText(name):
+            """
+            \(name) has no text Atten can read aloud. Scanned books are images of \
+            pages rather than text, so they need to be run through OCR first.
+            """
+        }
+    }
+}
+
+public enum DocumentImporter {
+    public static let supportedExtensions = ["pdf", "epub"]
+
+    /// Reads a book into chapters. This walks every page of the file, so it is
+    /// meant to be called off the main actor.
+    public static func extract(from url: URL) throws -> ExtractedDocument {
+        switch url.pathExtension.lowercased() {
+        case "pdf": try PDFTextExtractor.extract(from: url)
+        case "epub": try EPUBTextExtractor.extract(from: url)
+        case let other: throw DocumentImportError.unsupportedFormat(other)
+        }
+    }
+}
+
+// MARK: - Shared text cleanup
+
+public enum DocumentText {
+    /// Book text arrives hard-wrapped at the width it was typeset for. Speech
+    /// wants sentences, so wrapped lines are rejoined and only blank lines
+    /// survive as paragraph breaks. Without this the engine hears a line ending
+    /// as a pause and reads a page as a list.
+    public static func normalize(_ raw: String) -> String {
+        var text = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        text = text.replacingOccurrences(of: "\r", with: "\n")
+        text = text.replacingOccurrences(of: "\u{00AD}", with: "")
+        text = text.replacingOccurrences(of: "\u{00A0}", with: " ")
+        // A word broken across a line by a hyphen is one word again.
+        text = text.replacingOccurrences(
+            of: "(\\p{L})-\\n(\\p{L})",
+            with: "$1$2",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(
+            of: "([^\\n])\\n(?!\\n)",
+            with: "$1 ",
+            options: .regularExpression
+        )
+        text = text.replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+        text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+        text = text.replacingOccurrences(of: " *\\n *", with: "\n", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - PDF
+
+enum PDFTextExtractor {
+    /// Pages per chapter when a PDF carries no outline: long enough to be worth
+    /// a chapter, short enough that one failed generation costs little.
+    private static let fallbackChapterLength = 10
+
+    private struct Mark {
+        let title: String
+        let page: Int
+    }
+
+    static func extract(from url: URL) throws -> ExtractedDocument {
+        guard let document = PDFDocument(url: url), !document.isLocked, document.pageCount > 0 else {
+            throw DocumentImportError.unreadable(url.lastPathComponent)
+        }
+        let pages = (0..<document.pageCount).map {
+            DocumentText.normalize(document.page(at: $0)?.string ?? "")
+        }
+        let marks = outlineMarks(in: document) ?? evenMarks(pageCount: pages.count)
+
+        var chapters: [DocumentChapter] = []
+        for (index, mark) in marks.enumerated() {
+            let end = index + 1 < marks.count ? marks[index + 1].page : pages.count
+            guard mark.page < end else { continue }
+            let text = pages[mark.page..<end]
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+            guard !text.isEmpty else { continue }
+            chapters.append(DocumentChapter(title: mark.title, text: text, pageIndex: mark.page))
+        }
+        guard !chapters.isEmpty else { throw DocumentImportError.noText(url.lastPathComponent) }
+
+        let attributes = document.documentAttributes
+        return ExtractedDocument(
+            title: nonEmpty(attributes?[PDFDocumentAttribute.titleAttribute] as? String)
+                ?? url.deletingPathExtension().lastPathComponent,
+            author: nonEmpty(attributes?[PDFDocumentAttribute.authorAttribute] as? String),
+            chapters: chapters
+        )
+    }
+
+    /// Top-level outline entries, which is what a reader thinks of as the table
+    /// of contents. Deeper levels are ignored: a chapter per subsection would
+    /// produce hundreds of few-second audio files.
+    private static func outlineMarks(in document: PDFDocument) -> [Mark]? {
+        guard let root = document.outlineRoot, root.numberOfChildren > 1 else { return nil }
+
+        var marks: [Mark] = []
+        for index in 0..<root.numberOfChildren {
+            guard let child = root.child(at: index),
+                  let page = destinationPage(of: child) else { continue }
+            // PDFKit answers with NSNotFound for a page it cannot place.
+            let pageIndex = document.index(for: page)
+            guard pageIndex >= 0, pageIndex < document.pageCount else { continue }
+            let label = (child.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            marks.append(Mark(
+                title: label.isEmpty ? "Section \(index + 1)" : label,
+                page: pageIndex
+            ))
+        }
+
+        marks.sort { $0.page < $1.page }
+        // An outline that points every entry at the same page tells us nothing
+        // about where chapters begin, so fall back to even slices.
+        guard Set(marks.map(\.page)).count > 1 else { return nil }
+        if let first = marks.first, first.page > 0 {
+            marks.insert(Mark(title: "Front matter", page: 0), at: 0)
+        }
+        return marks
+    }
+
+    private static func destinationPage(of outline: PDFOutline) -> PDFPage? {
+        outline.destination?.page ?? (outline.action as? PDFActionGoTo)?.destination.page
+    }
+
+    private static func evenMarks(pageCount: Int) -> [Mark] {
+        stride(from: 0, to: pageCount, by: fallbackChapterLength).map { start in
+            let end = min(start + fallbackChapterLength, pageCount)
+            return Mark(title: "Pages \(start + 1)–\(end)", page: start)
+        }
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+// MARK: - EPUB
+
+enum EPUBTextExtractor {
+    static func extract(from url: URL) throws -> ExtractedDocument {
+        let unpacked = try unpack(url)
+        defer { try? FileManager.default.removeItem(at: unpacked) }
+
+        let packageURL = try packageURL(in: unpacked, source: url.lastPathComponent)
+        let elements = try parse(packageURL, collecting: ["item", "itemref", "title", "creator"])
+        let packageDirectory = packageURL.deletingLastPathComponent()
+
+        var manifest: [String: String] = [:]
+        for element in elements where element.name == "item" {
+            guard let id = element.attributes["id"],
+                  let href = element.attributes["href"],
+                  isReadable(mediaType: element.attributes["media-type"], href: href) else { continue }
+            manifest[id] = href
+        }
+
+        var chapters: [DocumentChapter] = []
+        for element in elements where element.name == "itemref" {
+            guard let href = element.attributes["idref"].flatMap({ manifest[$0] }) else { continue }
+            let documentURL = resolve(href: href, against: packageDirectory)
+            let document = readDocument(at: documentURL)
+            let text = DocumentText.normalize(document.text)
+            guard !text.isEmpty else { continue }
+            chapters.append(DocumentChapter(
+                title: document.heading ?? "Chapter \(chapters.count + 1)",
+                text: text
+            ))
+        }
+        guard !chapters.isEmpty else { throw DocumentImportError.noText(url.lastPathComponent) }
+
+        let metadata = { (name: String) -> String? in
+            let value = elements.first { $0.name == name }?.text
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        return ExtractedDocument(
+            title: metadata("title") ?? url.deletingPathExtension().lastPathComponent,
+            author: metadata("creator"),
+            chapters: chapters
+        )
+    }
+
+    /// An EPUB is a zip. `ditto` ships with macOS and refuses paths that escape
+    /// the destination, so a malicious archive cannot write outside the
+    /// temporary directory this unpacks into.
+    private static func unpack(_ url: URL) throws -> URL {
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Atten-epub-\(UUID().uuidString)", isDirectory: true)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+        process.arguments = ["-x", "-k", url.path, destination.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            throw DocumentImportError.unreadable(url.lastPathComponent)
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            try? FileManager.default.removeItem(at: destination)
+            throw DocumentImportError.unreadable(url.lastPathComponent)
+        }
+        return destination
+    }
+
+    /// `META-INF/container.xml` names the package document. Some books in the
+    /// wild omit it, so a single `.opf` anywhere in the archive is accepted too.
+    private static func packageURL(in root: URL, source: String) throws -> URL {
+        let containerURL = root.appendingPathComponent("META-INF/container.xml")
+        if let rootfile = try? parse(containerURL, collecting: ["rootfile"]).first,
+           let path = rootfile.attributes["full-path"], !path.isEmpty {
+            let url = resolve(href: path, against: root)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        let enumerated = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)
+        if let fallback = enumerated?.compactMap({ $0 as? URL })
+            .first(where: { $0.pathExtension.lowercased() == "opf" }) {
+            return fallback
+        }
+        throw DocumentImportError.unreadable(source)
+    }
+
+    private static func isReadable(mediaType: String?, href: String) -> Bool {
+        if let mediaType, !mediaType.isEmpty {
+            return mediaType.contains("xhtml") || mediaType.contains("html")
+        }
+        return ["xhtml", "html", "htm"].contains(
+            URL(fileURLWithPath: href).pathExtension.lowercased()
+        )
+    }
+
+    private static func resolve(href: String, against directory: URL) -> URL {
+        let path = href.components(separatedBy: "#").first ?? href
+        let decoded = path.removingPercentEncoding ?? path
+        return URL(fileURLWithPath: decoded, relativeTo: directory).standardizedFileURL
+    }
+
+    // MARK: XHTML
+
+    /// XHTML in the wild uses HTML entity names no XML parser knows, and is now
+    /// and then not well-formed at all. Substituting the common names first
+    /// fixes the usual case; anything still unparsable falls back to stripping
+    /// tags, which reads worse but never loses a chapter.
+    private static func readDocument(at url: URL) -> (text: String, heading: String?) {
+        guard let data = try? Data(contentsOf: url) else { return ("", nil) }
+        let source = HTMLEntities.substituteNamed(in: String(decoding: data, as: UTF8.self))
+
+        let parser = XMLParser(data: Data(source.utf8))
+        parser.shouldResolveExternalEntities = false
+        let collector = XHTMLTextCollector()
+        parser.delegate = collector
+        if parser.parse(), !collector.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (collector.text, collector.heading)
+        }
+
+        let stripped = source.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "\n",
+            options: .regularExpression
+        )
+        return (HTMLEntities.decodeRemaining(in: stripped), nil)
+    }
+
+    // MARK: XML helpers
+
+    private static func parse(
+        _ url: URL,
+        collecting targets: Set<String>
+    ) throws -> [ElementCollector.Element] {
+        guard let data = try? Data(contentsOf: url) else {
+            throw DocumentImportError.unreadable(url.lastPathComponent)
+        }
+        let parser = XMLParser(data: data)
+        parser.shouldResolveExternalEntities = false
+        let collector = ElementCollector(collecting: targets)
+        parser.delegate = collector
+        guard parser.parse() else {
+            throw DocumentImportError.unreadable(url.lastPathComponent)
+        }
+        return collector.elements
+    }
+
+    /// Records the attributes and text of every element with one of the given
+    /// names. Names are compared without their namespace prefix, so `dc:title`
+    /// and `title` are the same element.
+    private final class ElementCollector: NSObject, XMLParserDelegate {
+        struct Element {
+            let name: String
+            let attributes: [String: String]
+            var text: String
+        }
+
+        private let targets: Set<String>
+        private var openIndex: Int?
+        private(set) var elements: [Element] = []
+
+        init(collecting targets: Set<String>) {
+            self.targets = targets
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName: String?,
+            attributes: [String: String] = [:]
+        ) {
+            let name = localName(elementName)
+            guard targets.contains(name) else { return }
+            elements.append(Element(name: name, attributes: attributes, text: ""))
+            openIndex = elements.count - 1
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            guard let openIndex else { return }
+            elements[openIndex].text += string
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didEndElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName: String?
+        ) {
+            if targets.contains(localName(elementName)) { openIndex = nil }
+        }
+    }
+
+    /// Flattens an XHTML chapter to spoken text and picks up its heading, which
+    /// is the chapter title a reader recognizes.
+    private final class XHTMLTextCollector: NSObject, XMLParserDelegate {
+        private static let skipped: Set<String> = ["script", "style", "head"]
+        private static let blocks: Set<String> = [
+            "p", "div", "br", "li", "tr", "td", "blockquote", "section",
+            "article", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6",
+        ]
+        private static let headings: Set<String> = ["h1", "h2", "h3"]
+
+        private var skipDepth = 0
+        private var headingBuffer: String?
+        private(set) var text = ""
+        private(set) var heading: String?
+
+        func parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName: String?,
+            attributes: [String: String] = [:]
+        ) {
+            let name = localName(elementName)
+            if Self.skipped.contains(name) {
+                skipDepth += 1
+                return
+            }
+            guard skipDepth == 0 else { return }
+            if Self.blocks.contains(name) { text += "\n" }
+            if Self.headings.contains(name), heading == nil, headingBuffer == nil {
+                headingBuffer = ""
+            }
+        }
+
+        func parser(_ parser: XMLParser, foundCharacters string: String) {
+            guard skipDepth == 0 else { return }
+            text += string
+            if headingBuffer != nil { headingBuffer? += string }
+        }
+
+        func parser(
+            _ parser: XMLParser,
+            didEndElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName: String?
+        ) {
+            let name = localName(elementName)
+            if Self.skipped.contains(name) {
+                skipDepth = max(0, skipDepth - 1)
+                return
+            }
+            guard skipDepth == 0 else { return }
+            if Self.headings.contains(name), let buffer = headingBuffer {
+                let title = buffer
+                    .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                heading = title.isEmpty ? nil : title
+                headingBuffer = nil
+            }
+            if Self.blocks.contains(name) { text += "\n" }
+        }
+    }
+}
+
+private func localName(_ name: String) -> String {
+    (name.split(separator: ":").last.map(String.init) ?? name).lowercased()
+}
+
+/// The HTML named entities that actually turn up in books. Anything else is
+/// dropped rather than left to break the parse.
+enum HTMLEntities {
+    private static let named: [String: String] = [
+        "nbsp": " ", "ensp": " ", "emsp": " ", "thinsp": " ", "shy": "",
+        "ndash": "–", "mdash": "—", "minus": "−", "hellip": "…",
+        "lsquo": "‘", "rsquo": "’", "sbquo": "‚", "ldquo": "“", "rdquo": "”", "bdquo": "„",
+        "laquo": "«", "raquo": "»", "lsaquo": "‹", "rsaquo": "›",
+        "copy": "©", "reg": "®", "trade": "™", "sect": "§", "para": "¶",
+        "dagger": "†", "Dagger": "‡", "bull": "•", "middot": "·", "deg": "°",
+        "times": "×", "divide": "÷", "plusmn": "±", "frac12": "½", "frac14": "¼",
+        "euro": "€", "pound": "£", "yen": "¥", "cent": "¢",
+        "aacute": "á", "eacute": "é", "iacute": "í", "oacute": "ó", "uacute": "ú",
+        "agrave": "à", "egrave": "è", "ccedil": "ç", "ntilde": "ñ", "uuml": "ü",
+        "ouml": "ö", "auml": "ä", "szlig": "ß", "aelig": "æ", "oslash": "ø",
+    ]
+    /// XML defines these itself, so they must survive to the parser untouched.
+    private static let reserved: Set<String> = ["amp", "lt", "gt", "quot", "apos"]
+
+    private static let pattern = try? NSRegularExpression(
+        pattern: "&([A-Za-z][A-Za-z0-9]{1,31});"
+    )
+
+    static func substituteNamed(in source: String) -> String {
+        guard let pattern else { return source }
+        let full = NSRange(source.startIndex..<source.endIndex, in: source)
+        var result = source
+        for match in pattern.matches(in: source, range: full).reversed() {
+            guard let whole = Range(match.range, in: source),
+                  let nameRange = Range(match.range(at: 1), in: source) else { continue }
+            let name = String(source[nameRange])
+            guard !reserved.contains(name) else { continue }
+            result.replaceSubrange(whole, with: named[name] ?? "")
+        }
+        return result
+    }
+
+    private static let numeric = try? NSRegularExpression(pattern: "&#(x?)([0-9A-Fa-f]+);")
+
+    /// Used only on the fallback path, where no XML parser ever sees the text
+    /// and the numeric and reserved entities have to be resolved here instead.
+    static func decodeRemaining(in source: String) -> String {
+        var text = substituteNamed(in: source)
+        if let numeric {
+            let full = NSRange(text.startIndex..<text.endIndex, in: text)
+            for match in numeric.matches(in: text, range: full).reversed() {
+                guard let whole = Range(match.range, in: text),
+                      let prefix = Range(match.range(at: 1), in: text),
+                      let digits = Range(match.range(at: 2), in: text) else { continue }
+                let radix = text[prefix].isEmpty ? 10 : 16
+                guard let value = UInt32(text[digits], radix: radix),
+                      let scalar = Unicode.Scalar(value) else { continue }
+                text.replaceSubrange(whole, with: String(Character(scalar)))
+            }
+        }
+        for (entity, replacement) in [
+            ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&apos;", "'"), ("&amp;", "&"),
+        ] {
+            text = text.replacingOccurrences(of: entity, with: replacement)
+        }
+        return text
+    }
+}
