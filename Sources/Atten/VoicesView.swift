@@ -63,7 +63,6 @@ struct VoicesView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Search voices")
     }
 
     private var header: some View {
@@ -74,6 +73,8 @@ struct VoicesView: View {
                 detail: "Preview bundled and downloaded voices and keep favorites close."
             )
             Spacer()
+            AttenSearchField(prompt: "Search voices", text: $query)
+                .frame(maxWidth: 240)
             Text("\(filteredVoices.count) voices")
                 .font(AttenTypography.metadata)
                 .foregroundStyle(AttenColor.textSecondary)

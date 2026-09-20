@@ -38,6 +38,7 @@ final class BookshelfModel {
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let store: BookLibraryStore
+    let covers: BookCoverStore
     @ObservationIgnored private let generator: any TTSGenerating
     @ObservationIgnored private var narrationTask: Task<Void, Never>?
     /// Answers with the model a voice still needs, or nil when it can speak
@@ -47,6 +48,9 @@ final class BookshelfModel {
     init(directories: AppDirectories, generator: any TTSGenerating) {
         self.directories = directories
         self.store = BookLibraryStore(fileURL: directories.booksFile)
+        self.covers = BookCoverStore(
+            directory: directories.bookSources.appendingPathComponent("Covers", isDirectory: true)
+        )
         self.generator = generator
     }
 
@@ -335,6 +339,7 @@ final class BookshelfModel {
         let book = books.remove(at: index)
         try? FileManager.default.removeItem(at: book.sourceURL)
         removeNarrations(for: bookID, chapters: book.chapters)
+        covers.forget(bookID)
         narratedCounts.removeValue(forKey: bookID)
         persist()
         successMessage = "Removed \(book.title) from your library."

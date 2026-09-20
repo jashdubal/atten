@@ -26,7 +26,6 @@ struct ProjectsView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Search projects")
         .confirmationDialog(
             "Delete this project from Atten?",
             isPresented: Binding(
@@ -59,6 +58,8 @@ struct ProjectsView: View {
                 detail: "Return to previous generations or make another take."
             )
             Spacer()
+            AttenSearchField(prompt: "Search projects", text: $query)
+                .frame(maxWidth: 240)
             Text("\(filteredProjects.count) projects")
                 .font(AttenTypography.metadata)
                 .foregroundStyle(AttenColor.textSecondary)

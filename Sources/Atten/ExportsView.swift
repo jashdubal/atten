@@ -40,7 +40,6 @@ struct ExportsView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "Search exports")
     }
 
     private var header: some View {
@@ -51,6 +50,8 @@ struct ExportsView: View {
                 detail: "Preview, rename, reveal, or save a copy."
             )
             Spacer()
+            AttenSearchField(prompt: "Search exports", text: $query)
+                .frame(maxWidth: 240)
             Text("\(exports.count) files")
                 .font(AttenTypography.metadata)
                 .foregroundStyle(AttenColor.textSecondary)

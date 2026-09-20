@@ -142,3 +142,87 @@ struct ReaderPaper: View {
         AttenColor.readerSurface
     }
 }
+
+/// Catches a two-finger swipe, or a turn of a mouse wheel, over the page.
+///
+/// A book on a trackpad is turned by pushing the page sideways. Nothing in
+/// SwiftUI reports a scroll over a view that is not a scroll view, and a view
+/// placed on top to catch them would take the reader's ability to select a
+/// sentence, so the events are read before they are dispatched — the same way
+/// the back button on a mouse is.
+///
+/// What comes back is a request rather than a call, because the monitor is
+/// installed once and would otherwise hold the first copy of the view it was
+/// given — still believing, after a change of layout, that a turn moves one
+/// page when it now moves two.
+private struct SwipeToTurn: ViewModifier {
+    @Binding var request: ReaderTurnRequest?
+
+    @State private var monitor: Any?
+    @State private var tracker = Tracker()
+
+    /// Roughly one deliberate flick. Below this a swipe is someone resting
+    /// their fingers on the trackpad.
+    private static let threshold: CGFloat = 28
+    /// A trackpad keeps sending deltas after the fingers lift, so a turn is
+    /// followed by a moment in which another cannot happen.
+    private static let quiet: TimeInterval = 0.45
+
+    private final class Tracker {
+        var isPointerOverPage = false
+        var travelled: CGFloat = 0
+        var lastTurn = Date.distantPast
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { tracker.isPointerOverPage = $0 }
+            .onAppear {
+                guard monitor == nil else { return }
+                let tracker = tracker
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                    // Only over the page, never out from under a sheet, and
+                    // never a vertical scroll.
+                    guard tracker.isPointerOverPage,
+                          event.window?.attachedSheet == nil,
+                          // The glide after the fingers lift is the same flick
+                          // still arriving; counting it turns three pages.
+                          event.momentumPhase == [],
+                          abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) * 1.5
+                    else { return event }
+
+                    guard Date().timeIntervalSince(tracker.lastTurn) > Self.quiet else {
+                        // Still settling from the last turn. Swallowed rather
+                        // than banked, or the leftovers turn another page.
+                        tracker.travelled = 0
+                        return nil
+                    }
+                    if event.phase == .began { tracker.travelled = 0 }
+                    tracker.travelled += event.scrollingDeltaX
+                    guard abs(tracker.travelled) >= Self.threshold else { return event }
+
+                    tracker.lastTurn = Date()
+                    // Pushing the page to the left brings the next one in, the
+                    // way a sheet of paper moves under a finger — which is the
+                    // other way round when the system is not inverting the
+                    // direction for us.
+                    let pushedLeft = event.isDirectionInvertedFromDevice
+                        ? tracker.travelled > 0
+                        : tracker.travelled < 0
+                    tracker.travelled = 0
+                    request = ReaderTurnRequest(direction: pushedLeft ? .forward : .backward)
+                    return nil
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+
+extension View {
+    func swipeToTurn(into request: Binding<ReaderTurnRequest?>) -> some View {
+        modifier(SwipeToTurn(request: request))
+    }
+}
