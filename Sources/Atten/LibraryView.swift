@@ -9,47 +9,80 @@ enum LibraryRoute: Hashable {
 
 struct LibraryView: View {
     @Bindable var model: AppModel
-    @State private var path: [LibraryRoute] = []
     @State private var query = ""
     @State private var isTargeted = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
 
+    /// The Library is three screens deep — shelf, book, reader — and shows one
+    /// at a time.
+    ///
+    /// It used to be a `NavigationStack` inside the split view's detail column,
+    /// which is where the interface got stuck: once a book was pushed, that
+    /// column belonged to the stack, and picking Studio or Voices in the
+    /// sidebar changed the selection without changing anything on screen. The
+    /// screen to show is read from the path instead, so nothing between the
+    /// sidebar and the page can hold a stale view open.
     var body: some View {
-        NavigationStack(path: $path) {
-            shelfPage
-                .navigationDestination(for: LibraryRoute.self) { route in
-                    destination(for: route)
-                }
+        ZStack {
+            page
+                .transition(slide(forward: model.libraryMovedForward))
         }
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+            value: model.libraryPath
+        )
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             receive(providers)
         }
+        .task { shelf.refreshNarrationCounts() }
     }
 
-    @ViewBuilder private func destination(for route: LibraryRoute) -> some View {
-        switch route {
+    @ViewBuilder private var page: some View {
+        switch model.libraryPath.last {
+        case .none:
+            shelfPage
         case let .book(id):
-            if let book = shelf.book(id: id) {
-                BookDetailView(model: model, book: book) { path.append(.reader(id)) }
-            } else {
-                AttenEmptyState(
-                    title: "Book removed",
-                    systemImage: "book.closed",
-                    detail: "This book is no longer in your library."
-                )
+            openBook(id) { book in
+                BookDetailView(model: model, book: book) {
+                    model.openInLibrary(.reader(id))
+                }
             }
         case let .reader(id):
-            if let book = shelf.book(id: id) {
+            openBook(id) { book in
                 BookReaderView(model: model, book: book)
-            } else {
-                AttenEmptyState(
-                    title: "Book removed",
-                    systemImage: "book.closed",
-                    detail: "This book is no longer in your library."
-                )
             }
         }
+    }
+
+    /// A book can be removed while it is open — from its own menu, or from
+    /// another window. Rather than stranding the reader on a screen about a
+    /// book that no longer exists, the Library goes back to the shelf.
+    @ViewBuilder private func openBook(
+        _ id: UUID,
+        @ViewBuilder content: (BookRecord) -> some View
+    ) -> some View {
+        if let book = shelf.book(id: id) {
+            content(book)
+        } else {
+            AttenEmptyState(
+                title: "Book removed",
+                systemImage: "book.closed",
+                detail: "This book is no longer in your library."
+            )
+            .task { model.returnToShelf() }
+        }
+    }
+
+    /// A push, but a short one. Sliding a whole window-sized screen in from the
+    /// edge reads as the window itself moving; a small offset with a fade reads
+    /// as a page turning.
+    private func slide(forward: Bool) -> AnyTransition {
+        .asymmetric(
+            insertion: .offset(x: forward ? 26 : -26).combined(with: .opacity),
+            removal: .offset(x: forward ? -26 : 26).combined(with: .opacity)
+        )
     }
 
     private var shelfPage: some View {
@@ -57,6 +90,7 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: AttenSpacing.lg) {
                 header
                 LibraryStatusArea(shelf: shelf)
+                if !shelf.books.isEmpty { searchField }
 
                 if filteredBooks.isEmpty {
                     emptyState
@@ -70,7 +104,6 @@ struct LibraryView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(AttenBackdrop())
-        .searchable(text: $query, placement: .toolbar, prompt: "Search library")
         .overlay {
             if isTargeted {
                 RoundedRectangle(cornerRadius: AttenRadius.card)
@@ -100,6 +133,11 @@ struct LibraryView: View {
         }
     }
 
+    private var searchField: some View {
+        AttenSearchField(prompt: "Search library", text: $query)
+            .frame(maxWidth: 280)
+    }
+
     private var emptyState: some View {
         VStack(spacing: AttenSpacing.md) {
             AttenEmptyState(
@@ -125,12 +163,16 @@ struct LibraryView: View {
             spacing: AttenSpacing.md
         ) {
             ForEach(filteredBooks) { book in
-                BookCard(book: book, progress: shelf.progress) {
-                    path.append(.book(book.id))
+                BookCard(
+                    book: book,
+                    narrated: shelf.narratedCount(of: book),
+                    progress: shelf.progress
+                ) {
+                    model.openInLibrary(.book(book.id))
                 }
                 .contextMenu {
-                    Button("Open", systemImage: "book") { path.append(.book(book.id)) }
-                    Button("Read", systemImage: "text.alignleft") { path.append(.reader(book.id)) }
+                    Button("Open", systemImage: "book") { model.openInLibrary(.book(book.id)) }
+                    Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
                     Divider()
                     Button("Remove from Library", systemImage: "trash", role: .destructive) {
                         shelf.remove(book.id)
@@ -190,12 +232,17 @@ struct LibraryStatusArea: View {
 
 private struct BookCard: View {
     let book: BookRecord
+    let narrated: Int
     let progress: BookshelfModel.NarrationProgress?
     let open: () -> Void
 
     @State private var isHovering = false
 
     private var isNarrating: Bool { progress?.bookID == book.id }
+
+    private var isFullyNarrated: Bool {
+        !book.chapters.isEmpty && narrated == book.chapters.count
+    }
 
     var body: some View {
         Button(action: open) {
@@ -208,7 +255,7 @@ private struct BookCard: View {
                         .font(AttenTypography.caption)
                         .foregroundStyle(AttenColor.textSecondary)
                     Spacer(minLength: 0)
-                    if book.isFullyNarrated {
+                    if isFullyNarrated {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(AttenColor.success)
                             .help("Fully narrated")
@@ -231,7 +278,7 @@ private struct BookCard: View {
                 Spacer(minLength: 0)
 
                 NarrationMeter(
-                    narrated: book.narratedCount,
+                    narrated: narrated,
                     total: book.chapters.count,
                     isRunning: isNarrating
                 )
@@ -242,7 +289,7 @@ private struct BookCard: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityLabel("\(book.title), \(book.narratedCount) of \(book.chapters.count) chapters narrated")
+        .accessibilityLabel("\(book.title), \(narrated) of \(book.chapters.count) chapters narrated")
     }
 }
 

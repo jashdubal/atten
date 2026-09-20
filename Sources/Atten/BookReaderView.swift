@@ -31,7 +31,6 @@ struct BookReaderView: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var panelTab = ReaderPanelTab.contents
-    @State private var isFocusMode = false
     @State private var isChromeHovered = false
     @FocusState private var isSearchFocused: Bool
     @AppStorage("Atten.readerFontSize") private var fontSize = 17.0
@@ -43,6 +42,8 @@ struct BookReaderView: View {
     }
 
     private var paragraphIndex: Int { max(0, position?.index ?? 0) }
+
+    private var isFocusMode: Bool { model.isReaderFocused }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -85,14 +86,22 @@ struct BookReaderView: View {
             }
         }
         .background(AttenColor.appBackground)
+        // The side panel's transition needs an animation of its own: focus mode
+        // is decided on the model now, and a model has no business animating.
+        .animation(
+            reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard),
+            value: isFocusMode
+        )
         .navigationTitle(book.title)
-        .onExitCommand { if isFocusMode { setFocusMode(false) } }
+        .onExitCommand { model.setReaderFocus(false) }
         .task(id: book.id) { restore() }
         .onChange(of: query) { _, value in search(value) }
         .onDisappear {
             persistLocation()
             searchTask?.cancel()
-            if isFocusMode { setFocusMode(false) }
+            // Idempotent, and the window is put back a run loop later, so
+            // closing the book never fights the transition that closed it.
+            model.setReaderFocus(false)
         }
     }
 
@@ -162,6 +171,10 @@ struct BookReaderView: View {
 
     private var controls: some View {
         HStack(spacing: AttenSpacing.sm) {
+            AttenBackButton(title: book.title) { model.goBack() }
+
+            Divider().frame(height: 18).overlay(AttenColor.separator)
+
             Button { go(toChapter: chapterIndex - 1) } label: {
                 Image(systemName: "chevron.left")
             }
@@ -194,7 +207,7 @@ struct BookReaderView: View {
             Spacer(minLength: 0)
 
             ToolbarIconButton(title: "Find in book (⌘F)", systemImage: "magnifyingglass") {
-                if isFocusMode { setFocusMode(false) }
+                model.setReaderFocus(false)
                 isSearchFocused = true
             }
             .keyboardShortcut("f", modifiers: .command)
@@ -230,7 +243,7 @@ struct BookReaderView: View {
                     ? "arrow.down.right.and.arrow.up.left"
                     : "arrow.up.left.and.arrow.down.right"
             ) {
-                setFocusMode(!isFocusMode)
+                model.setReaderFocus(!isFocusMode)
             }
             .keyboardShortcut("f", modifiers: [.command, .control])
         }
@@ -451,18 +464,5 @@ struct BookReaderView: View {
             hits = found
             isSearching = false
         }
-    }
-
-    // MARK: - Focus mode
-
-    /// Everything but the words gets out of the way: the contents panel, the
-    /// app's own sidebar, and the rest of the desktop.
-    private func setFocusMode(_ on: Bool) {
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
-            isFocusMode = on
-        }
-        NotificationCenter.default.post(name: .attenReaderFocusMode, object: on)
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
-        if window.styleMask.contains(.fullScreen) != on { window.toggleFullScreen(nil) }
     }
 }

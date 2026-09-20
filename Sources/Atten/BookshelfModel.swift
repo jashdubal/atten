@@ -26,6 +26,13 @@ final class BookshelfModel {
     private(set) var books: [BookRecord] = []
     private(set) var progress: NarrationProgress?
     private(set) var isImporting = false
+    /// How many chapters of each book have narration on disk.
+    ///
+    /// Answering means asking the file system once per chapter, and the shelf
+    /// asked from inside its card bodies — a book of two hundred chapters was
+    /// two hundred questions per card, on every hover and every redraw.
+    /// Counted when the shelf changes instead.
+    private(set) var narratedCounts: [UUID: Int] = [:]
     var errorMessage: String?
     var successMessage: String?
 
@@ -47,9 +54,28 @@ final class BookshelfModel {
 
     func book(id: UUID) -> BookRecord? { books.first { $0.id == id } }
 
+    func narratedCount(of book: BookRecord) -> Int {
+        narratedCounts[book.id] ?? 0
+    }
+
+    func isFullyNarrated(_ book: BookRecord) -> Bool {
+        !book.chapters.isEmpty && narratedCount(of: book) == book.chapters.count
+    }
+
+    /// Recounts from the file system. Called when the shelf changes, and again
+    /// when the Library is opened, so narration deleted in Finder while Atten
+    /// was on another screen does not leave a play button that does nothing.
+    func refreshNarrationCounts() {
+        narratedCounts = Dictionary(
+            books.map { ($0.id, $0.narratedCount) },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
     func load() async {
         do {
             books = try await store.load().sorted { $0.addedAt > $1.addedAt }
+            refreshNarrationCounts()
         } catch {
             errorMessage = "Atten could not read your library: \(error.localizedDescription)"
         }
@@ -93,6 +119,7 @@ final class BookshelfModel {
                     audioFormat: defaults.defaultFormat
                 )
                 books.insert(book, at: 0)
+                refreshNarrationCounts()
                 try await store.save(books)
                 successMessage = "Added \(book.title) — \(book.chapters.count) chapters."
             } catch {
@@ -192,6 +219,7 @@ final class BookshelfModel {
                     guard let updated = books.firstIndex(where: { $0.id == bookID }),
                           books[updated].chapters.indices.contains(index) else { return }
                     books[updated].chapters[index].audioPath = output.url.path
+                    refreshNarrationCounts()
                     // Saved after every chapter, so a crash or a quit costs at
                     // most the one that was in flight.
                     try await store.save(books)
@@ -258,10 +286,11 @@ final class BookshelfModel {
         change(&books[index])
         guard books[index] != before else { return }
         if before.narratedCount > 0 {
-            removeNarrations(for: bookID)
+            removeNarrations(for: bookID, chapters: before.chapters)
             for chapter in books[index].chapters.indices {
                 books[index].chapters[chapter].audioPath = nil
             }
+            refreshNarrationCounts()
         }
         persist()
     }
@@ -305,12 +334,19 @@ final class BookshelfModel {
         if progress?.bookID == bookID { cancelNarration() }
         let book = books.remove(at: index)
         try? FileManager.default.removeItem(at: book.sourceURL)
-        removeNarrations(for: bookID)
+        removeNarrations(for: bookID, chapters: book.chapters)
+        narratedCounts.removeValue(forKey: bookID)
         persist()
         successMessage = "Removed \(book.title) from your library."
     }
 
-    private func removeNarrations(for bookID: UUID) {
+    /// Chapter audio is written to the same path every time it is generated,
+    /// so anything Atten measured about the old file would otherwise be handed
+    /// back for the new one.
+    private func removeNarrations(for bookID: UUID, chapters: [BookChapter]) {
+        for url in chapters.compactMap(\.audioURL) {
+            AudioMetadataStore.shared.forget(url)
+        }
         try? FileManager.default.removeItem(
             at: directories.narrations.appendingPathComponent(bookID.uuidString, isDirectory: true)
         )

@@ -111,16 +111,15 @@ private struct ExportRow: View {
     @State private var name: String
     @State private var editingName = false
     @State private var isHovering = false
+    /// Filled in once the file has been measured, off the main thread. A row
+    /// that measured it while drawing reopened the file on every redraw.
+    @State private var metadata: AudioFileMetadata?
 
     init(model: AppModel, project: ProjectRecord, isWide: Bool) {
         self.model = model
         self.project = project
         self.isWide = isWide
         _name = State(initialValue: project.title)
-    }
-
-    private var metadata: AudioFileMetadata {
-        AudioFileMetadata(url: project.audioURL)
     }
 
     private var isPlaying: Bool {
@@ -153,7 +152,7 @@ private struct ExportRow: View {
                         .lineLimit(1)
                 }
                 if !isWide {
-                    Text("\(project.format.displayName) · \(metadata.sizeText) · \(metadata.durationText) · \(creationDate.formatted(date: .abbreviated, time: .omitted))")
+                    Text("\(project.format.displayName) · \(sizeText) · \(durationText) · \(creationDate.formatted(date: .abbreviated, time: .omitted))")
                         .font(AttenTypography.caption)
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
@@ -163,10 +162,10 @@ private struct ExportRow: View {
 
             if isWide {
                 Text(project.format.displayName).frame(width: 64, alignment: .leading)
-                Text(metadata.sizeText).frame(width: 82, alignment: .leading)
+                Text(sizeText).frame(width: 82, alignment: .leading)
                 Text(creationDate.formatted(date: .abbreviated, time: .shortened))
                     .frame(width: 130, alignment: .leading)
-                Text(metadata.durationText).frame(width: 66, alignment: .leading)
+                Text(durationText).frame(width: 66, alignment: .leading)
             }
 
             if editingName {
@@ -197,10 +196,14 @@ private struct ExportRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .contextMenu { actionMenu }
+        .audioMetadata(of: project.audioURL) { metadata = $0 }
     }
 
+    private var sizeText: String { metadata?.sizeText ?? "—" }
+    private var durationText: String { metadata?.durationText ?? "—" }
+
     private var creationDate: Date {
-        metadata.creationDate ?? project.createdAt
+        metadata?.creationDate ?? project.createdAt
     }
 
     @ViewBuilder private var actionMenu: some View {

@@ -229,6 +229,90 @@ struct ToolbarIconButton: View {
     }
 }
 
+/// Back out of a screen that was opened from another.
+///
+/// The Library used to get this for free from `NavigationStack`, along with a
+/// detail column that could no longer be changed from the sidebar. The button
+/// is worth keeping; the trap is not.
+struct AttenBackButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: AttenSpacing.xxs) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(title.uppercased())
+                    .font(AttenTypography.caption.weight(.medium))
+                    .tracking(0.6)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .foregroundStyle(isHovering ? AttenColor.accentHover : AttenColor.textSecondary)
+            .padding(.horizontal, AttenSpacing.xs)
+            .frame(maxWidth: 190)
+            .frame(height: 26)
+            .fixedSize(horizontal: true, vertical: false)
+            .background(isHovering ? AttenColor.surfaceMuted : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Back to \(title) (⌘[)")
+        .accessibilityLabel("Back to \(title)")
+    }
+}
+
+/// Atten's own search field.
+///
+/// `.searchable(placement: .toolbar)` puts the field in the window toolbar,
+/// which works on a screen that is only ever itself. The Library is a stack —
+/// shelf, book, reader — and only the shelf has a field, so navigating added
+/// and removed a toolbar item on every push and pop and the toolbar shuffled
+/// its contents each time. A field that belongs to the page it searches stays
+/// where it is put.
+struct AttenSearchField: View {
+    let prompt: String
+    @Binding var text: String
+
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Image(systemName: "magnifyingglass")
+                .font(AttenTypography.caption)
+                .foregroundStyle(AttenColor.textSecondary)
+                .accessibilityHidden(true)
+            TextField(prompt, text: $text)
+                .textFieldStyle(.plain)
+                .font(AttenTypography.metadata)
+                .focused($isFocused)
+                .accessibilityLabel(prompt)
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(AttenTypography.caption)
+                        .foregroundStyle(AttenColor.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, AttenSpacing.xs)
+        .frame(height: 30)
+        .attenInput()
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.control)
+                .stroke(isFocused ? AttenColor.accent : .clear, lineWidth: 1)
+        }
+        .onExitCommand { text = "" }
+    }
+}
+
 struct AttenLogo: View {
     var compact = false
 
@@ -432,7 +516,7 @@ extension View {
     }
 }
 
-struct AudioFileMetadata: Equatable {
+struct AudioFileMetadata: Equatable, Sendable {
     let byteCount: Int64?
     let creationDate: Date?
     let duration: TimeInterval?

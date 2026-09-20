@@ -30,17 +30,15 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 extension Notification.Name {
     static let attenOpenStudio = Notification.Name("Atten.openStudio")
     static let attenOpenPlayground = Notification.Name("Atten.openPlayground")
-    /// Posted by the reader with a Bool, so focus mode can take the app's own
-    /// sidebar with it and leave nothing on screen but the book.
-    static let attenReaderFocusMode = Notification.Name("Atten.readerFocusMode")
 }
 
 struct RootView: View {
     @Bindable var model: AppModel
-    @SceneStorage("Atten.selectedSection") private var selectionRaw = SidebarItem.studio.rawValue
+    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.studio.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @FocusState private var focusedSidebarItem: SidebarItem?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -75,22 +73,45 @@ struct RootView: View {
             }
         }
         .task {
+            model.section = SidebarItem(rawValue: restoredSection) ?? .studio
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
-        .onChange(of: model.draftText) { _, newValue in
-            restoredDraft = String(newValue.prefix(100_000))
+        .onChange(of: model.section) { _, section in restoredSection = section.rawValue }
+        // A scene-storage write goes to disk, and this one carried up to
+        // 100 KB. Running it on every keystroke made typing in Studio stutter,
+        // so it waits for the typing to stop.
+        .task(id: model.draftText) {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            restoredDraft = String(model.draftText.prefix(100_000))
+        }
+        // …and whatever the pause has not caught yet is written on the way out.
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+        ) { _ in
+            restoredDraft = String(model.draftText.prefix(100_000))
         }
         .onReceive(NotificationCenter.default.publisher(for: .attenOpenStudio)) { _ in
-            selectionRaw = SidebarItem.studio.rawValue
+            model.section = .studio
         }
         .onReceive(NotificationCenter.default.publisher(for: .attenOpenPlayground)) { _ in
-            selectionRaw = SidebarItem.playground.rawValue
+            model.section = .playground
         }
-        .onReceive(NotificationCenter.default.publisher(for: .attenReaderFocusMode)) { note in
-            let isFocused = note.object as? Bool ?? false
-            withAnimation { columnVisibility = isFocused ? .detailOnly : .all }
+        .onChange(of: model.isReaderFocused) { _, isFocused in
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
+                columnVisibility = isFocused ? .detailOnly : .all
+            }
         }
+        // Leaving full screen by the green button, Mission Control, or the
+        // system shortcut is the same intent as leaving focus mode. Without
+        // this the sidebar stayed hidden with no way left to bring it back.
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)
+        ) { _ in
+            model.setReaderFocus(false)
+        }
+        .mouseNavigationButtons(back: model.goBack)
         .alert("Atten could not finish starting", isPresented: startupAlert) {
             Button("OK", role: .cancel) { model.startupError = nil }
         } message: {
@@ -129,9 +150,9 @@ struct RootView: View {
                 ForEach(SidebarItem.allCases) { item in
                     SidebarNavigationRow(
                         item: item,
-                        isSelected: selectionRaw == item.rawValue
+                        isSelected: model.section == item
                     ) {
-                        selectionRaw = item.rawValue
+                        model.section = item
                         focusedSidebarItem = item
                     }
                     .focused($focusedSidebarItem, equals: item)
@@ -249,19 +270,19 @@ struct RootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        switch SidebarItem(rawValue: selectionRaw) ?? .studio {
+        switch model.section {
         case .studio:
             StudioView(model: model)
         case .playground:
-            PlaygroundView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
+            PlaygroundView(model: model) { model.section = .studio }
         case .library:
             LibraryView(model: model)
         case .voices:
-            VoicesView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
+            VoicesView(model: model) { model.section = .studio }
         case .models:
             ModelsView(model: model)
         case .projects:
-            ProjectsView(model: model) { selectionRaw = SidebarItem.studio.rawValue }
+            ProjectsView(model: model) { model.section = .studio }
         case .exports:
             ExportsView(model: model)
         }
@@ -305,19 +326,19 @@ struct RootView: View {
 
     private func openNewDraft() {
         model.newDraft()
-        selectionRaw = SidebarItem.studio.rawValue
+        model.section = .studio
     }
 
     private func moveSidebarSelection(_ direction: MoveCommandDirection) {
         guard direction == .up || direction == .down else { return }
         let items = SidebarItem.allCases
-        let selected = focusedSidebarItem ?? SidebarItem(rawValue: selectionRaw) ?? .studio
+        let selected = focusedSidebarItem ?? model.section
         guard let index = items.firstIndex(of: selected) else { return }
         let offset = direction == .down ? 1 : -1
         let nextIndex = min(max(index + offset, items.startIndex), items.index(before: items.endIndex))
         let next = items[nextIndex]
         focusedSidebarItem = next
-        selectionRaw = next.rawValue
+        model.section = next
     }
 }
 
@@ -403,4 +424,51 @@ private enum GitHubMark {
         image.isTemplate = true
         return image
     }()
+}
+
+/// The back and forward buttons on a mouse arrive as `otherMouseDown`, and
+/// nothing in SwiftUI claims them.
+///
+/// Left unclaimed they fell through to whatever happened to be under the
+/// pointer, so a press in a split view with a nested stack inside it produced a
+/// pop that the rest of the interface never heard about — the sidebar, the
+/// player, and the reader all kept believing the book was still open. Claimed
+/// here, and swallowed, the press means exactly one thing wherever it lands.
+private struct MouseNavigationButtons: ViewModifier {
+    let back: () -> Void
+
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard monitor == nil else { return }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+                    // 3 and 4 are the back and forward buttons on every mouse
+                    // that has them. Atten has nowhere forward to go.
+                    // A confirmation the user has not answered yet is not a
+                    // screen to be navigated out from under.
+                    guard event.window?.attachedSheet == nil else { return event }
+                    switch event.buttonNumber {
+                    case 3:
+                        back()
+                        return nil
+                    case 4:
+                        return nil
+                    default:
+                        return event
+                    }
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+
+extension View {
+    func mouseNavigationButtons(back: @escaping () -> Void) -> some View {
+        modifier(MouseNavigationButtons(back: back))
+    }
 }
