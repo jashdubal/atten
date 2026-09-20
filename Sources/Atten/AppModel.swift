@@ -25,7 +25,8 @@ final class AppModel {
     var generationState: GenerationState = .idle
     var successMessage: String?
     var isPlaying = false
-    private(set) var activeAudioURL: URL?
+    /// What is playing, what played before it, and what comes next.
+    private(set) var queue = PlaybackQueue()
     var startupError: String?
     var voicePreviewID: String?
     var playgroundState: GenerationState = .idle
@@ -54,9 +55,7 @@ final class AppModel {
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var hasAnnouncedQuarantinedHistory = false
     @ObservationIgnored private var playbackTimer: Timer?
-    /// Audio still to play after the current file, used to play a narrated
-    /// book straight through without gluing its chapters into one file.
-    @ObservationIgnored private var playbackQueue: [URL] = []
+    @ObservationIgnored private let nowPlaying = NowPlayingCenter()
 
     private var playgroundDirectory: URL {
         FileManager.default.temporaryDirectory
@@ -156,6 +155,7 @@ final class AppModel {
     func start() async {
         guard !hasStarted else { return }
         hasStarted = true
+        startRemoteCommands()
         await repairQuarantineIfNeeded()
         do {
             try directories.prepare()
@@ -321,15 +321,80 @@ final class AppModel {
         isReaderFocused || (section == .library && !libraryPath.isEmpty)
     }
 
-    var playerTitle: String? {
-        activeAudioURL?.deletingPathExtension().lastPathComponent
+    var activeAudioURL: URL? { queue.current?.url }
+
+    var playerTitle: String? { queue.current?.title }
+
+    var playerSubtitle: String? { queue.current?.subtitle }
+
+    /// How much of the chapter is left. Measured the same way as the elapsed
+    /// time beside it: adjusting one for the listening rate and not the other
+    /// made a chapter played at 2× read "5:00" and "-2:30" at its midpoint.
+    var playbackRemaining: TimeInterval {
+        max(0, playbackDuration - playbackPosition)
     }
 
     func seek(to time: TimeInterval) {
         guard let audioPlayer else { return }
         audioPlayer.currentTime = min(max(0, time), audioPlayer.duration)
         playbackPosition = audioPlayer.currentTime
+        publishNowPlaying()
     }
+
+    /// Ten seconds back or forward, the way every player does it.
+    ///
+    /// Running off either end carries on into the neighbouring chapter rather
+    /// than stopping dead — and backwards it lands ten seconds from that
+    /// chapter's end, not at its beginning, because skipping back is asking to
+    /// hear the last few seconds again.
+    func skip(by seconds: TimeInterval) {
+        guard let audioPlayer else { return }
+        let target = audioPlayer.currentTime + seconds
+        if target < 0, queue.hasPrevious {
+            guard let previous = queue.retreat() else { return }
+            start(previous, secondsBeforeEnd: -target)
+            return
+        }
+        if target > audioPlayer.duration {
+            if queue.hasNext {
+                playNext()
+            } else {
+                seek(to: audioPlayer.duration)
+            }
+            return
+        }
+        seek(to: target)
+    }
+
+    func playNext() {
+        guard let track = queue.advance() else { return }
+        start(track)
+    }
+
+    /// Part way into a track, "previous" means the start of this one — which is
+    /// what it means everywhere else, and what someone who missed a sentence
+    /// is reaching for.
+    func playPrevious() {
+        if let audioPlayer, audioPlayer.currentTime > 3 {
+            seek(to: 0)
+            return
+        }
+        guard let track = queue.retreat() else {
+            seek(to: 0)
+            return
+        }
+        start(track)
+    }
+
+    func setPlaybackRate(_ rate: Double) {
+        guard settings.playbackRate != rate else { return }
+        settings.playbackRate = rate
+        audioPlayer?.rate = Float(rate)
+        saveSettings()
+        publishNowPlaying()
+    }
+
+    var playbackRate: Double { settings.playbackRate }
 
     func closePlayer() {
         stopPlayback()
@@ -427,24 +492,60 @@ final class AppModel {
         voicePreviewID = nil
     }
 
+    /// Plays, or pauses, one named thing — a project, an export, a preview.
+    /// Anything already in the queue keeps the queue.
+    func togglePlayback(track: PlaybackTrack) {
+        guard audioPlayer?.url == track.url else {
+            if queue.move(to: track.url), let found = queue.current {
+                start(found)
+            } else {
+                play(tracks: [track])
+            }
+            return
+        }
+        isPlaying ? pause() : resume()
+    }
+
     func togglePlayback(url: URL? = nil) {
         let target = url ?? currentAudioURL
         guard let target else { return }
-        if audioPlayer?.url == target, audioPlayer?.isPlaying == true {
-            audioPlayer?.pause()
-            isPlaying = false
-            stopPlaybackTimer()
-        } else if audioPlayer?.url == target {
-            audioPlayer?.play()
-            isPlaying = true
-            startPlaybackTimer()
-        } else {
-            play(url: target)
+        guard audioPlayer?.url == target else {
+            // Already somewhere in the queue: move to it rather than throwing
+            // away what comes after, so playing chapter nine of a book still
+            // runs on into chapter ten.
+            if queue.move(to: target), let track = queue.current {
+                start(track)
+            } else {
+                play(url: target)
+            }
+            return
         }
+        isPlaying ? pause() : resume()
     }
 
     func toggleActivePlayback() {
-        togglePlayback(url: audioPlayer?.url ?? currentAudioURL)
+        guard audioPlayer != nil else {
+            if let url = currentAudioURL { play(url: url) }
+            return
+        }
+        isPlaying ? pause() : resume()
+    }
+
+    func pause() {
+        guard isPlaying else { return }
+        audioPlayer?.pause()
+        isPlaying = false
+        stopPlaybackTimer()
+        publishNowPlaying()
+    }
+
+    func resume() {
+        guard let audioPlayer, !isPlaying else { return }
+        audioPlayer.rate = Float(playbackRate)
+        audioPlayer.play()
+        isPlaying = true
+        startPlaybackTimer()
+        publishNowPlaying()
     }
 
     func previewVoice(_ voice: Voice) {
@@ -785,43 +886,52 @@ final class AppModel {
         if case .failed = generationState { generationState = .idle }
     }
 
-    /// Plays `urls` back to back. Each is a separate file on disk, so a book
-    /// can be narrated chapter by chapter and still listened to as one piece.
-    func playSequence(_ urls: [URL]) {
-        guard let first = urls.first else { return }
-        play(url: first, queue: Array(urls.dropFirst()))
+    /// Plays `tracks` back to back, starting at `index`.
+    ///
+    /// Each is a separate file on disk, so a book can be narrated chapter by
+    /// chapter and still listened to as one piece.
+    func play(tracks: [PlaybackTrack], startingAt index: Int = 0) {
+        guard !tracks.isEmpty else { return }
+        queue = PlaybackQueue(tracks: tracks, startingAt: index)
+        guard let track = queue.current else { return }
+        start(track)
     }
 
-    private func play(url: URL, queue: [URL] = []) {
-        playbackQueue = queue
+    /// One file, with nothing before or after it — a preview, a sample, a
+    /// finished draft.
+    private func play(url: URL, subtitle: String? = nil) {
+        play(tracks: [PlaybackTrack(url: url, subtitle: subtitle)])
+    }
+
+    private func start(_ track: PlaybackTrack, secondsBeforeEnd: TimeInterval? = nil) {
         do {
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
+            let player = try AVAudioPlayer(contentsOf: track.url)
             let delegate = AudioPlaybackDelegate { [weak self] in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if let next = self.playbackQueue.first {
-                        self.play(url: next, queue: Array(self.playbackQueue.dropFirst()))
-                        return
-                    }
-                    self.isPlaying = false
-                    self.stopPlaybackTimer()
-                    self.playbackPosition = self.playbackDuration
-                }
+                Task { @MainActor in self?.trackFinished() }
             }
             audioDelegate = delegate
-            audioPlayer?.delegate = delegate
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
-            activeAudioURL = url
+            player.delegate = delegate
+            // Set before preparing, or the rate is ignored on first play.
+            player.enableRate = true
+            player.prepareToPlay()
+            player.rate = Float(playbackRate)
+            if let secondsBeforeEnd {
+                player.currentTime = max(0, player.duration - secondsBeforeEnd)
+            }
+            player.play()
+            audioPlayer = player
             isPlaying = true
-            playbackDuration = audioPlayer?.duration ?? 0
-            playbackPosition = 0
+            playbackDuration = player.duration
+            playbackPosition = player.currentTime
             startPlaybackTimer()
+            publishNowPlaying()
         } catch {
-            activeAudioURL = nil
+            audioPlayer = nil
             isPlaying = false
+            queue = PlaybackQueue()
+            nowPlaying.clear()
             let message = "Audio playback failed: \(error.localizedDescription)"
-            if url.path.hasPrefix(playgroundDirectory.path) {
+            if track.url.path.hasPrefix(playgroundDirectory.path) {
                 playgroundState = .failed(message)
             } else {
                 generationState = .failed(message)
@@ -829,20 +939,63 @@ final class AppModel {
         }
     }
 
+    private func trackFinished() {
+        if queue.hasNext {
+            playNext()
+            return
+        }
+        isPlaying = false
+        stopPlaybackTimer()
+        playbackPosition = playbackDuration
+        publishNowPlaying()
+    }
+
     private func stopPlayback() {
-        playbackQueue = []
         audioPlayer?.stop()
         audioPlayer = nil
-        activeAudioURL = nil
+        queue = PlaybackQueue()
         isPlaying = false
         stopPlaybackTimer()
         playbackPosition = 0
         playbackDuration = 0
+        nowPlaying.clear()
     }
 
+    /// The keyboard's play key, Control Center, and a pair of headphones all
+    /// reach the player through here.
+    private func startRemoteCommands() {
+        nowPlaying.start(
+            NowPlayingCenter.Commands(
+                play: { [weak self] in self?.resume() },
+                pause: { [weak self] in self?.pause() },
+                toggle: { [weak self] in self?.toggleActivePlayback() },
+                next: { [weak self] in self?.playNext() },
+                previous: { [weak self] in self?.playPrevious() },
+                skip: { [weak self] seconds in self?.skip(by: seconds) },
+                seek: { [weak self] time in self?.seek(to: time) }
+            )
+        )
+    }
+
+    private func publishNowPlaying() {
+        nowPlaying.update(
+            track: queue.current,
+            isPlaying: isPlaying,
+            position: playbackPosition,
+            duration: playbackDuration,
+            rate: playbackRate,
+            hasNext: queue.hasNext,
+            hasPrevious: queue.hasPrevious
+        )
+    }
+
+    /// Position is read often enough for the scrubber to move smoothly and no
+    /// more. The system runs its own clock between the updates it is told
+    /// about, so Now Playing is refreshed when something changes rather than
+    /// several times a second.
     private func startPlaybackTimer() {
         stopPlaybackTimer()
-        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let player = self.audioPlayer else { return }
                 self.playbackPosition = player.currentTime

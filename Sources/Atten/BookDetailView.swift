@@ -102,7 +102,7 @@ struct BookDetailView: View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             HStack(spacing: AttenSpacing.sm) {
                 Button {
-                    model.playSequence(book.narrationQueue)
+                    model.play(tracks: book.narrationTracks)
                 } label: {
                     Label("Play all", systemImage: "play.fill")
                 }
@@ -331,7 +331,16 @@ private struct ChapterRow: View {
                 .controlSize(.small)
                 .frame(width: 30, height: 30)
         } else if chapter.isNarrated, let url = chapter.audioURL {
-            Button { model.togglePlayback(url: url) } label: {
+            Button {
+                model.togglePlayback(
+                    track: PlaybackTrack(
+                        id: chapter.id,
+                        url: url,
+                        title: chapter.title,
+                        subtitle: book.title
+                    )
+                )
+            } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(AttenTypography.caption.weight(.semibold))
                     .foregroundStyle(AttenColor.accent)

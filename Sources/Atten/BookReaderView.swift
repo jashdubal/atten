@@ -58,6 +58,7 @@ struct BookReaderView: View {
                     hits: hits,
                     isSearching: isSearching,
                     selectedHitID: selectedHitID,
+                    playingChapterIndex: playingChapterIndex,
                     selectChapter: { go(toChapter: $0) },
                     selectHit: select(_:),
                     selectBookmark: { go(
@@ -252,18 +253,31 @@ struct BookReaderView: View {
         .background(AttenColor.surface)
     }
 
+    private var playingChapterIndex: Int? {
+        guard let playing = model.activeAudioURL else { return nil }
+        return book.chapters.firstIndex { $0.audioURL == playing }
+    }
+
     @ViewBuilder private var narrationButton: some View {
         if model.bookshelf.progress?.bookID == book.id {
             Button("Stop", systemImage: "stop.fill") { model.bookshelf.cancelNarration() }
                 .buttonStyle(AttenSecondaryButtonStyle())
+        } else if playingChapterIndex == chapterIndex {
+            // Only for the chapter actually on screen: every other chapter
+            // still needs its own "Listen", or its offer to be narrated.
+            // The full player runs along the bottom of the window already, so
+            // the reader carries only what someone reaches for without looking
+            // away from the page.
+            readerTransport
         } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
             Button {
                 // Playing from here continues into the rest of the book, the
-                // way turning a page would.
-                model.playSequence(
-                    book.chapters.dropFirst(chapterIndex).compactMap {
-                        $0.isNarrated ? $0.audioURL : nil
-                    }
+                // way turning a page would — and keeps what came before it in
+                // the queue, so the player can go back a chapter.
+                let tracks = book.narrationTracks
+                model.play(
+                    tracks: tracks,
+                    startingAt: tracks.firstIndex { $0.url == url } ?? 0
                 )
             } label: {
                 Label(
@@ -284,6 +298,37 @@ struct BookReaderView: View {
             }
             .buttonStyle(AttenPrimaryButtonStyle())
             .disabled(chapter == nil || model.bookshelf.isNarrating)
+        }
+    }
+
+    private var readerTransport: some View {
+        HStack(spacing: 2) {
+            ToolbarIconButton(title: "Back 10 seconds", systemImage: "gobackward.10") {
+                model.skip(by: -NowPlayingCenter.skipInterval)
+            }
+            Button(action: model.toggleActivePlayback) {
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AttenColor.onAccent)
+                    .frame(width: 26, height: 26)
+                    .background(AttenColor.accent)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(model.isPlaying ? "Pause narration" : "Resume narration")
+            .accessibilityLabel(model.isPlaying ? "Pause narration" : "Resume narration")
+
+            ToolbarIconButton(title: "Forward 10 seconds", systemImage: "goforward.10") {
+                model.skip(by: NowPlayingCenter.skipInterval)
+            }
+
+            Text("-" + PlayerBar.timeText(model.playbackRemaining))
+                .font(AttenTypography.caption)
+                .monospacedDigit()
+                .foregroundStyle(AttenColor.textSecondary)
+                .padding(.leading, AttenSpacing.xxs)
+                .accessibilityLabel("Time left in this chapter")
+                .accessibilityValue(PlayerBar.timeText(model.playbackRemaining))
         }
     }
 
