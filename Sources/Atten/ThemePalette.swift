@@ -116,27 +116,30 @@ extension AttenTheme {
         scrim: AttenThemeColor(0x1F1E1B, 0x000000)
     )
 
-    // Neutral greyscale: the quietest the app gets, with no hue at all.
+    // Neutral greyscale, and deliberately the lowest-contrast theme: text sits
+    // just above the 7:1 floor instead of the 13–16:1 the others run at, and
+    // the dark background is lifted off black rather than text being dimmed
+    // against a void. Meant for a dark room, where white-on-black glares.
     private static let quietPalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF4F4F5, 0x141416),
-        sidebar: AttenThemeColor(0xEBEBEC, 0x0F0F11),
-        surface: AttenThemeColor(0xFFFFFF, 0x1C1C1F),
-        surfaceElevated: AttenThemeColor(0xFAFAFA, 0x232326),
-        surfaceMuted: AttenThemeColor(0xE4E4E6, 0x2A2A2E),
-        separator: AttenThemeColor(0xC8C8CB, 0x3A3A3F),
-        textPrimary: AttenThemeColor(0x18181B, 0xEDEDEF),
-        textSecondary: AttenThemeColor(0x56565C, 0xA8A8AF),
-        accent: AttenThemeColor(0x3F3F46, 0xD4D4D8),
-        accentHover: AttenThemeColor(0x27272A, 0xF2F2F4),
-        accentSecondary: AttenThemeColor(0x5F5F66, 0x9A9AA2),
-        success: AttenThemeColor(0x2F6B4F, 0x6FCB99),
-        warning: AttenThemeColor(0x7A5C12, 0xD9B36A),
-        destructive: AttenThemeColor(0x9B2C2C, 0xE58B8B),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x16161A),
-        readerSurface: AttenThemeColor(0xFFFFFF, 0x1A1A1C),
-        readerText: AttenThemeColor(0x18181B, 0xEBEBED),
-        readerHighlight: AttenThemeColor(0xE2E2E5, 0x3A3A40),
-        scrim: AttenThemeColor(0x18181B, 0x000000)
+        appBackground: AttenThemeColor(0xF0F0F1, 0x1B1B1D),
+        sidebar: AttenThemeColor(0xE9E9EA, 0x171719),
+        surface: AttenThemeColor(0xF7F7F8, 0x202023),
+        surfaceElevated: AttenThemeColor(0xFBFBFC, 0x252528),
+        surfaceMuted: AttenThemeColor(0xE2E2E4, 0x2C2C30),
+        separator: AttenThemeColor(0xCACACE, 0x35353B),
+        textPrimary: AttenThemeColor(0x4C4C51, 0xB4B4B8),
+        textSecondary: AttenThemeColor(0x66666C, 0x8C8C93),
+        accent: AttenThemeColor(0x5A5A60, 0x9E9EA5),
+        accentHover: AttenThemeColor(0x48484D, 0xB4B4B8),
+        accentSecondary: AttenThemeColor(0x6E6E75, 0x83838A),
+        success: AttenThemeColor(0x437059, 0x6DA98B),
+        warning: AttenThemeColor(0x7C653A, 0xB59C6C),
+        destructive: AttenThemeColor(0x9B5757, 0xC58484),
+        onAccent: AttenThemeColor(0xFFFFFF, 0x1B1B1D),
+        readerSurface: AttenThemeColor(0xF9F9FA, 0x1D1D1F),
+        readerText: AttenThemeColor(0x4C4C51, 0xB0B0B4),
+        readerHighlight: AttenThemeColor(0xE4E4E7, 0x34343A),
+        scrim: AttenThemeColor(0x1B1B1D, 0x000000)
     )
 
     // Warm parchment by day, lamp-lit paper by night.

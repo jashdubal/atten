@@ -12,7 +12,7 @@ public enum AttenTheme: String, Codable, CaseIterable, Identifiable, Sendable {
     case terminal
     /// Muted white with quiet ink accents.
     case paper
-    /// Near-greyscale, as plain as the app gets.
+    /// Near-greyscale and the lowest contrast of the set.
     case quiet
     /// Warm parchment for long reading sessions.
     case sepia
@@ -44,7 +44,7 @@ public enum AttenTheme: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .terminal: "Atten's cyan console. Bright accents, technical feel."
         case .paper: "Muted white with quiet ink accents. Almost no colour."
-        case .quiet: "Plain greyscale. The least distracting option."
+        case .quiet: "Dimmed greyscale. The gentlest option in a dark room."
         case .sepia: "Warm parchment tuned for hours of reading."
         case .slate: "Restrained steel blue. At home on a work machine."
         case .vaporwave: "Magenta and cyan over deep purple. Loud on purpose."
