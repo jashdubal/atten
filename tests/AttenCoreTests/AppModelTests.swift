@@ -3,47 +3,6 @@ import Foundation
 import XCTest
 @testable import Atten
 
-private final class ImmediateGenerator: TTSGenerating, @unchecked Sendable {
-    func generate(_ request: GenerationRequest) async throws -> GenerationOutput {
-        try FileManager.default.createDirectory(
-            at: request.outputDirectory,
-            withIntermediateDirectories: true
-        )
-        let url = request.outputDirectory
-            .appendingPathComponent(request.filename)
-            .appendingPathExtension(request.format.rawValue)
-        try silentWAV().write(to: url)
-        return GenerationOutput(url: url, segmentCount: 1, sampleRate: 24_000)
-    }
-
-    func cancel() {}
-
-    private func silentWAV() -> Data {
-        let sampleCount: UInt32 = 2_400
-        let dataSize = sampleCount * 2
-        var data = Data()
-        data.append(contentsOf: "RIFF".utf8)
-        append(36 + dataSize, to: &data)
-        data.append(contentsOf: "WAVEfmt ".utf8)
-        append(UInt32(16), to: &data)
-        append(UInt16(1), to: &data)
-        append(UInt16(1), to: &data)
-        append(UInt32(24_000), to: &data)
-        append(UInt32(48_000), to: &data)
-        append(UInt16(2), to: &data)
-        append(UInt16(16), to: &data)
-        data.append(contentsOf: "data".utf8)
-        append(dataSize, to: &data)
-        data.append(Data(count: Int(dataSize)))
-        return data
-    }
-
-    private func append<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
-        var littleEndian = value.littleEndian
-        Swift.withUnsafeBytes(of: &littleEndian) { data.append(contentsOf: $0) }
-    }
-}
-
 @MainActor
 final class AppModelTests: XCTestCase {
     func testPlaygroundSampleIsTemporaryAndNeverCreatesProject() async throws {
@@ -104,6 +63,25 @@ final class AppModelTests: XCTestCase {
             format: .wav,
             audioPath: url.path
         )
+    }
+
+    /// A book is narrated as one file per chapter, so listening straight
+    /// through depends on the player moving to the next file by itself.
+    func testPlayingASequenceAdvancesToTheNextChapterOnItsOwn() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanUp() }
+        let generator = ImmediateGenerator()
+        let first = try await generator.generate(chapter: "one", in: fixture.directory)
+        let second = try await generator.generate(chapter: "two", in: fixture.directory)
+
+        fixture.model.playSequence([first, second])
+        XCTAssertEqual(fixture.model.activeAudioURL, first)
+
+        for _ in 0..<100 {
+            if fixture.model.activeAudioURL == second { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(fixture.model.activeAudioURL, second)
     }
 
     private func waitForPlayground(_ model: AppModel) async throws {

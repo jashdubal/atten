@@ -40,6 +40,7 @@ final class AppModel {
     var updateMessage: String?
     private(set) var isCheckingForUpdate = false
     let library: ModelLibrary
+    let bookshelf: BookshelfModel
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -53,6 +54,9 @@ final class AppModel {
     @ObservationIgnored private var hasStarted = false
     @ObservationIgnored private var hasAnnouncedQuarantinedHistory = false
     @ObservationIgnored private var playbackTimer: Timer?
+    /// Audio still to play after the current file, used to play a narrated
+    /// book straight through without gluing its chapters into one file.
+    @ObservationIgnored private var playbackQueue: [URL] = []
 
     private var playgroundDirectory: URL {
         FileManager.default.temporaryDirectory
@@ -74,9 +78,15 @@ final class AppModel {
         self.selectedVoiceID = loadedSettings.selectedVoiceID
         self.speed = loadedSettings.defaultSpeed
         self.format = loadedSettings.defaultFormat
-        self.generator = generator ?? RetryingBackendClient(
-            wrapping: ProcessBackendClient(),
-            maximumAttempts: 2
+        func backendClient() -> any TTSGenerating {
+            RetryingBackendClient(wrapping: ProcessBackendClient(), maximumAttempts: 2)
+        }
+        self.generator = generator ?? backendClient()
+        // The bookshelf drives its own client, so cancelling a Studio draft
+        // does not stop a book that is halfway through being narrated.
+        self.bookshelf = BookshelfModel(
+            directories: directories,
+            generator: generator ?? backendClient()
         )
         self.library = library ?? ModelLibrary(
             sizeCacheURL: directories.applicationSupport.appendingPathComponent("model_sizes_cache.json")
@@ -91,6 +101,9 @@ final class AppModel {
         }
         self.library.onInstalledModelsChanged = { [weak self] in
             self?.installedModelsChanged()
+        }
+        self.bookshelf.missingModelID = { [weak self] voiceID in
+            self?.requiredModelID(for: voiceID)
         }
     }
 
@@ -159,6 +172,7 @@ final class AppModel {
             reportStartupProblem(error.localizedDescription)
         }
         library.start()
+        await bookshelf.load()
         if settings.checksForUpdates { await checkForUpdate() }
     }
 
@@ -542,6 +556,22 @@ final class AppModel {
         if panel.runModal() == .OK, let url = panel.url { importText(from: url) }
     }
 
+    func openBookImportPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Add Books to Atten"
+        panel.allowedContentTypes = [.pdf, .epub]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK else { return }
+        let urls = panel.urls
+        Task { [weak self] in
+            guard let self else { return }
+            for url in urls {
+                await bookshelf.importBook(from: url, defaults: settings)
+            }
+        }
+    }
+
     func export(_ project: ProjectRecord) {
         guard FileManager.default.fileExists(atPath: project.audioPath) else {
             generationState = .failed("The audio file for this project is missing.")
@@ -569,6 +599,10 @@ final class AppModel {
 
     func reveal(_ project: ProjectRecord) {
         NSWorkspace.shared.activateFileViewerSelecting([project.audioURL])
+    }
+
+    func revealBookSource(_ book: BookRecord) {
+        NSWorkspace.shared.activateFileViewerSelecting([book.sourceURL])
     }
 
     func rename(_ project: ProjectRecord, to name: String) {
@@ -650,12 +684,24 @@ final class AppModel {
         if case .failed = generationState { generationState = .idle }
     }
 
-    private func play(url: URL) {
+    /// Plays `urls` back to back. Each is a separate file on disk, so a book
+    /// can be narrated chapter by chapter and still listened to as one piece.
+    func playSequence(_ urls: [URL]) {
+        guard let first = urls.first else { return }
+        play(url: first, queue: Array(urls.dropFirst()))
+    }
+
+    private func play(url: URL, queue: [URL] = []) {
+        playbackQueue = queue
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
             let delegate = AudioPlaybackDelegate { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
+                    if let next = self.playbackQueue.first {
+                        self.play(url: next, queue: Array(self.playbackQueue.dropFirst()))
+                        return
+                    }
                     self.isPlaying = false
                     self.stopPlaybackTimer()
                     self.playbackPosition = self.playbackDuration
@@ -683,6 +729,7 @@ final class AppModel {
     }
 
     private func stopPlayback() {
+        playbackQueue = []
         audioPlayer?.stop()
         audioPlayer = nil
         activeAudioURL = nil

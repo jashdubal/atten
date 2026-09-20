@@ -74,6 +74,31 @@ forces an offline environment. Repository builds continue to locate `cli.py`
 through `ATTEN_BACKEND_ROOT`, the current directory, or the development app's
 ancestor directories.
 
+## Library: PDF and EPUB narration
+
+Books are read into chapters entirely in Swift. PDFs go through PDFKit, whose
+outline supplies the chapter breaks and whose pages supply the text; a PDF with
+no outline is sliced into ten-page sections so a chapter stays a manageable unit
+of work. EPUBs are unpacked with `ditto`, read through `META-INF/container.xml`
+and the OPF spine, and flattened from XHTML by `XMLParser`, falling back to tag
+stripping for the books that are not well-formed XML. Nothing was added to the
+Python backend or the bundled helper, so the DMG does not grow and the process
+contract is unchanged.
+
+A whole book is far too much text for one call to the speech engine, so the
+Library narrates one chapter per call and saves after each. Progress is real,
+cancelling costs only the chapter in flight, and a second run resumes where the
+first stopped. The chapters stay separate files: `AppModel.playSequence` plays
+them back to back, which gives continuous listening without re-encoding a
+fourteen-hour audiobook into a third container format. Changing a book's voice,
+speed, or format discards its narration rather than leaving one book read in two
+voices, and the user is told what that costs before it happens.
+
+Atten's own copy of each book lives beside the project history in Application
+Support, so the shelf keeps working after the original file is moved or deleted.
+`books.json` salvages per-record like `projects.json`, and a lost shelf costs
+nothing that re-importing cannot rebuild.
+
 Kokoro model startup can be slow. The native UI remains responsive and allows
 cancellation while the child process runs.
 - Only controls supported by Kokoro are exposed: voice, language (derived from

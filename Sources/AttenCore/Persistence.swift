@@ -4,6 +4,11 @@ public struct AppDirectories: Sendable {
     public let applicationSupport: URL
     public let projectsFile: URL
     public let defaultExports: URL
+    public let booksFile: URL
+    /// Atten's own copies of imported books, and the narrations generated from
+    /// them. Both live beside the project history so one backup covers the app.
+    public let bookSources: URL
+    public let narrations: URL
 
     public init(applicationSupport: URL? = nil) {
         // Application Support is always present in practice, but a home
@@ -17,17 +22,18 @@ public struct AppDirectories: Sendable {
         self.applicationSupport = base
         self.projectsFile = base.appendingPathComponent("projects.json")
         self.defaultExports = base.appendingPathComponent("Exports", isDirectory: true)
+        self.booksFile = base.appendingPathComponent("books.json")
+        self.bookSources = base.appendingPathComponent("Library", isDirectory: true)
+        self.narrations = base.appendingPathComponent("Narrations", isDirectory: true)
     }
 
     public func prepare() throws {
-        try FileManager.default.createDirectory(
-            at: applicationSupport,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: defaultExports,
-            withIntermediateDirectories: true
-        )
+        for directory in [applicationSupport, defaultExports, bookSources, narrations] {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        }
     }
 }
 
