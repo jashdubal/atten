@@ -171,6 +171,43 @@ public enum AppearancePreference: String, Codable, CaseIterable, Identifiable, S
     }
 }
 
+/// How the reader lays a book out.
+///
+/// A book is pages, so that is the default; the choice is there because a
+/// screen is not a book, and someone reading a technical PDF on a small window
+/// is better served by scrolling than by pretending.
+public enum ReaderViewMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    /// One page at a time, turned.
+    case page
+    /// Two pages facing each other, turned a leaf at a time.
+    case spread
+    /// One continuous column, scrolled.
+    case scroll
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .page: "Single Page"
+        case .spread: "Two Pages"
+        case .scroll: "Scrolling"
+        }
+    }
+
+    public var icon: String {
+        switch self {
+        case .page: "doc.text"
+        case .spread: "book.pages"
+        case .scroll: "scroll"
+        }
+    }
+
+    /// How many pages a turn moves through.
+    public var pagesPerTurn: Int { self == .spread ? 2 : 1 }
+
+    public var isPaged: Bool { self != .scroll }
+}
+
 public struct AppSettings: Codable, Equatable, Sendable {
     public var appearance: AppearancePreference
     public var theme: AttenTheme
@@ -189,6 +226,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// How fast narration is played back. Separate from `defaultSpeed`, which
     /// is how fast the voice is generated: one is undoable and one is not.
     public var playbackRate: Double
+    /// How the reader lays a book out, remembered between books.
+    public var readerViewMode: ReaderViewMode
+    /// Whether the reader justifies its text, as a printed book does.
+    public var readerJustifiesText: Bool
 
     public init(
         appearance: AppearancePreference = .system,
@@ -201,7 +242,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         useMPS: Bool = true,
         pendingDownloadModelIDs: Set<String> = [],
         checksForUpdates: Bool = true,
-        playbackRate: Double = 1.0
+        playbackRate: Double = 1.0,
+        readerViewMode: ReaderViewMode = .page,
+        readerJustifiesText: Bool = true
     ) {
         self.appearance = appearance
         self.theme = theme
@@ -214,6 +257,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.pendingDownloadModelIDs = pendingDownloadModelIDs
         self.checksForUpdates = checksForUpdates
         self.playbackRate = playbackRate
+        self.readerViewMode = readerViewMode
+        self.readerJustifiesText = readerJustifiesText
     }
 
     // Only the export folder is required, because no default for it exists
@@ -245,5 +290,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // that has silently stopped.
         playbackRate = (try container.decodeIfPresent(Double.self, forKey: .playbackRate))
             .map { min(max(0.5, $0), 3.0) } ?? 1.0
+        readerViewMode = (try? container.decodeIfPresent(ReaderViewMode.self, forKey: .readerViewMode))
+            .flatMap { $0 } ?? .page
+        readerJustifiesText = try container
+            .decodeIfPresent(Bool.self, forKey: .readerJustifiesText) ?? true
     }
 }

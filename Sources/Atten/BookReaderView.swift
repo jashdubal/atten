@@ -17,14 +17,20 @@ struct BookReaderView: View {
     @State private var chapterIndex = 0
     @State private var position: ReaderParagraphID?
     @State private var paragraphs: [String] = []
-    /// Words before each paragraph of the open chapter, which is what turns a
-    /// scroll position into a page number.
-    @State private var wordsBefore: [Int] = []
     @State private var pdfPage = 0
     @State private var pdfPageCount = 0
     @State private var pdfPageText = ""
     @State private var pdfJump: ReaderPDFJump?
     @State private var pagination = ReaderPagination.empty
+    /// Where the paged reader is, reported back as it turns.
+    @State private var pageInChapter = 0
+    @State private var pagesInChapter = 1
+    @State private var opening = ReaderOpening.first
+    @State private var turnRequest: ReaderTurnRequest?
+    @State private var jumpRequest: ReaderJumpRequest?
+    /// The chapter the reading position was last written down for. Writing it
+    /// on every page turn would rewrite the whole shelf a page at a time.
+    @State private var persistedChapter = -1
     @State private var query = ""
     @State private var hits: [ReaderHit] = []
     @State private var selectedHitID: String?
@@ -97,6 +103,13 @@ struct BookReaderView: View {
         .onExitCommand { model.setReaderFocus(false) }
         .task(id: book.id) { restore() }
         .onChange(of: query) { _, value in search(value) }
+        // Scrolling reports where it is through the position binding rather
+        // than through the paged reader, so switching to pages afterwards
+        // opens where the scrolling left off.
+        .onChange(of: position) { _, new in
+            guard !viewMode.isPaged, let new, new.chapter == chapterIndex else { return }
+            opening = .paragraph(new.index)
+        }
         .onDisappear {
             persistLocation()
             searchTask?.cancel()
@@ -113,7 +126,11 @@ struct BookReaderView: View {
             ZStack(alignment: .leading) {
                 AttenColor.separator.opacity(0.4)
                 AttenColor.accent
-                    .frame(width: geometry.size.width * pagination.fraction(ofPage: currentPage))
+                    .frame(width: geometry.size.width * progressFraction)
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+                        value: progressFraction
+                    )
             }
         }
         .frame(height: 2)
@@ -135,6 +152,7 @@ struct BookReaderView: View {
                 jump: pdfJump,
                 highlights: hits,
                 theme: ThemeStore.shared.theme,
+                mode: viewMode,
                 onOpen: { count in
                     pdfPageCount = count
                     rebuildPagination()
@@ -147,16 +165,48 @@ struct BookReaderView: View {
                 }
             )
         } else if let chapter, !paragraphs.isEmpty {
-            ReaderTextView(
-                chapterIndex: chapterIndex,
-                chapterNumber: chapterIndex + 1,
-                title: chapter.title,
-                paragraphs: paragraphs,
-                fontSize: fontSize,
-                query: query,
-                isFocusMode: isFocusMode,
-                position: $position
-            )
+            if viewMode.isPaged {
+                ReaderPagedText(
+                    chapterID: chapter.id,
+                    chapterIndex: chapterIndex,
+                    chapterNumber: chapterIndex + 1,
+                    title: chapter.title,
+                    paragraphs: paragraphs,
+                    fontSize: fontSize,
+                    isJustified: model.settings.readerJustifiesText,
+                    mode: viewMode,
+                    query: query,
+                    opening: opening,
+                    turnRequest: turnRequest,
+                    jumpRequest: jumpRequest,
+                    onPage: { page, count, paragraph in
+                        pageInChapter = page
+                        pagesInChapter = count
+                        position = ReaderParagraphID(chapter: chapterIndex, index: paragraph)
+                        // Pages are remade whenever the window or the type
+                        // changes, so where to reopen is kept as the paragraph
+                        // being read rather than as a page number that will not
+                        // mean the same thing next time.
+                        opening = .paragraph(paragraph)
+                        if persistedChapter != chapterIndex {
+                            persistedChapter = chapterIndex
+                            persistLocation()
+                        }
+                    },
+                    runOff: moveChapter
+                )
+            } else {
+                ReaderTextView(
+                    chapterIndex: chapterIndex,
+                    chapterNumber: chapterIndex + 1,
+                    title: chapter.title,
+                    paragraphs: paragraphs,
+                    fontSize: fontSize,
+                    query: query,
+                    isFocusMode: isFocusMode,
+                    position: $position
+                )
+            }
         } else {
             AttenEmptyState(
                 title: "Nothing to read",
@@ -168,6 +218,8 @@ struct BookReaderView: View {
         }
     }
 
+    private var viewMode: ReaderViewMode { model.settings.readerViewMode }
+
     // MARK: - Controls
 
     private var controls: some View {
@@ -176,23 +228,43 @@ struct BookReaderView: View {
 
             Divider().frame(height: 18).overlay(AttenColor.separator)
 
-            Button { go(toChapter: chapterIndex - 1) } label: {
+            // Pages, not chapters. A chapter is still reachable — from the
+            // contents, or with ⌘⌥ — but the thing under the reader's hand
+            // turns one page, which is what a reader reaches for.
+            Button { turnPage(.backward) } label: {
                 Image(systemName: "chevron.left")
             }
             .buttonStyle(AttenSecondaryButtonStyle())
-            .disabled(chapterIndex == 0)
-            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-            .help("Previous chapter (⌘⌥←)")
-            .accessibilityLabel("Previous chapter")
+            .disabled(!canTurnBack)
+            // Given up while the caret is in the search field, where the arrow
+            // keys mean what they mean in every other text field.
+            .keyboardShortcut(isSearchFocused ? nil : KeyboardShortcut(.leftArrow, modifiers: []))
+            .help("Previous \(turnLabel) (←)")
+            .accessibilityLabel("Previous \(turnLabel)")
 
-            Button { go(toChapter: chapterIndex + 1) } label: {
+            Button { turnPage(.forward) } label: {
                 Image(systemName: "chevron.right")
             }
             .buttonStyle(AttenSecondaryButtonStyle())
-            .disabled(chapterIndex >= book.chapters.count - 1)
-            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-            .help("Next chapter (⌘⌥→)")
-            .accessibilityLabel("Next chapter")
+            .disabled(!canTurnForward)
+            .keyboardShortcut(isSearchFocused ? nil : KeyboardShortcut(.rightArrow, modifiers: []))
+            .help("Next \(turnLabel) (→)")
+            .accessibilityLabel("Next \(turnLabel)")
+
+            // Whole chapters keep their own keys, out of the way of the ones
+            // that turn pages.
+            Button("Previous chapter") { go(toChapter: chapterIndex - 1) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(chapterIndex == 0)
+                .hidden()
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+            Button("Next chapter") { go(toChapter: chapterIndex + 1) }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(chapterIndex >= book.chapters.count - 1)
+                .hidden()
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
 
             narrationButton
 
@@ -212,6 +284,8 @@ struct BookReaderView: View {
                 isSearchFocused = true
             }
             .keyboardShortcut("f", modifiers: .command)
+
+            viewModeMenu
 
             if book.format == .epub {
                 ToolbarIconButton(title: "Smaller text", systemImage: "textformat.size.smaller") {
@@ -256,6 +330,48 @@ struct BookReaderView: View {
     private var playingChapterIndex: Int? {
         guard let playing = model.activeAudioURL else { return nil }
         return book.chapters.firstIndex { $0.audioURL == playing }
+    }
+
+    /// How the book is laid out, and — for an EPUB, where Atten sets the type
+    /// itself — whether it is justified the way a printed book is.
+    private var viewModeMenu: some View {
+        Menu {
+            Picker("Layout", selection: viewModeBinding) {
+                ForEach(ReaderViewMode.allCases) { mode in
+                    Label(mode.displayName, systemImage: mode.icon).tag(mode)
+                }
+            }
+            .pickerStyle(.inline)
+
+            if book.format == .epub {
+                Divider()
+                Toggle("Justify Text", isOn: justifyBinding)
+            }
+        } label: {
+            Image(systemName: viewMode.icon)
+                .font(AttenTypography.control)
+                .frame(width: 30, height: 30)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Layout: \(viewMode.displayName)")
+        .accessibilityLabel("Page layout")
+        .accessibilityValue(viewMode.displayName)
+    }
+
+    private var viewModeBinding: Binding<ReaderViewMode> {
+        Binding(
+            get: { model.settings.readerViewMode },
+            set: { model.selectReaderViewMode($0) }
+        )
+    }
+
+    private var justifyBinding: Binding<Bool> {
+        Binding(
+            get: { model.settings.readerJustifiesText },
+            set: { model.setReaderJustifiesText($0) }
+        )
     }
 
     @ViewBuilder private var narrationButton: some View {
@@ -334,38 +450,66 @@ struct BookReaderView: View {
 
     // MARK: - Where the reader is
 
-    private var currentPage: Int {
-        guard book.format != .pdf else {
-            return min(max(1, pdfPage + 1), pagination.pageCount)
+    /// How much of the book is behind the reader, for the line along the top.
+    ///
+    /// Chapters are the only thing a book has that does not change when the
+    /// window does, so progress is counted in chapters with the current one
+    /// filled in by however far through it the reader is.
+    private var progressFraction: Double {
+        if book.format == .pdf {
+            guard pdfPageCount > 0 else { return 0 }
+            return Double(pdfPage + 1) / Double(pdfPageCount)
         }
-        let words = wordsBefore.indices.contains(paragraphIndex) ? wordsBefore[paragraphIndex] : 0
-        return min(
-            pagination.endPage(ofChapter: chapterIndex),
-            pagination.page(chapter: chapterIndex, wordsIntoChapter: words)
-        )
+        guard !book.chapters.isEmpty else { return 0 }
+        return min(1, (Double(chapterIndex) + fractionThroughChapter) / Double(book.chapters.count))
+    }
+
+    /// How far through the open chapter the reader is — counted in pages where
+    /// there are pages, and in paragraphs where there are not.
+    private var fractionThroughChapter: Double {
+        guard viewMode.isPaged else {
+            guard paragraphs.count > 1 else { return 1 }
+            return Double(paragraphIndex) / Double(paragraphs.count - 1)
+        }
+        guard pagesInChapter > 1 else { return 1 }
+        return Double(pageInChapter) / Double(pagesInChapter - 1)
     }
 
     private var pagesLeftInChapter: Int {
-        max(0, pagination.endPage(ofChapter: chapterIndex) - currentPage)
+        max(0, pagesInChapter - pageInChapter - viewMode.pagesPerTurn)
     }
 
     private var readout: String {
         guard !book.chapters.isEmpty else { return "" }
+        let chapter = "CH \(chapterIndex + 1)/\(book.chapters.count)"
+        if book.format == .pdf {
+            return [chapter, "PAGE \(pdfPage + 1) OF \(max(pdfPageCount, pdfPage + 1))"]
+                .joined(separator: "  ·  ")
+        }
+        guard viewMode.isPaged else {
+            // Nothing is laid out in pages while the chapter is one column, so
+            // there is no page number to give that would mean anything.
+            return [chapter, "SCROLLING"].joined(separator: "  ·  ")
+        }
         let left = pagesLeftInChapter
         return [
-            "CH \(chapterIndex + 1)/\(book.chapters.count)",
-            "PAGE \(currentPage) OF \(pagination.pageCount)",
-            left == 0 ? "END OF CHAPTER" : "\(left) PAGE\(left == 1 ? "" : "S") LEFT IN CHAPTER",
+            chapter,
+            "PAGE \(pageInChapter + 1) OF \(pagesInChapter)",
+            left == 0 ? "END OF CHAPTER" : "\(left) PAGE\(left == 1 ? "" : "S") LEFT",
         ].joined(separator: "  ·  ")
     }
 
     private var spokenReadout: String {
         guard !book.chapters.isEmpty else { return "" }
+        let chapter = "Chapter \(chapterIndex + 1) of \(book.chapters.count)"
+        if book.format == .pdf {
+            return "\(chapter), page \(pdfPage + 1) of \(max(pdfPageCount, pdfPage + 1))"
+        }
+        guard viewMode.isPaged else { return "\(chapter), scrolling" }
         let left = pagesLeftInChapter
         return """
-        Chapter \(chapterIndex + 1) of \(book.chapters.count), \
-        page \(currentPage) of \(pagination.pageCount), \
-        \(left == 0 ? "last page of this chapter" : "\(left) pages left in this chapter")
+        \(chapter), page \(pageInChapter + 1) of \(pagesInChapter) in this chapter, \
+        \(left == 0 ? "the last page of it" : "\(left) pages left in it")
         """
     }
 
@@ -377,12 +521,84 @@ struct BookReaderView: View {
         )
     }
 
+    // MARK: - Turning pages
+
+    /// Turning past the last page of a chapter is a page turn like any other.
+    ///
+    /// Chapters used to be the unit of travel: the only way forward was a
+    /// button that jumped a whole chapter and dropped the reader at the top of
+    /// it. A book does not work that way. Running off the end of a chapter
+    /// opens the next one at its first page, and running off the beginning
+    /// opens the one before at its last.
+    private func turnPastChapter(_ direction: ReaderTurn) {
+        switch direction {
+        case .forward:
+            guard chapterIndex + 1 < book.chapters.count else { return }
+            opening = .first
+            chapterIndex += 1
+        case .backward:
+            guard chapterIndex > 0 else { return }
+            opening = .last
+            chapterIndex -= 1
+        }
+        // Not written down here: the paged reader answers with the paragraph
+        // it landed on, and that is the one worth remembering.
+        loadChapter(startingAt: 0, reopen: false)
+    }
+
+    /// Answers whether the reader moved, so a turn is never set going towards a
+    /// chapter that does not exist.
+    @discardableResult
+    private func moveChapter(_ direction: ReaderTurn) -> Bool {
+        switch direction {
+        case .forward:
+            guard chapterIndex + 1 < book.chapters.count else { return false }
+        case .backward:
+            guard chapterIndex > 0 else { return false }
+        }
+        turnPastChapter(direction)
+        return true
+    }
+
+    private func turnPage(_ direction: ReaderTurn) {
+        if book.format == .pdf {
+            // A PDF is already in pages; PDFKit turns them.
+            pdfJump = ReaderPDFJump(page: direction == .forward ? pdfPage + 1 : pdfPage - 1)
+            return
+        }
+        guard viewMode.isPaged else {
+            // Nothing is laid out in pages while the chapter is one long
+            // column, so the only move left is a whole chapter.
+            moveChapter(direction)
+            return
+        }
+        turnRequest = ReaderTurnRequest(direction: direction)
+    }
+
+    private var canTurnBack: Bool {
+        if book.format == .pdf { return pdfPage > 0 }
+        guard viewMode.isPaged else { return chapterIndex > 0 }
+        return pageInChapter > 0 || chapterIndex > 0
+    }
+
+    private var canTurnForward: Bool {
+        if book.format == .pdf { return pdfPage + 1 < pdfPageCount }
+        guard viewMode.isPaged else { return chapterIndex + 1 < book.chapters.count }
+        return pageInChapter + viewMode.pagesPerTurn < pagesInChapter
+            || chapterIndex + 1 < book.chapters.count
+    }
+
+    private var turnLabel: String {
+        viewMode.isPaged || book.format == .pdf ? "page" : "chapter"
+    }
+
     // MARK: - Moving about
 
     private func restore() {
         let saved = book.lastLocation
         chapterIndex = min(max(0, saved?.chapterIndex ?? 0), max(0, book.chapters.count - 1))
         rebuildPagination()
+        opening = .paragraph(saved?.paragraphIndex ?? 0)
         loadChapter(startingAt: saved?.paragraphIndex ?? 0)
         if book.format == .pdf {
             pdfPage = saved?.pageIndex ?? chapter?.pageIndex ?? 0
@@ -397,6 +613,8 @@ struct BookReaderView: View {
     private func go(toChapter index: Int, paragraph: Int = 0, page: Int? = nil) {
         guard !book.chapters.isEmpty else { return }
         chapterIndex = min(max(0, index), book.chapters.count - 1)
+        opening = .paragraph(paragraph)
+        jumpRequest = ReaderJumpRequest(paragraph: paragraph)
         loadChapter(startingAt: paragraph)
         if book.format == .pdf {
             let target = page ?? chapter?.pageIndex ?? pdfPage
@@ -418,29 +636,25 @@ struct BookReaderView: View {
                 matchLength: hit.matchLength
             )
         } else {
-            loadChapter(startingAt: hit.paragraphIndex ?? 0)
+            let paragraph = hit.paragraphIndex ?? 0
+            opening = .paragraph(paragraph)
+            jumpRequest = ReaderJumpRequest(paragraph: paragraph)
+            loadChapter(startingAt: paragraph)
         }
     }
 
-    /// Splitting a chapter into paragraphs and counting its words is work, and
-    /// doing it while the view redraws would do it on every frame. It happens
-    /// once, when the chapter opens.
-    private func loadChapter(startingAt paragraph: Int) {
+    /// Splitting a chapter into paragraphs is work, and doing it while the
+    /// view redraws would do it on every frame. It happens once, when the
+    /// chapter opens; breaking those paragraphs into pages happens after, off
+    /// the main thread, in the typesetter.
+    private func loadChapter(startingAt paragraph: Int, reopen: Bool = true) {
         guard book.format == .epub, let chapter else {
             paragraphs = []
-            wordsBefore = []
             return
         }
-        let list = chapter.paragraphs
-        var prefix: [Int] = []
-        var running = 0
-        for text in list {
-            prefix.append(running)
-            running += text.split(whereSeparator: \.isWhitespace).count
-        }
-        paragraphs = list
-        wordsBefore = prefix
-        let index = list.indices.contains(paragraph) ? paragraph : 0
+        paragraphs = chapter.paragraphs
+        guard reopen else { return }
+        let index = paragraphs.indices.contains(paragraph) ? paragraph : 0
         position = ReaderParagraphID(chapter: chapterIndex, index: index)
     }
 
