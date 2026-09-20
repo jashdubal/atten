@@ -30,6 +30,9 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 extension Notification.Name {
     static let attenOpenStudio = Notification.Name("Atten.openStudio")
     static let attenOpenPlayground = Notification.Name("Atten.openPlayground")
+    /// Posted by the reader with a Bool, so focus mode can take the app's own
+    /// sidebar with it and leave nothing on screen but the book.
+    static let attenReaderFocusMode = Notification.Name("Atten.readerFocusMode")
 }
 
 struct RootView: View {
@@ -83,6 +86,10 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .attenOpenPlayground)) { _ in
             selectionRaw = SidebarItem.playground.rawValue
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .attenReaderFocusMode)) { note in
+            let isFocused = note.object as? Bool ?? false
+            withAnimation { columnVisibility = isFocused ? .detailOnly : .all }
         }
         .alert("Atten could not finish starting", isPresented: startupAlert) {
             Button("OK", role: .cancel) { model.startupError = nil }

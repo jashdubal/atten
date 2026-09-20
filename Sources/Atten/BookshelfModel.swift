@@ -266,6 +266,40 @@ final class BookshelfModel {
         persist()
     }
 
+    // MARK: - Reading
+
+    /// Marks the spot, or clears the mark that is already on it. Bookmarks and
+    /// reading position are kept apart from the settings above: they say
+    /// nothing about how the book sounds, so they never cost narration.
+    func toggleBookmark(at location: ReadingLocation, excerpt: String, in bookID: UUID) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        if let existing = books[index].bookmarks.firstIndex(where: { $0.location.isAt(location) }) {
+            books[index].bookmarks.remove(at: existing)
+        } else {
+            books[index].bookmarks.append(Bookmark(location: location, excerpt: excerpt))
+            books[index].bookmarks.sort { $0.location.precedes($1.location) }
+        }
+        persist()
+    }
+
+    func removeBookmark(_ bookmarkID: UUID, from bookID: UUID) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        books[index].bookmarks.removeAll { $0.id == bookmarkID }
+        persist()
+    }
+
+    /// Remembers where the reader stopped. Written when they change chapter or
+    /// close the book rather than on every line they scroll past, so following
+    /// a long chapter does not mean rewriting the shelf hundreds of times.
+    func updateReadingLocation(_ location: ReadingLocation, for bookID: UUID) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }),
+              books[index].lastLocation != location else { return }
+        books[index].lastLocation = location
+        persist()
+    }
+
+    // MARK: - Removing
+
     func remove(_ bookID: UUID) {
         guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         if progress?.bookID == bookID { cancelNarration() }

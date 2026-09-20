@@ -67,6 +67,9 @@ struct BookDetailView: View {
                     book.author,
                     "\(book.chapters.count) chapters",
                     "\(book.wordCount.formatted()) words",
+                    book.bookmarks.isEmpty
+                        ? nil
+                        : "\(book.bookmarks.count) bookmark\(book.bookmarks.count == 1 ? "" : "s")",
                 ]
                 .compactMap { $0 }
                 .joined(separator: " · ")
@@ -105,9 +108,15 @@ struct BookDetailView: View {
                     ? "Narrate the book first"
                     : "Play every narrated chapter in order")
 
-                Button("Read", systemImage: "text.alignleft", action: openReader)
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .disabled(!book.sourceExists)
+                // A book already started opens where it was left off, so the
+                // button says so rather than promising the first page.
+                Button(
+                    book.lastLocation == nil ? "Read" : "Resume",
+                    systemImage: "text.alignleft",
+                    action: openReader
+                )
+                .buttonStyle(AttenSecondaryButtonStyle())
+                .disabled(!book.sourceExists)
 
                 Spacer(minLength: 0)
 

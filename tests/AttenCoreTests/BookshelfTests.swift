@@ -172,6 +172,79 @@ final class BookshelfTests: XCTestCase {
         XCTAssertEqual(book.chapters.first?.title, "Chapter")
     }
 
+    // MARK: - Reading
+
+    func testABookmarkIsAddedAndClearedByMarkingTheSameSpotTwice() async throws {
+        await shelf.importBook(
+            from: try makePDF(pages: (1...12).map { "Page \($0)." }),
+            defaults: settings()
+        )
+        let book = try XCTUnwrap(shelf.books.first)
+        let spot = ReadingLocation(chapterIndex: 0, pageIndex: 3)
+
+        shelf.toggleBookmark(at: spot, excerpt: "Page 4.", in: book.id)
+        XCTAssertEqual(shelf.book(id: book.id)?.bookmarks.map(\.excerpt), ["Page 4."])
+
+        // The same page reached from anywhere is the same mark, so pressing
+        // the button again clears it rather than marking the page twice.
+        shelf.toggleBookmark(at: ReadingLocation(chapterIndex: 1, pageIndex: 3), excerpt: "", in: book.id)
+        XCTAssertEqual(shelf.book(id: book.id)?.bookmarks, [])
+    }
+
+    func testBookmarksAreKeptInReadingOrderAndSurviveAReload() async throws {
+        await shelf.importBook(
+            from: try makePDF(pages: (1...25).map { "Page \($0)." }),
+            defaults: settings()
+        )
+        let book = try XCTUnwrap(shelf.books.first)
+
+        shelf.toggleBookmark(at: ReadingLocation(chapterIndex: 2, pageIndex: 21), excerpt: "last", in: book.id)
+        shelf.toggleBookmark(at: ReadingLocation(chapterIndex: 0, pageIndex: 2), excerpt: "first", in: book.id)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let reopened = BookshelfModel(directories: directories, generator: ImmediateGenerator())
+        await reopened.load()
+        let reloaded = try XCTUnwrap(reopened.book(id: book.id))
+        XCTAssertEqual(reloaded.bookmarks.map(\.excerpt), ["first", "last"])
+    }
+
+    func testWhereTheReaderStoppedIsRemembered() async throws {
+        await shelf.importBook(
+            from: try makePDF(pages: (1...12).map { "Page \($0)." }),
+            defaults: settings()
+        )
+        let book = try XCTUnwrap(shelf.books.first)
+
+        shelf.updateReadingLocation(ReadingLocation(chapterIndex: 1, pageIndex: 10), for: book.id)
+        try await Task.sleep(for: .milliseconds(50))
+
+        let reopened = BookshelfModel(directories: directories, generator: ImmediateGenerator())
+        await reopened.load()
+        XCTAssertEqual(reopened.book(id: book.id)?.lastLocation?.pageIndex, 10)
+    }
+
+    /// Changing the voice throws away narration, because a book read in two
+    /// voices is worse than one that has to be generated again. It must not
+    /// throw away the reading, which has nothing to do with how it sounds.
+    func testChangingTheVoiceKeepsBookmarksAndTheReadingPosition() async throws {
+        await shelf.importBook(
+            from: try makePDF(pages: (1...12).map { "Page \($0)." }),
+            defaults: settings()
+        )
+        let book = try XCTUnwrap(shelf.books.first)
+        shelf.narrate(book.id, useMPS: false)
+        try await waitForNarration()
+        shelf.toggleBookmark(at: ReadingLocation(chapterIndex: 0, pageIndex: 3), excerpt: "kept", in: book.id)
+        shelf.updateReadingLocation(ReadingLocation(chapterIndex: 1, pageIndex: 10), for: book.id)
+
+        shelf.updateVoice("bf_emma", for: book.id)
+
+        let changed = try XCTUnwrap(shelf.book(id: book.id))
+        XCTAssertEqual(changed.narratedCount, 0)
+        XCTAssertEqual(changed.bookmarks.map(\.excerpt), ["kept"])
+        XCTAssertEqual(changed.lastLocation?.pageIndex, 10)
+    }
+
     // MARK: - Helpers
 
     private func settings() -> AppSettings {

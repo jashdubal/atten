@@ -71,6 +71,11 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     public var speed: Double
     public var audioFormat: AudioFormat
     public var addedAt: Date
+    /// Places the reader marked, in reading order.
+    public var bookmarks: [Bookmark]
+    /// Where the reader left off, so opening the book comes back to the page
+    /// they stopped on rather than to the beginning.
+    public var lastLocation: ReadingLocation?
 
     public init(
         id: UUID = UUID(),
@@ -82,7 +87,9 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         voiceID: String,
         speed: Double,
         audioFormat: AudioFormat,
-        addedAt: Date = Date()
+        addedAt: Date = Date(),
+        bookmarks: [Bookmark] = [],
+        lastLocation: ReadingLocation? = nil
     ) {
         self.id = id
         self.title = title
@@ -94,6 +101,8 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         self.speed = speed
         self.audioFormat = audioFormat
         self.addedAt = addedAt
+        self.bookmarks = bookmarks
+        self.lastLocation = lastLocation
     }
 
     public var sourceURL: URL { URL(fileURLWithPath: sourcePath) }
@@ -130,6 +139,12 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         audioFormat = (try? container.decodeIfPresent(AudioFormat.self, forKey: .audioFormat))
             .flatMap { $0 } ?? .mp3
         addedAt = try container.decodeIfPresent(Date.self, forKey: .addedAt) ?? Date()
+        // A shelf whose bookmarks no longer decode still opens the book; losing
+        // a mark is a nuisance, losing the book is not.
+        bookmarks = (try? container.decodeIfPresent([Bookmark].self, forKey: .bookmarks))
+            .flatMap { $0 } ?? []
+        lastLocation = (try? container.decodeIfPresent(ReadingLocation.self, forKey: .lastLocation))
+            .flatMap { $0 }
     }
 }
 

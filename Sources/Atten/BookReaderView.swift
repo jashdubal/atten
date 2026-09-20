@@ -1,68 +1,113 @@
+import AppKit
 import AttenCore
-import PDFKit
 import SwiftUI
 
-/// A plain reading view: contents on the left, the chapter on the right, and
-/// the narration of whatever is on screen one click away. PDFs are shown by
-/// PDFKit so the original typesetting survives; EPUBs have no fixed pages, so
-/// their extracted text is what is read on screen and aloud alike.
+/// The reader.
+///
+/// Contents, bookmarks, and search on the left; the book on the right; where
+/// you are and what you can do with it along the bottom. A PDF keeps its own
+/// typesetting because that is the book; an EPUB has none, so Atten sets the
+/// text it extracted — the same text it reads aloud — on a page of its own.
 struct BookReaderView: View {
     @Bindable var model: AppModel
     let book: BookRecord
 
-    @State private var chapterIndex = 0
-    @AppStorage("Atten.readerFontSize") private var fontSize = 16.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static let fontRange = 12.0...28.0
+    @State private var chapterIndex = 0
+    @State private var position: ReaderParagraphID?
+    @State private var paragraphs: [String] = []
+    /// Words before each paragraph of the open chapter, which is what turns a
+    /// scroll position into a page number.
+    @State private var wordsBefore: [Int] = []
+    @State private var pdfPage = 0
+    @State private var pdfPageCount = 0
+    @State private var pdfPageText = ""
+    @State private var pdfJump: ReaderPDFJump?
+    @State private var pagination = ReaderPagination.empty
+    @State private var query = ""
+    @State private var hits: [ReaderHit] = []
+    @State private var selectedHitID: String?
+    @State private var isSearching = false
+    @State private var searchTask: Task<Void, Never>?
+    @State private var panelTab = ReaderPanelTab.contents
+    @State private var isFocusMode = false
+    @State private var isChromeHovered = false
+    @FocusState private var isSearchFocused: Bool
+    @AppStorage("Atten.readerFontSize") private var fontSize = 17.0
+
+    private static let fontRange = 13.0...30.0
 
     private var chapter: BookChapter? {
         book.chapters.indices.contains(chapterIndex) ? book.chapters[chapterIndex] : nil
     }
 
+    private var paragraphIndex: Int { max(0, position?.index ?? 0) }
+
     var body: some View {
         HStack(spacing: 0) {
-            contents
-            Divider().overlay(AttenColor.separator)
+            if !isFocusMode {
+                ReaderSidePanel(
+                    book: book,
+                    chapterIndex: chapterIndex,
+                    pagination: pagination,
+                    currentLocation: currentLocation,
+                    tab: $panelTab,
+                    query: $query,
+                    hits: hits,
+                    isSearching: isSearching,
+                    selectedHitID: selectedHitID,
+                    selectChapter: { go(toChapter: $0) },
+                    selectHit: select(_:),
+                    selectBookmark: { go(
+                        toChapter: $0.location.chapterIndex,
+                        paragraph: $0.location.paragraphIndex,
+                        page: $0.location.pageIndex
+                    ) },
+                    removeBookmark: { model.bookshelf.removeBookmark($0.id, from: book.id) },
+                    isSearchFocused: $isSearchFocused
+                )
+                .transition(.move(edge: .leading).combined(with: .opacity))
+                Divider().overlay(AttenColor.separator)
+            }
+
             VStack(spacing: 0) {
+                progressLine
                 page
                 Divider().overlay(AttenColor.separator)
                 controls
+                    .opacity(isFocusMode && !isChromeHovered ? 0.35 : 1)
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+                        value: isChromeHovered
+                    )
+                    .onHover { isChromeHovered = $0 }
             }
         }
-        .background(AttenBackdrop())
+        .background(AttenColor.appBackground)
         .navigationTitle(book.title)
-        .onAppear {
-            if !book.chapters.indices.contains(chapterIndex) { chapterIndex = 0 }
+        .onExitCommand { if isFocusMode { setFocusMode(false) } }
+        .task(id: book.id) { restore() }
+        .onChange(of: query) { _, value in search(value) }
+        .onDisappear {
+            persistLocation()
+            searchTask?.cancel()
+            if isFocusMode { setFocusMode(false) }
         }
     }
 
-    private var contents: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("> CONTENTS")
-                .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.accent)
-                .padding(.horizontal, AttenSpacing.sm)
-                .padding(.vertical, AttenSpacing.sm)
+    // MARK: - The page
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(Array(book.chapters.enumerated()), id: \.element.id) { index, item in
-                        ContentsRow(
-                            number: index + 1,
-                            title: item.title,
-                            isNarrated: item.isNarrated,
-                            isSelected: index == chapterIndex
-                        ) {
-                            chapterIndex = index
-                        }
-                    }
-                }
-                .padding(.horizontal, AttenSpacing.xs)
-                .padding(.bottom, AttenSpacing.sm)
+    private var progressLine: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                AttenColor.separator.opacity(0.4)
+                AttenColor.accent
+                    .frame(width: geometry.size.width * pagination.fraction(ofPage: currentPage))
             }
         }
-        .frame(width: 232)
-        .background(AttenColor.sidebar)
+        .frame(height: 2)
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder private var page: some View {
@@ -72,83 +117,122 @@ struct BookReaderView: View {
                 systemImage: "questionmark.folder",
                 detail: "Atten's copy of this book is gone. Remove it and add the book again."
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AttenColor.readerSurface)
         } else if book.format == .pdf {
-            PDFPageView(
+            ReaderPDFView(
                 url: book.sourceURL,
-                pageIndex: chapter?.pageIndex,
-                theme: ThemeStore.shared.theme
-            )
-        } else if let chapter {
-            ScrollView {
-                VStack(alignment: .leading, spacing: AttenSpacing.md) {
-                    Text(chapter.title)
-                        .font(.system(size: fontSize * 1.5, weight: .semibold, design: .serif))
-                        .foregroundStyle(AttenColor.textPrimary)
-                    Text(chapter.text)
-                        .font(.system(size: fontSize, design: .serif))
-                        .foregroundStyle(AttenColor.textPrimary)
-                        .lineSpacing(fontSize * 0.45)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                jump: pdfJump,
+                highlights: hits,
+                theme: ThemeStore.shared.theme,
+                onOpen: { count in
+                    pdfPageCount = count
+                    rebuildPagination()
+                },
+                onPageChange: { page, text in
+                    pdfPage = page
+                    pdfPageText = text
+                    let chapter = book.chapterIndex(forPage: page)
+                    if chapter != chapterIndex { chapterIndex = chapter }
                 }
-                .padding(.horizontal, AttenSpacing.xl)
-                .padding(.vertical, AttenSpacing.lg)
-                .frame(maxWidth: 760, alignment: .leading)
-                .frame(maxWidth: .infinity)
-            }
-            .id(chapter.id)
+            )
+        } else if let chapter, !paragraphs.isEmpty {
+            ReaderTextView(
+                chapterIndex: chapterIndex,
+                chapterNumber: chapterIndex + 1,
+                title: chapter.title,
+                paragraphs: paragraphs,
+                fontSize: fontSize,
+                query: query,
+                isFocusMode: isFocusMode,
+                position: $position
+            )
         } else {
             AttenEmptyState(
                 title: "Nothing to read",
                 systemImage: "text.alignleft",
                 detail: "This book has no chapters Atten could read."
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AttenColor.readerSurface)
         }
     }
 
+    // MARK: - Controls
+
     private var controls: some View {
         HStack(spacing: AttenSpacing.sm) {
-            Button {
-                chapterIndex = max(0, chapterIndex - 1)
-            } label: {
+            Button { go(toChapter: chapterIndex - 1) } label: {
                 Image(systemName: "chevron.left")
             }
             .buttonStyle(AttenSecondaryButtonStyle())
             .disabled(chapterIndex == 0)
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .help("Previous chapter (⌘⌥←)")
             .accessibilityLabel("Previous chapter")
 
-            Button {
-                chapterIndex = min(book.chapters.count - 1, chapterIndex + 1)
-            } label: {
+            Button { go(toChapter: chapterIndex + 1) } label: {
                 Image(systemName: "chevron.right")
             }
             .buttonStyle(AttenSecondaryButtonStyle())
             .disabled(chapterIndex >= book.chapters.count - 1)
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .help("Next chapter (⌘⌥→)")
             .accessibilityLabel("Next chapter")
 
             narrationButton
 
             Spacer(minLength: 0)
 
-            Text("\(chapterIndex + 1) / \(book.chapters.count)")
+            Text(readout)
                 .font(AttenTypography.caption)
+                .monospacedDigit()
                 .foregroundStyle(AttenColor.textSecondary)
+                .lineLimit(1)
+                .accessibilityLabel(spokenReadout)
+
+            Spacer(minLength: 0)
+
+            ToolbarIconButton(title: "Find in book (⌘F)", systemImage: "magnifyingglass") {
+                if isFocusMode { setFocusMode(false) }
+                isSearchFocused = true
+            }
+            .keyboardShortcut("f", modifiers: .command)
 
             if book.format == .epub {
-                Button { fontSize = max(Self.fontRange.lowerBound, fontSize - 1) } label: {
-                    Image(systemName: "textformat.size.smaller")
+                ToolbarIconButton(title: "Smaller text", systemImage: "textformat.size.smaller") {
+                    fontSize = max(Self.fontRange.lowerBound, fontSize - 1)
                 }
-                .buttonStyle(AttenSecondaryButtonStyle())
                 .disabled(fontSize <= Self.fontRange.lowerBound)
-                .accessibilityLabel("Smaller text")
 
-                Button { fontSize = min(Self.fontRange.upperBound, fontSize + 1) } label: {
-                    Image(systemName: "textformat.size.larger")
+                ToolbarIconButton(title: "Larger text", systemImage: "textformat.size.larger") {
+                    fontSize = min(Self.fontRange.upperBound, fontSize + 1)
                 }
-                .buttonStyle(AttenSecondaryButtonStyle())
                 .disabled(fontSize >= Self.fontRange.upperBound)
-                .accessibilityLabel("Larger text")
             }
+
+            Button(action: toggleBookmark) {
+                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                    .font(AttenTypography.control)
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(
+                        isBookmarked ? AttenColor.accentSecondary : AttenColor.textPrimary
+                    )
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("d", modifiers: .command)
+            .help(isBookmarked ? "Remove bookmark (⌘D)" : "Bookmark this page (⌘D)")
+            .accessibilityLabel(isBookmarked ? "Remove bookmark" : "Bookmark this page")
+
+            ToolbarIconButton(
+                title: isFocusMode ? "Leave focus mode (⌃⌘F)" : "Focus mode (⌃⌘F)",
+                systemImage: isFocusMode
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right"
+            ) {
+                setFocusMode(!isFocusMode)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .control])
         }
         .padding(.horizontal, AttenSpacing.md)
         .padding(.vertical, AttenSpacing.xs)
@@ -189,98 +273,196 @@ struct BookReaderView: View {
             .disabled(chapter == nil || model.bookshelf.isNarrating)
         }
     }
-}
 
-private struct ContentsRow: View {
-    let number: Int
-    let title: String
-    let isNarrated: Bool
-    let isSelected: Bool
-    let select: () -> Void
+    // MARK: - Where the reader is
 
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: select) {
-            HStack(spacing: AttenSpacing.xs) {
-                Text("\(number)")
-                    .font(AttenTypography.caption)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .frame(width: 24, alignment: .trailing)
-                Text(title)
-                    .font(AttenTypography.metadata)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-                if isNarrated {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 9))
-                        .foregroundStyle(AttenColor.success)
-                        .accessibilityHidden(true)
-                }
-            }
-            .foregroundStyle(isSelected ? AttenColor.accentHover : AttenColor.textPrimary)
-            .padding(.horizontal, AttenSpacing.xs)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-            .contentShape(Rectangle())
+    private var currentPage: Int {
+        guard book.format != .pdf else {
+            return min(max(1, pdfPage + 1), pagination.pageCount)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Chapter \(number), \(title)\(isNarrated ? ", narrated" : "")")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .onHover { isHovering = $0 }
+        let words = wordsBefore.indices.contains(paragraphIndex) ? wordsBefore[paragraphIndex] : 0
+        return min(
+            pagination.endPage(ofChapter: chapterIndex),
+            pagination.page(chapter: chapterIndex, wordsIntoChapter: words)
+        )
     }
 
-    private var background: Color {
-        if isSelected { return AttenColor.accent.opacity(0.14) }
-        if isHovering { return AttenColor.surfaceMuted.opacity(0.72) }
-        return .clear
-    }
-}
-
-/// PDFKit gives the real page, with its own scrolling, zoom, selection, and
-/// find. Jumping to a chapter is a scroll rather than a reload, so the reader
-/// keeps their place when they come back to a chapter.
-private struct PDFPageView: NSViewRepresentable {
-    let url: URL
-    let pageIndex: Int?
-    /// Passed in so a theme change reaches AppKit, which keeps the colour it
-    /// was last handed.
-    let theme: AttenTheme
-
-    final class Coordinator {
-        var requestedPage: Int?
-        var appliedTheme: AttenTheme?
+    private var pagesLeftInChapter: Int {
+        max(0, pagination.endPage(ofChapter: chapterIndex) - currentPage)
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    func makeNSView(context: Context) -> PDFView {
-        let view = PDFView()
-        view.autoScales = true
-        view.displayMode = .singlePageContinuous
-        view.displayDirection = .vertical
-        view.document = PDFDocument(url: url)
-        view.backgroundColor = AttenColor.nsReaderSurface
-        return view
+    private var readout: String {
+        guard !book.chapters.isEmpty else { return "" }
+        let left = pagesLeftInChapter
+        return [
+            "CH \(chapterIndex + 1)/\(book.chapters.count)",
+            "PAGE \(currentPage) OF \(pagination.pageCount)",
+            left == 0 ? "END OF CHAPTER" : "\(left) PAGE\(left == 1 ? "" : "S") LEFT IN CHAPTER",
+        ].joined(separator: "  ·  ")
     }
 
-    func updateNSView(_ view: PDFView, context: Context) {
-        if context.coordinator.appliedTheme != theme {
-            context.coordinator.appliedTheme = theme
-            view.backgroundColor = AttenColor.nsReaderSurface
+    private var spokenReadout: String {
+        guard !book.chapters.isEmpty else { return "" }
+        let left = pagesLeftInChapter
+        return """
+        Chapter \(chapterIndex + 1) of \(book.chapters.count), \
+        page \(currentPage) of \(pagination.pageCount), \
+        \(left == 0 ? "last page of this chapter" : "\(left) pages left in this chapter")
+        """
+    }
+
+    private var currentLocation: ReadingLocation {
+        ReadingLocation(
+            chapterIndex: chapterIndex,
+            paragraphIndex: paragraphIndex,
+            pageIndex: book.format == .pdf ? pdfPage : nil
+        )
+    }
+
+    // MARK: - Moving about
+
+    private func restore() {
+        let saved = book.lastLocation
+        chapterIndex = min(max(0, saved?.chapterIndex ?? 0), max(0, book.chapters.count - 1))
+        rebuildPagination()
+        loadChapter(startingAt: saved?.paragraphIndex ?? 0)
+        if book.format == .pdf {
+            pdfPage = saved?.pageIndex ?? chapter?.pageIndex ?? 0
+            pdfJump = ReaderPDFJump(page: pdfPage)
         }
-        if view.document?.documentURL != url {
-            view.document = PDFDocument(url: url)
-            context.coordinator.requestedPage = nil
+    }
+
+    /// Every deliberate move through the book goes through here, so the page
+    /// on screen, the contents, and the saved place can never disagree. A PDF
+    /// scrolled by hand reports itself separately and must not land here, or
+    /// every scroll would fight a jump back to the top of the chapter.
+    private func go(toChapter index: Int, paragraph: Int = 0, page: Int? = nil) {
+        guard !book.chapters.isEmpty else { return }
+        chapterIndex = min(max(0, index), book.chapters.count - 1)
+        loadChapter(startingAt: paragraph)
+        if book.format == .pdf {
+            let target = page ?? chapter?.pageIndex ?? pdfPage
+            pdfPage = target
+            pdfJump = ReaderPDFJump(page: target)
         }
-        // Only move when the selected chapter changed; otherwise every redraw
-        // would yank the reader back to the top of the chapter.
-        guard let pageIndex, context.coordinator.requestedPage != pageIndex,
-              let page = view.document?.page(at: pageIndex) else { return }
-        context.coordinator.requestedPage = pageIndex
-        view.go(to: page)
+        persistLocation()
+    }
+
+    private func select(_ hit: ReaderHit) {
+        selectedHitID = hit.id
+        guard !book.chapters.isEmpty else { return }
+        chapterIndex = min(max(0, hit.chapterIndex), book.chapters.count - 1)
+        if let page = hit.pageIndex {
+            pdfPage = page
+            pdfJump = ReaderPDFJump(
+                page: page,
+                matchLocation: hit.matchLocation,
+                matchLength: hit.matchLength
+            )
+        } else {
+            loadChapter(startingAt: hit.paragraphIndex ?? 0)
+        }
+    }
+
+    /// Splitting a chapter into paragraphs and counting its words is work, and
+    /// doing it while the view redraws would do it on every frame. It happens
+    /// once, when the chapter opens.
+    private func loadChapter(startingAt paragraph: Int) {
+        guard book.format == .epub, let chapter else {
+            paragraphs = []
+            wordsBefore = []
+            return
+        }
+        let list = chapter.paragraphs
+        var prefix: [Int] = []
+        var running = 0
+        for text in list {
+            prefix.append(running)
+            running += text.split(whereSeparator: \.isWhitespace).count
+        }
+        paragraphs = list
+        wordsBefore = prefix
+        let index = list.indices.contains(paragraph) ? paragraph : 0
+        position = ReaderParagraphID(chapter: chapterIndex, index: index)
+    }
+
+    private func rebuildPagination() {
+        pagination = book.format == .pdf
+            ? ReaderPagination(
+                pdfChapterPageIndexes: book.chapters.map(\.pageIndex),
+                pageCount: pdfPageCount
+            )
+            : ReaderPagination(epubChapterWordCounts: book.chapters.map(\.wordCount))
+    }
+
+    private func persistLocation() {
+        model.bookshelf.updateReadingLocation(currentLocation, for: book.id)
+    }
+
+    // MARK: - Bookmarks
+
+    private var isBookmarked: Bool {
+        book.bookmarks.contains { $0.location.isAt(currentLocation) }
+    }
+
+    private func toggleBookmark() {
+        model.bookshelf.toggleBookmark(
+            at: currentLocation,
+            excerpt: currentExcerpt,
+            in: book.id
+        )
+    }
+
+    /// The words the mark lands on, so the bookmark list reads like the book.
+    private var currentExcerpt: String {
+        let source = book.format == .pdf
+            ? pdfPageText
+            : (paragraphs.indices.contains(paragraphIndex) ? paragraphs[paragraphIndex] : "")
+        let clean = source
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return clean.isEmpty ? (chapter?.title ?? book.title) : String(clean.prefix(160))
+    }
+
+    // MARK: - Search
+
+    /// Searching a book means reading all of it, so it happens off the main
+    /// actor, and only once the typing pauses.
+    private func search(_ raw: String) {
+        searchTask?.cancel()
+        let needle = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard needle.count >= 2 else {
+            hits = []
+            selectedHitID = nil
+            isSearching = false
+            return
+        }
+        isSearching = true
+        let record = book
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached(priority: .userInitiated) {
+                record.format == .pdf
+                    ? ReaderPDFSearch.run(needle, in: record.sourceURL, book: record)
+                    : BookSearch.run(needle, in: record.chapters).map(ReaderHit.init)
+            }.value
+            guard !Task.isCancelled else { return }
+            hits = found
+            isSearching = false
+        }
+    }
+
+    // MARK: - Focus mode
+
+    /// Everything but the words gets out of the way: the contents panel, the
+    /// app's own sidebar, and the rest of the desktop.
+    private func setFocusMode(_ on: Bool) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
+            isFocusMode = on
+        }
+        NotificationCenter.default.post(name: .attenReaderFocusMode, object: on)
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        if window.styleMask.contains(.fullScreen) != on { window.toggleFullScreen(nil) }
     }
 }
