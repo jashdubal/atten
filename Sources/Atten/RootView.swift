@@ -167,6 +167,17 @@ struct RootView: View {
                 .help("Check for updates")
                 .accessibilityLabel("Check for updates")
 
+                themeMenu
+
+                Button {
+                    model.openSaveFolder()
+                } label: {
+                    Image(systemName: "folder")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .help("Open the folder Atten saves into")
+                .accessibilityLabel("Open save folder")
+
                 Spacer(minLength: 0)
                 Text(model.isInstallingUpdate ? "UPDATING…" : "v\(model.appVersion)")
                     .font(AttenTypography.caption)
@@ -177,6 +188,36 @@ struct RootView: View {
             .padding(.vertical, AttenSpacing.sm)
         }
         .background(AttenColor.sidebar)
+    }
+
+    /// Switching theme from the footer, rather than only from Settings, because
+    /// it is the kind of choice people make by trying every option in turn.
+    private var themeMenu: some View {
+        Menu {
+            Picker("Theme", selection: themeSelection) {
+                ForEach(AttenTheme.allCases) { theme in
+                    Label(theme.displayName, systemImage: theme.icon).tag(theme)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            Image(systemName: "paintpalette")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Theme: \(model.settings.theme.displayName)")
+        .accessibilityLabel("Theme")
+        .accessibilityValue(model.settings.theme.displayName)
+    }
+
+    private var themeSelection: Binding<AttenTheme> {
+        Binding(
+            get: { model.settings.theme },
+            set: { model.selectTheme($0) }
+        )
     }
 
     @ViewBuilder private var detail: some View {

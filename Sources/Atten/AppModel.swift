@@ -105,6 +105,9 @@ final class AppModel {
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }
+        // The interface reads its colours from the store, so the saved theme
+        // has to be in place before the first view body runs.
+        ThemeStore.shared.theme = loadedSettings.theme
     }
 
     var selectedVoice: Voice {
@@ -522,6 +525,14 @@ final class AppModel {
         settings.selectedVoiceID = selectedVoiceID
         settings.defaultSpeed = speed
         settings.defaultFormat = format
+        ThemeStore.shared.theme = settings.theme
+        saveSettings()
+    }
+
+    func selectTheme(_ theme: AttenTheme) {
+        guard settings.theme != theme else { return }
+        settings.theme = theme
+        ThemeStore.shared.theme = theme
         saveSettings()
     }
 
@@ -603,6 +614,20 @@ final class AppModel {
 
     func revealBookSource(_ book: BookRecord) {
         NSWorkspace.shared.activateFileViewerSelecting([book.sourceURL])
+    }
+
+    /// Opens the folder finished audio lands in. The export folder can be moved
+    /// anywhere, and the one it points at can be deleted or living on a volume
+    /// that is no longer mounted, so fall back to Atten's own data folder —
+    /// which holds the books, narrations, and history — rather than opening
+    /// nothing at all.
+    func openSaveFolder() {
+        let exports = URL(fileURLWithPath: settings.outputDirectory, isDirectory: true)
+        try? FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
+        let target = FileManager.default.fileExists(atPath: exports.path)
+            ? exports
+            : directories.applicationSupport
+        NSWorkspace.shared.open(target)
     }
 
     func rename(_ project: ProjectRecord, to name: String) {

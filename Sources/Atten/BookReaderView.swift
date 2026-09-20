@@ -73,7 +73,11 @@ struct BookReaderView: View {
                 detail: "Atten's copy of this book is gone. Remove it and add the book again."
             )
         } else if book.format == .pdf {
-            PDFPageView(url: book.sourceURL, pageIndex: chapter?.pageIndex)
+            PDFPageView(
+                url: book.sourceURL,
+                pageIndex: chapter?.pageIndex,
+                theme: ThemeStore.shared.theme
+            )
         } else if let chapter {
             ScrollView {
                 VStack(alignment: .leading, spacing: AttenSpacing.md) {
@@ -242,9 +246,13 @@ private struct ContentsRow: View {
 private struct PDFPageView: NSViewRepresentable {
     let url: URL
     let pageIndex: Int?
+    /// Passed in so a theme change reaches AppKit, which keeps the colour it
+    /// was last handed.
+    let theme: AttenTheme
 
     final class Coordinator {
         var requestedPage: Int?
+        var appliedTheme: AttenTheme?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -255,11 +263,15 @@ private struct PDFPageView: NSViewRepresentable {
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
         view.document = PDFDocument(url: url)
-        view.backgroundColor = .textBackgroundColor
+        view.backgroundColor = AttenColor.nsReaderSurface
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
+        if context.coordinator.appliedTheme != theme {
+            context.coordinator.appliedTheme = theme
+            view.backgroundColor = AttenColor.nsReaderSurface
+        }
         if view.document?.documentURL != url {
             view.document = PDFDocument(url: url)
             context.coordinator.requestedPage = nil

@@ -173,7 +173,7 @@ struct SettingsView: View {
 
     private var appearanceForm: some View {
         Form {
-            Section("Theme") {
+            Section("Light or dark") {
                 Picker("Appearance", selection: $model.settings.appearance) {
                     ForEach(AppearancePreference.allCases) { appearance in
                         Text(appearance.displayName).tag(appearance)
@@ -182,6 +182,18 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 Text("Motion and transparency follow your macOS accessibility preferences.")
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+
+            Section("Theme") {
+                ForEach(AttenTheme.allCases) { theme in
+                    ThemeChoiceRow(theme: theme, isSelected: model.settings.theme == theme) {
+                        model.settings.theme = theme
+                    }
+                }
+
+                Text("Every theme has a light and a dark version, so this and the setting above are separate choices.")
                     .font(AttenTypography.metadata)
                     .foregroundStyle(AttenColor.textSecondary)
             }
@@ -237,6 +249,60 @@ private struct SettingsPane<Content: View>: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AttenColor.appBackground)
+    }
+}
+
+/// One theme in the Appearance pane: its swatches, its name, and who it is for.
+private struct ThemeChoiceRow: View {
+    let theme: AttenTheme
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: AttenSpacing.sm) {
+                ThemeSwatch(palette: theme.palette)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(theme.displayName)
+                        .font(AttenTypography.control)
+                    Text(theme.summary)
+                        .font(AttenTypography.caption)
+                        .foregroundStyle(AttenColor.textSecondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? AttenColor.accent : AttenColor.separator)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(theme.displayName). \(theme.summary)")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// A theme previewed as the colours it actually draws with, so the choice can be
+/// made by looking rather than by reading.
+private struct ThemeSwatch: View {
+    let palette: AttenPalette
+
+    var body: some View {
+        HStack(spacing: 0) {
+            palette.appBackground.color
+            palette.surfaceMuted.color
+            palette.accent.color
+            palette.accentSecondary.color
+        }
+        .frame(width: 56, height: 22)
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.small)
+                .stroke(AttenColor.separator, lineWidth: 1)
+        }
+        .accessibilityHidden(true)
     }
 }
 

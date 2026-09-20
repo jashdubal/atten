@@ -1,39 +1,61 @@
 import AVFoundation
 import SwiftUI
 
+/// The semantic colours every view draws with. Each one resolves through the
+/// current theme, so reading one inside a view body also subscribes that view
+/// to theme changes — picking a theme repaints the app without any view
+/// knowing that themes exist.
 enum AttenColor {
-    // Cool terminal palette: crisp cyan and violet over graphite/navy surfaces.
-    static let appBackground = Color(light: 0xF3F7FC, dark: 0x080C14)
-    static let sidebar = Color(light: 0xE8EFF8, dark: 0x0C121E)
-    static let surface = Color(light: 0xFFFFFF, dark: 0x101826)
-    static let surfaceElevated = Color(light: 0xF8FBFF, dark: 0x141E2E)
-    static let surfaceMuted = Color(light: 0xDDE8F5, dark: 0x1A2940)
-    static let separator = Color(light: 0xB7C6D9, dark: 0x273852)
+    static var appBackground: Color { palette.appBackground.color }
+    static var sidebar: Color { palette.sidebar.color }
+    static var surface: Color { palette.surface.color }
+    static var surfaceElevated: Color { palette.surfaceElevated.color }
+    static var surfaceMuted: Color { palette.surfaceMuted.color }
+    static var separator: Color { palette.separator.color }
 
-    static let textPrimary = Color(light: 0x101827, dark: 0xE7EEF8)
-    static let textSecondary = Color(light: 0x51647B, dark: 0x8FA2BA)
-    static let accent = Color(light: 0x007EA7, dark: 0x5DDBFF)
-    static let accentHover = Color(light: 0x005F7A, dark: 0x91E8FF)
-    static let accentSecondary = Color(light: 0x6848D8, dark: 0xA78BFA)
-    static let success = Color(light: 0x177A50, dark: 0x4ADE80)
-    static let warning = Color(light: 0xA23E65, dark: 0xF472B6)
-    static let destructive = Color(light: 0xB42346, dark: 0xFB7185)
-    static let focus = accentHover
-    static let onAccent = Color(light: 0xF7FCFF, dark: 0x061018)
+    static var textPrimary: Color { palette.textPrimary.color }
+    static var textSecondary: Color { palette.textSecondary.color }
+    static var accent: Color { palette.accent.color }
+    static var accentHover: Color { palette.accentHover.color }
+    static var accentSecondary: Color { palette.accentSecondary.color }
+    static var success: Color { palette.success.color }
+    static var warning: Color { palette.warning.color }
+    static var destructive: Color { palette.destructive.color }
+    static var focus: Color { palette.accentHover.color }
+    static var onAccent: Color { palette.onAccent.color }
+
+    /// Long-form reading surfaces, kept separate from the surrounding chrome so
+    /// a theme can calm the page down without flattening the rest of the app.
+    static var readerSurface: Color { palette.readerSurface.color }
+    static var readerText: Color { palette.readerText.color }
+    /// Behind a search match or the passage being read aloud. Usually drawn at
+    /// full opacity; tint it down when several highlights overlap.
+    static var readerHighlight: Color { palette.readerHighlight.color }
+    /// Apply with an opacity to dim whatever a focused view pushes back.
+    static var scrim: Color { palette.scrim.color }
+
+    /// The AppKit form of the same roles, for the views that are not SwiftUI.
+    static var nsTextPrimary: NSColor { palette.textPrimary.nsColor }
+    static var nsAccent: NSColor { palette.accent.nsColor }
+    static var nsReaderSurface: NSColor { palette.readerSurface.nsColor }
+
+    static var palette: AttenPalette { ThemeStore.shared.palette }
 }
 
 extension Color {
     init(light: UInt, dark: UInt) {
-        self.init(
-            nsColor: NSColor(name: nil) { appearance in
-                let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                return NSColor(hex: isDark ? dark : light)
-            }
-        )
+        self.init(nsColor: NSColor(light: light, dark: dark))
     }
 }
 
 extension NSColor {
+    convenience init(light: UInt, dark: UInt) {
+        self.init(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return NSColor(hex: isDark ? dark : light)
+        }
+    }
+
     convenience init(hex: UInt) {
         self.init(
             calibratedRed: CGFloat((hex >> 16) & 0xff) / 255,

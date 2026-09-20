@@ -164,6 +164,7 @@ public enum AppearancePreference: String, Codable, CaseIterable, Identifiable, S
 
 public struct AppSettings: Codable, Equatable, Sendable {
     public var appearance: AppearancePreference
+    public var theme: AttenTheme
     public var outputDirectory: String
     public var defaultFormat: AudioFormat
     public var defaultSpeed: Double
@@ -179,6 +180,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     public init(
         appearance: AppearancePreference = .system,
+        theme: AttenTheme = .default,
         outputDirectory: String,
         defaultFormat: AudioFormat = .mp3,
         defaultSpeed: Double = 1.0,
@@ -189,6 +191,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         checksForUpdates: Bool = true
     ) {
         self.appearance = appearance
+        self.theme = theme
         self.outputDirectory = outputDirectory
         self.defaultFormat = defaultFormat
         self.defaultSpeed = defaultSpeed
@@ -201,14 +204,16 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     // Only the export folder is required, because no default for it exists
     // here. Every other key falls back on its own, so a blob written by an
-    // older Atten missing newer keys — or by a newer one holding an appearance
-    // or format this version has never heard of — still keeps the preferences
-    // that make sense rather than being discarded whole.
+    // older Atten missing newer keys — or by a newer one holding an appearance,
+    // theme, or format this version has never heard of — still keeps the
+    // preferences that make sense rather than being discarded whole.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
         appearance = (try? container.decodeIfPresent(AppearancePreference.self, forKey: .appearance))
             .flatMap { $0 } ?? .system
+        theme = (try? container.decodeIfPresent(AttenTheme.self, forKey: .theme))
+            .flatMap { $0 } ?? .default
         defaultFormat = (try? container.decodeIfPresent(AudioFormat.self, forKey: .defaultFormat))
             .flatMap { $0 } ?? .mp3
         defaultSpeed = try container.decodeIfPresent(Double.self, forKey: .defaultSpeed) ?? 1.0

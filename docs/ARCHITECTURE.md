@@ -103,3 +103,30 @@ Kokoro model startup can be slow. The native UI remains responsive and allows
 cancellation while the child process runs.
 - Only controls supported by Kokoro are exposed: voice, language (derived from
   voice), speed, and WAV/MP3 format.
+
+## Themes
+
+Seven palettes ship, spanning a plain white page and a green-on-black console,
+because the same app is used by people who want no colour at all and people who
+want their tools to look like something. Each theme defines a full light *and*
+dark palette, so picking a theme and picking light or dark stay two separate
+decisions that combine.
+
+The mechanism is deliberately invisible to feature code. `AttenColor` exposes
+semantic roles — `surface`, `textSecondary`, `readerHighlight` — and resolves
+each through `ThemeStore.shared`, an `@Observable` holder of the current
+`AttenPalette`. Reading one of those roles inside a view body registers as an
+observed access, so changing the theme repaints every view that draws with it
+without any view, modifier, or button style knowing that themes exist. The rule
+for new UI is simply to name a role rather than a colour; it is themed for free.
+
+AppKit is the exception, since an `NSView` keeps whatever colour it was last
+handed. `AlignedTextEditor` and the reader's `PDFView` therefore take the
+current theme as a property so SwiftUI drives an update, and re-apply colours
+only when it actually changed — recolouring an `NSTextView` re-attributes the
+whole document and must not happen per keystroke.
+
+`ThemeTests` holds every palette to WCAG contrast minimums in both appearances:
+7:1 for body text, 4.5:1 for secondary text and button labels, and the 3:1 that
+WCAG sets for interface components against accent and status colours. A new
+theme that is pretty but unreadable fails the suite.
