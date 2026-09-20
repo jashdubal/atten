@@ -159,17 +159,19 @@ struct LibraryView: View {
 
     private var grid: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 240, maximum: 340), spacing: AttenSpacing.md)],
-            spacing: AttenSpacing.md
+            columns: [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: AttenSpacing.lg)],
+            spacing: AttenSpacing.lg
         ) {
             ForEach(filteredBooks) { book in
                 BookCard(
                     book: book,
                     narrated: shelf.narratedCount(of: book),
+                    cover: shelf.covers.cover(for: book.id),
                     progress: shelf.progress
                 ) {
                     model.openInLibrary(.book(book.id))
                 }
+                .task(id: book.id) { await shelf.covers.load(book) }
                 .contextMenu {
                     Button("Open", systemImage: "book") { model.openInLibrary(.book(book.id)) }
                     Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
@@ -230,13 +232,22 @@ struct LibraryStatusArea: View {
     }
 }
 
+/// A book on the shelf.
+///
+/// Books are recognised by their covers long before their titles are read, and
+/// a shelf that shows none is a list with rounded corners on it. Both formats
+/// carry a cover — a PDF's first page, an EPUB's named artwork — and a book
+/// with none gets a plain board with its title on it, which is what a book with
+/// no jacket looks like.
 private struct BookCard: View {
     let book: BookRecord
     let narrated: Int
+    let cover: NSImage?
     let progress: BookshelfModel.NarrationProgress?
     let open: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isNarrating: Bool { progress?.bookID == book.id }
 
@@ -247,21 +258,7 @@ private struct BookCard: View {
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-                HStack(spacing: AttenSpacing.xs) {
-                    Image(systemName: book.format.icon)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(AttenColor.accent)
-                    Text(book.format.displayName)
-                        .font(AttenTypography.caption)
-                        .foregroundStyle(AttenColor.textSecondary)
-                    Spacer(minLength: 0)
-                    if isFullyNarrated {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(AttenColor.success)
-                            .help("Fully narrated")
-                    }
-                }
-
+                jacket
                 VStack(alignment: .leading, spacing: 2) {
                     Text(book.title)
                         .font(AttenTypography.control.weight(.semibold))
@@ -275,21 +272,88 @@ private struct BookCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 0)
-
                 NarrationMeter(
                     narrated: narrated,
                     total: book.chapters.count,
                     isRunning: isNarrating
                 )
+                .accessibilityHidden(true)
             }
-            .frame(height: 148, alignment: .topLeading)
-            .attenSurface(elevated: isHovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .accessibilityLabel("\(book.title), \(narrated) of \(book.chapters.count) chapters narrated")
+        // The card is one thing to press, and it says what it is. The progress
+        // meter inside it makes an element of its own, which was the only part
+        // of the card VoiceOver could find; hidden, the button speaks for the
+        // whole card and can still be pressed.
+        .accessibilityLabel(book.title)
+        .accessibilityValue(
+            "\(book.author ?? "Unknown author"), \(narrated) of \(book.chapters.count) chapters narrated"
+        )
+        .accessibilityHint("Open this book")
+    }
+
+    private var jacket: some View {
+        ZStack {
+            if let cover {
+                Image(nsImage: cover)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                blankBoard
+            }
+        }
+        .frame(maxWidth: .infinity)
+        // The shape of a book rather than the shape of a window.
+        .aspectRatio(2.0 / 3.0, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.card)
+                .stroke(AttenColor.separator.opacity(0.9), lineWidth: 1)
+        }
+        .overlay(alignment: .topTrailing) {
+            if isFullyNarrated {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(AttenColor.success)
+                    .padding(6)
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .help("Fully narrated")
+            }
+        }
+        .shadow(
+            color: .black.opacity(isHovering ? 0.28 : 0.16),
+            radius: isHovering ? 12 : 5,
+            y: isHovering ? 5 : 2
+        )
+        .offset(y: isHovering ? -3 : 0)
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+            value: isHovering
+        )
+    }
+
+    /// A book with no jacket: boards, and the title stamped on them.
+    private var blankBoard: some View {
+        ZStack {
+            LinearGradient(
+                colors: [AttenColor.surfaceElevated, AttenColor.surfaceMuted],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            VStack(spacing: AttenSpacing.xs) {
+                Image(systemName: book.format.icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(AttenColor.accent.opacity(0.75))
+                Text(book.title)
+                    .font(.system(size: 13, weight: .medium, design: .serif))
+                    .foregroundStyle(AttenColor.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(4)
+            }
+            .padding(AttenSpacing.sm)
+        }
     }
 }
 

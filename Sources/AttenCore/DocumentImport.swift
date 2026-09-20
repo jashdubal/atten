@@ -186,7 +186,7 @@ enum PDFTextExtractor {
 
 // MARK: - EPUB
 
-enum EPUBTextExtractor {
+public enum EPUBTextExtractor {
     static func extract(from url: URL) throws -> ExtractedDocument {
         let unpacked = try unpack(url)
         defer { try? FileManager.default.removeItem(at: unpacked) }
@@ -227,6 +227,64 @@ enum EPUBTextExtractor {
             author: metadata("creator"),
             chapters: chapters
         )
+    }
+
+    /// The picture on the front of the book.
+    ///
+    /// An EPUB names its cover in one of three ways depending on how old it is,
+    /// and books in the wild use all three, so all three are tried before
+    /// falling back on an image that simply calls itself a cover. Answers the
+    /// file's bytes rather than an image, because this runs nowhere near a
+    /// screen and AppKit is not this layer's business.
+    public static func coverImageData(from url: URL) -> Data? {
+        guard let unpacked = try? unpack(url) else { return nil }
+        defer { try? FileManager.default.removeItem(at: unpacked) }
+        guard let packageURL = try? packageURL(in: unpacked, source: url.lastPathComponent),
+              let elements = try? parse(packageURL, collecting: ["item", "meta"]) else {
+            return nil
+        }
+        let directory = packageURL.deletingLastPathComponent()
+        // A crafted href can climb out of the archive with "..", and this is a
+        // read of a file the user never chose. Anything that lands outside the
+        // unpacked book is not part of the book.
+        let read = { (href: String) -> Data? in
+            let url = resolve(href: href, against: directory).standardizedFileURL
+            guard url.path.hasPrefix(unpacked.standardizedFileURL.path) else { return nil }
+            return try? Data(contentsOf: url)
+        }
+        let images = elements.filter {
+            $0.name == "item" && isImage(
+                mediaType: $0.attributes["media-type"],
+                href: $0.attributes["href"] ?? ""
+            )
+        }
+
+        // EPUB 3 marks it in the manifest.
+        if let href = images.first(where: {
+            $0.attributes["properties"]?.contains("cover-image") == true
+        })?.attributes["href"] {
+            return read(href)
+        }
+        // EPUB 2 points at a manifest entry from the metadata.
+        if let id = elements.first(where: { $0.name == "meta" && $0.attributes["name"] == "cover" })?
+            .attributes["content"],
+           let href = images.first(where: { $0.attributes["id"] == id })?.attributes["href"] {
+            return read(href)
+        }
+        // And some only say so in the file name.
+        if let href = images.first(where: {
+            ($0.attributes["href"] ?? "").lowercased().contains("cover")
+                || ($0.attributes["id"] ?? "").lowercased().contains("cover")
+        })?.attributes["href"] {
+            return read(href)
+        }
+        return nil
+    }
+
+    private static func isImage(mediaType: String?, href: String) -> Bool {
+        if let mediaType, mediaType.hasPrefix("image/") { return true }
+        return ["jpg", "jpeg", "png", "gif", "webp"]
+            .contains(URL(fileURLWithPath: href).pathExtension.lowercased())
     }
 
     /// An EPUB is a zip. `ditto` ships with macOS and refuses paths that escape

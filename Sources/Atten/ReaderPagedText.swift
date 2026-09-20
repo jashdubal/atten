@@ -70,6 +70,8 @@ struct ReaderPagedText: View {
     /// The chapter being left, kept only long enough to turn away from it.
     @State private var outgoing: Outgoing?
     @State private var pendingRunOff: ReaderTurn?
+    @State private var hoveredMargin: ReaderTurn?
+    @State private var swipeRequest: ReaderTurnRequest?
 
     private struct Turn: Equatable {
         let direction: ReaderTurn
@@ -101,10 +103,15 @@ struct ReaderPagedText: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AttenColor.readerSurface)
+        .swipeToTurn(into: $swipeRequest)
         .task(id: TypesetKey(chapter: chapterID, style: style)) { await typeset() }
         .onChange(of: turnRequest) { _, request in
             guard let request, handledTurnID != request.id else { return }
             handledTurnID = request.id
+            startTurn(request.direction)
+        }
+        .onChange(of: swipeRequest) { _, request in
+            guard let request else { return }
             startTurn(request.direction)
         }
         .onChange(of: jumpRequest) { _, request in
@@ -126,34 +133,88 @@ struct ReaderPagedText: View {
     }
 
     @ViewBuilder private func spread(size: CGSize) -> some View {
-        HStack(spacing: mode == .spread ? Self.gutter : 0) {
-            if mode == .spread {
-                slot(.left, size: size)
-                slot(.right, size: size)
-            } else {
-                slot(.only, size: size)
+        HStack(spacing: 0) {
+            turnMargin(.backward)
+            HStack(spacing: mode == .spread ? Self.gutter : 0) {
+                if mode == .spread {
+                    slot(.left, size: size)
+                    slot(.right, size: size)
+                } else {
+                    slot(.only, size: size)
+                }
             }
+            .fixedSize()
+            turnMargin(.forward)
         }
     }
 
+    /// The margin either side of the text turns the page when it is clicked.
+    ///
+    /// A book is turned by touching its edge, not by finding a button, and the
+    /// margins are the one part of the page with nothing on them to select —
+    /// which is why the click lives here rather than over the text, where it
+    /// would take the reader's ability to pick out a sentence.
+    private func turnMargin(_ direction: ReaderTurn) -> some View {
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .overlay {
+                Image(systemName: direction == .forward ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(AttenColor.textSecondary)
+                    .opacity(hoveredMargin == direction ? 0.55 : 0)
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+                        value: hoveredMargin
+                    )
+                    .allowsHitTesting(false)
+            }
+            .onHover { hoveredMargin = $0 ? direction : nil }
+            .onTapGesture { startTurn(direction) }
+            .accessibilityHidden(true)
+    }
+
     /// One half of the spread: the page settled there, with a leaf on top of it
-    /// when one is being turned over that side.
+    /// when one is being turned over that side, and its folio underneath.
     @ViewBuilder private func slot(_ side: Side, size: CGSize) -> some View {
-        ZStack {
-            page(under: side).map { view(of: $0, size: size) }
-            if let turn, let leaf = leaf(on: side) {
-                TurningLeaf(progress: turn.progress, turn: turn.direction) {
-                    view(of: leaf.front, size: size)
-                } back: {
-                    if let back = leaf.back {
-                        view(of: back, size: size)
-                    } else {
-                        ReaderPaper()
+        VStack(spacing: 0) {
+            ZStack {
+                page(under: side).map { view(of: $0, size: size) }
+                if let turn, let leaf = leaf(on: side) {
+                    TurningLeaf(progress: turn.progress, turn: turn.direction) {
+                        view(of: leaf.front, size: size)
+                    } back: {
+                        if let back = leaf.back {
+                            view(of: back, size: size)
+                        } else {
+                            ReaderPaper()
+                        }
                     }
                 }
             }
+            .frame(width: size.width, height: size.height)
+
+            folio(for: side)
+                .frame(width: size.width, height: Self.folioHeight)
         }
-        .frame(width: size.width, height: size.height)
+    }
+
+    /// The page number at the foot of the page, as a book prints it.
+    private func folio(for side: Side) -> some View {
+        let number = folioNumber(for: side)
+        return Text(number.map(String.init) ?? "")
+            .font(AttenTypography.caption)
+            .monospacedDigit()
+            .foregroundStyle(AttenColor.textSecondary.opacity(0.7))
+            .frame(maxWidth: .infinity)
+            // The control bar announces the page; a second voice saying the
+            // number again is noise.
+            .accessibilityHidden(true)
+    }
+
+    private func folioNumber(for side: Side) -> Int? {
+        guard let source = page(under: side) else { return nil }
+        return source.index + 1
     }
 
     private struct PageSource: Equatable {
@@ -409,6 +470,8 @@ struct ReaderPagedText: View {
     /// The space between two facing pages.
     private static let gutter: CGFloat = 56
     private static let verticalMargin: CGFloat = 40
+    /// The strip below the text that the page number sits on.
+    private static let folioHeight: CGFloat = 26
 
     /// How wide a page of text is allowed to get.
     ///
@@ -422,7 +485,7 @@ struct ReaderPagedText: View {
     private var measure: CGFloat { fontSize * 36 }
 
     private func pageSize(in available: CGSize) -> CGSize {
-        let height = max(80, available.height - Self.verticalMargin * 2)
+        let height = max(80, available.height - Self.verticalMargin * 2 - Self.folioHeight)
         let margin = max(24, available.width * 0.04)
         let usable = max(120, available.width - margin * 2)
         let width = mode == .spread

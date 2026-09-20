@@ -58,7 +58,6 @@ struct ModelsView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
-        .searchable(text: $library.query, placement: .toolbar, prompt: "Search Hugging Face")
         .confirmationDialog(
             "Delete \(pendingDeletion ?? "model")?",
             isPresented: Binding(
@@ -76,6 +75,10 @@ struct ModelsView: View {
         }
     }
 
+    private var queryBinding: Binding<String> {
+        Binding(get: { library.query }, set: { library.query = $0 })
+    }
+
     private var header: some View {
         HStack(alignment: .bottom) {
             PageHeader(
@@ -84,6 +87,8 @@ struct ModelsView: View {
                 detail: "Discover Hugging Face speech models and keep them offline."
             )
             Spacer()
+            AttenSearchField(prompt: "Search Hugging Face", text: queryBinding)
+                .frame(maxWidth: 240)
             if library.isSearching {
                 ProgressView().controlSize(.small)
             }
