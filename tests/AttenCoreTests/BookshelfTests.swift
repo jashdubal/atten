@@ -55,6 +55,33 @@ final class BookshelfTests: XCTestCase {
         XCTAssertEqual(leftovers, [])
     }
 
+    /// The shelf counts narration for its cards rather than making each card
+    /// ask the file system once per chapter while it draws.
+    func testNarratedCountsFollowTheShelfAndTheFilesOnDisk() async throws {
+        await shelf.importBook(
+            from: try makePDF(pages: (1...25).map { "Page \($0)." }),
+            defaults: settings()
+        )
+        let book = try XCTUnwrap(shelf.books.first)
+        XCTAssertEqual(shelf.narratedCount(of: book), 0)
+        XCTAssertFalse(shelf.isFullyNarrated(book))
+
+        shelf.narrate(book.id, useMPS: false)
+        try await waitForNarration()
+
+        let narrated = try XCTUnwrap(shelf.book(id: book.id))
+        XCTAssertEqual(shelf.narratedCount(of: narrated), 3)
+        XCTAssertTrue(shelf.isFullyNarrated(narrated))
+
+        // Narration deleted behind Atten's back is caught the next time the
+        // Library is opened, not left as a play button that does nothing.
+        try FileManager.default.removeItem(at: try XCTUnwrap(narrated.chapters[0].audioURL))
+        shelf.refreshNarrationCounts()
+
+        XCTAssertEqual(shelf.narratedCount(of: narrated), 2)
+        XCTAssertFalse(shelf.isFullyNarrated(narrated))
+    }
+
     func testNarratingABookWritesOneAudioFilePerChapter() async throws {
         await shelf.importBook(
             from: try makePDF(pages: (1...25).map { "Page \($0)." }),

@@ -43,6 +43,10 @@ struct AttenApp: App {
                     .disabled(model.currentAudioURL == nil)
             }
             CommandMenu("Navigate") {
+                Button("Back") { model.goBack() }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .disabled(!model.canGoBack)
+                Divider()
                 Button("Studio") {
                     NotificationCenter.default.post(name: .attenOpenStudio, object: nil)
                 }

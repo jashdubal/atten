@@ -161,6 +161,9 @@ private struct ProjectRow: View {
     let delete: () -> Void
 
     @State private var isHovering = false
+    /// Filled in once the file has been measured, off the main thread. A row
+    /// that measured it while drawing reopened the file on every redraw.
+    @State private var metadata: AudioFileMetadata?
 
     private var voice: Voice {
         VoiceCatalog.voice(id: project.voiceID) ?? VoiceCatalog.defaultVoice
@@ -172,10 +175,6 @@ private struct ProjectRow: View {
 
     private var isPlaying: Bool {
         model.isPlaying && model.activeAudioURL == project.audioURL
-    }
-
-    private var metadata: AudioFileMetadata {
-        AudioFileMetadata(url: project.audioURL)
     }
 
     var body: some View {
@@ -215,7 +214,7 @@ private struct ProjectRow: View {
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
                 if !isWide {
-                    Text("\(voice.name) · \(project.format.displayName) · \(metadata.durationText) · \(project.updatedAt.formatted(date: .abbreviated, time: .omitted))")
+                    Text("\(voice.name) · \(project.format.displayName) · \(durationText) · \(project.updatedAt.formatted(date: .abbreviated, time: .omitted))")
                         .font(AttenTypography.caption)
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
@@ -228,7 +227,7 @@ private struct ProjectRow: View {
                     .frame(width: 120, alignment: .leading)
                 Text(project.updatedAt.formatted(date: .abbreviated, time: .shortened))
                     .frame(width: 135, alignment: .leading)
-                Text("\(project.format.displayName) · \(metadata.durationText)")
+                Text("\(project.format.displayName) · \(durationText)")
                     .frame(width: 100, alignment: .leading)
             }
 
@@ -248,7 +247,10 @@ private struct ProjectRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .contextMenu { actionMenu }
+        .audioMetadata(of: project.audioURL) { metadata = $0 }
     }
+
+    private var durationText: String { metadata?.durationText ?? "—" }
 
     @ViewBuilder private var actionMenu: some View {
         if !project.isLegacyImport {

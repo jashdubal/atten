@@ -15,9 +15,13 @@ struct BookDetailView: View {
         shelf.progress?.bookID == book.id ? shelf.progress : nil
     }
 
+    private var narratedCount: Int { shelf.narratedCount(of: book) }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                AttenBackButton(title: "Library") { model.goBack() }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 header
                 LibraryStatusArea(shelf: shelf)
                 controls
@@ -44,7 +48,7 @@ struct BookDetailView: View {
             }
             Button("Keep Current Voice", role: .cancel) { pendingVoice = nil }
         } message: {
-            Text("\(book.narratedCount) narrated chapters would be deleted so the whole book is read in one voice.")
+            Text("\(narratedCount) narrated chapters would be deleted so the whole book is read in one voice.")
         }
         .confirmationDialog(
             "Remove \(book.title) from your library?",
@@ -103,8 +107,8 @@ struct BookDetailView: View {
                     Label("Play all", systemImage: "play.fill")
                 }
                 .buttonStyle(AttenPrimaryButtonStyle())
-                .disabled(book.narratedCount == 0)
-                .help(book.narratedCount == 0
+                .disabled(narratedCount == 0)
+                .help(narratedCount == 0
                     ? "Narrate the book first"
                     : "Play every narrated chapter in order")
 
@@ -123,12 +127,12 @@ struct BookDetailView: View {
                 if progress != nil {
                     Button("Stop", systemImage: "stop.fill") { shelf.cancelNarration() }
                         .buttonStyle(AttenSecondaryButtonStyle())
-                } else if !book.isFullyNarrated {
+                } else if !shelf.isFullyNarrated(book) {
                     Button {
                         shelf.narrate(book.id, useMPS: model.settings.useMPS)
                     } label: {
                         Label(
-                            book.narratedCount == 0 ? "Narrate book" : "Narrate remaining",
+                            narratedCount == 0 ? "Narrate book" : "Narrate remaining",
                             systemImage: "waveform"
                         )
                     }
@@ -149,7 +153,7 @@ struct BookDetailView: View {
                 }
             } else {
                 NarrationMeter(
-                    narrated: book.narratedCount,
+                    narrated: narratedCount,
                     total: book.chapters.count,
                     isRunning: false
                 )
@@ -212,7 +216,7 @@ struct BookDetailView: View {
             get: { book.voiceID },
             set: { newValue in
                 guard newValue != book.voiceID else { return }
-                if book.narratedCount > 0 {
+                if narratedCount > 0 {
                     pendingVoice = VoiceCatalog.voice(id: newValue)
                 } else {
                     shelf.updateVoice(newValue, for: book.id)
@@ -273,6 +277,10 @@ private struct ChapterRow: View {
     let narrateOne: () -> Void
 
     @State private var isHovering = false
+    /// Filled in once the narration has been measured, off the main thread. A
+    /// row that measured it while drawing reopened the file on every redraw,
+    /// which a book of two hundred chapters felt keenly.
+    @State private var metadata: AudioFileMetadata?
 
     private var isPlaying: Bool {
         model.isPlaying && model.activeAudioURL == chapter.audioURL
@@ -307,6 +315,13 @@ private struct ChapterRow: View {
         .contextMenu {
             Button("Narrate This Chapter", systemImage: "waveform", action: narrateOne)
                 .disabled(chapter.isNarrated || model.bookshelf.isNarrating)
+        }
+        .task(id: chapter.audioPath) {
+            guard let url = chapter.audioURL, chapter.isNarrated else {
+                metadata = nil
+                return
+            }
+            metadata = await AudioMetadataStore.shared.measure(url)
         }
     }
 
@@ -344,7 +359,6 @@ private struct ChapterRow: View {
 
     private var detail: String {
         if isGenerating { return "generating…" }
-        guard chapter.isNarrated, let url = chapter.audioURL else { return "—" }
-        return AudioFileMetadata(url: url).durationText
+        return metadata?.durationText ?? "—"
     }
 }

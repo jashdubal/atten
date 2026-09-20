@@ -253,6 +253,74 @@ final class AppModel {
         }
     }
 
+    // MARK: - Navigation
+
+    /// Where the Library is, kept on the model rather than inside the view.
+    ///
+    /// The detail pane is rebuilt from nothing whenever the sidebar changes
+    /// section, so a path owned by `LibraryView` was thrown away every time the
+    /// user glanced at Studio: the book they were reading became the shelf
+    /// again, and the reader was torn down mid-transition while it still had
+    /// the window in focus mode.
+    /// Which screen the sidebar is showing.
+    ///
+    /// Held here so that "back" can tell whether there is anything behind the
+    /// current screen. The window remembers it across launches by way of scene
+    /// storage, which is a place to write it down rather than a second owner.
+    var section = SidebarItem.studio
+
+    private(set) var libraryPath: [LibraryRoute] = []
+
+    /// Which way the last move through the Library went, so its screens slide
+    /// the way the reader just travelled instead of always the same way.
+    private(set) var libraryMovedForward = true
+
+    /// Whether the reader has taken the whole window.
+    ///
+    /// Also kept here, and for the same reason. Focus mode reaches outside the
+    /// reader — it hides Atten's own sidebar and puts the window into full
+    /// screen — so anything that tore the reader down without its cooperation
+    /// left a hidden sidebar and a full-screen window with nothing in it.
+    private(set) var isReaderFocused = false
+
+    func openInLibrary(_ route: LibraryRoute) {
+        guard libraryPath.last != route else { return }
+        libraryMovedForward = true
+        libraryPath.append(route)
+    }
+
+    /// Back to the shelf in one step, for a book that has just been removed
+    /// from under whoever was reading it.
+    func returnToShelf() {
+        guard !libraryPath.isEmpty else { return }
+        libraryMovedForward = false
+        libraryPath.removeAll()
+    }
+
+    func setReaderFocus(_ on: Bool) {
+        guard isReaderFocused != on else { return }
+        isReaderFocused = on
+        ReaderFocusWindow.setFullScreen(on)
+    }
+
+    /// One step back. Focus mode counts as a step, so the first press gives the
+    /// reader back its surroundings rather than closing the book outright.
+    func goBack() {
+        if isReaderFocused {
+            setReaderFocus(false)
+            return
+        }
+        guard canGoBack else { return }
+        libraryMovedForward = false
+        libraryPath.removeLast()
+    }
+
+    /// Only the Library stacks screens, so only the Library has anywhere to go
+    /// back to. Focus mode counts wherever it is on.
+    var canGoBack: Bool {
+        isReaderFocused || (section == .library && !libraryPath.isEmpty)
+    }
+
     var playerTitle: String? {
         activeAudioURL?.deletingPathExtension().lastPathComponent
     }
@@ -639,6 +707,7 @@ final class AppModel {
     func rename(_ project: ProjectRecord, to name: String) {
         do {
             let newURL = try exportService.renamedAudio(at: project.audioURL, name: name)
+            AudioMetadataStore.shared.forget(project.audioURL)
             guard let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
             projects[index].title = newURL.deletingPathExtension().lastPathComponent
             projects[index].audioPath = newURL.path
@@ -669,6 +738,7 @@ final class AppModel {
         if includingAudio, FileManager.default.fileExists(atPath: project.audioPath) {
             do {
                 try FileManager.default.removeItem(at: project.audioURL)
+                AudioMetadataStore.shared.forget(project.audioURL)
             } catch {
                 generationState = .failed("The project audio could not be deleted: \(error.localizedDescription)")
                 return
@@ -831,5 +901,27 @@ private final class AudioPlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unc
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         didFinish()
+    }
+}
+
+/// Full screen belongs to the window, not to a view.
+///
+/// The reader used to ask for it inline, including from `onDisappear` — asking
+/// while SwiftUI was in the middle of tearing the view down left the window and
+/// the view hierarchy disagreeing about how big everything was, which is what
+/// the interface looked like when it "bugged out". The request is made one turn
+/// of the run loop later instead, and only when the window is not already the
+/// way it is being asked to be.
+@MainActor
+enum ReaderFocusWindow {
+    static func setFullScreen(_ on: Bool) {
+        // NSApp is nil until the application object exists, which is also the
+        // case in tests.
+        guard let app = NSApp, let window = app.keyWindow ?? app.mainWindow else { return }
+        Task { @MainActor in
+            guard window.isVisible,
+                  window.styleMask.contains(.fullScreen) != on else { return }
+            window.toggleFullScreen(nil)
+        }
     }
 }
