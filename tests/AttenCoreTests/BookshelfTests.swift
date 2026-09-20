@@ -9,7 +9,7 @@ final class BookshelfTests: XCTestCase {
     private var directories: AppDirectories!
     private var shelf: BookshelfModel!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         workspace = FileManager.default.temporaryDirectory
             .appendingPathComponent("AttenShelfTests-\(UUID().uuidString)")
         directories = AppDirectories(
@@ -19,7 +19,7 @@ final class BookshelfTests: XCTestCase {
         shelf = BookshelfModel(directories: directories, generator: ImmediateGenerator())
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         shelf.cancelNarration()
         try? FileManager.default.removeItem(at: workspace)
     }
