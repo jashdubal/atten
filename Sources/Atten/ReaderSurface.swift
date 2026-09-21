@@ -118,10 +118,25 @@ struct ReaderPDFJump: Equatable {
     var matchLength: Int?
 }
 
+/// What the reader asked to happen to the zoom. Carries an id for the same
+/// reason a jump does: asking to zoom in twice is two steps, not one.
+struct ReaderPDFZoom: Equatable {
+    let id = UUID()
+    let step: Step
+
+    enum Step: Equatable {
+        case larger
+        case smaller
+        /// Back to the whole page in the window, which is where a PDF starts.
+        case fit
+    }
+}
+
 /// PDFKit gives the real page, with its own scrolling, zoom, and selection.
 struct ReaderPDFView: NSViewRepresentable {
     let url: URL
     let jump: ReaderPDFJump?
+    let zoom: ReaderPDFZoom?
     let highlights: [ReaderHit]
     /// Passed in so a change of page colour reaches AppKit, which keeps the
     /// colour it was last handed.
@@ -141,6 +156,7 @@ struct ReaderPDFView: NSViewRepresentable {
         var highlightKey: String?
         var appliedPalette: ReaderPagePalette?
         var appliedMode: ReaderViewMode?
+        var handledZoomID: UUID?
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -171,7 +187,12 @@ struct ReaderPDFView: NSViewRepresentable {
                 view.displaysPageBreaks = true
             case .scroll:
                 view.displayMode = .singlePageContinuous
+                view.displayDirection = .vertical
+                view.displaysPageBreaks = true
             }
+            // Only a spread is a book with a spine. Left set, it offsets the
+            // first page of every other arrangement too.
+            if mode != .spread { view.displaysAsBook = false }
             // Re-fitting after the arrangement changes is what makes a page
             // actually fill the window rather than keeping the zoom it had.
             view.autoScales = true
@@ -205,7 +226,34 @@ struct ReaderPDFView: NSViewRepresentable {
             coordinator.handledJumpID = jump.id
             reveal(jump, in: view, document: document)
         }
+
+        if let zoom, coordinator.handledZoomID != zoom.id {
+            coordinator.handledZoomID = zoom.id
+            apply(zoom, to: view)
+        }
     }
+
+    /// Zooming has to turn auto-scaling off, or PDFKit re-fits the page on the
+    /// next relayout and the zoom is silently undone. Fitting turns it back
+    /// on, so the page keeps filling the window as it is resized.
+    private func apply(_ zoom: ReaderPDFZoom, to view: PDFView) {
+        switch zoom.step {
+        case .fit:
+            view.autoScales = true
+        case .larger, .smaller:
+            let factor = zoom.step == .larger ? Self.zoomStep : 1 / Self.zoomStep
+            view.autoScales = false
+            view.scaleFactor = min(
+                max(view.minScaleFactor, view.scaleFactor * factor),
+                view.maxScaleFactor
+            )
+        }
+    }
+
+    /// A quarter again each press: enough to be worth the press, small enough
+    /// that finding the size you wanted takes a press or two rather than a
+    /// hunt back and forth.
+    private static let zoomStep: CGFloat = 1.25
 
     /// Rebuilding a few hundred selections on every redraw would stutter, so
     /// the set is only rebuilt when the results themselves changed.

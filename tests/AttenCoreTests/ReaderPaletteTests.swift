@@ -78,6 +78,61 @@ final class ReaderPaletteTests: XCTestCase {
         }
     }
 
+    // MARK: - Dimmed ink
+
+    /// Full brightness is the theme's own page, untouched.
+    func testFullBrightnessChangesNothing() {
+        for theme in AttenTheme.allCases {
+            for dark in [false, true] {
+                let page = ReaderPagePalette.of(theme, dark: dark)
+                XCTAssertEqual(page.dimmingInk(to: 1.0), page)
+            }
+        }
+    }
+
+    /// The point of the control: less contrast between the words and the page.
+    func testDimmingQuietensTheInkAndLeavesThePageAlone() {
+        for theme in AttenTheme.allCases {
+            for dark in [false, true] {
+                let page = ReaderPagePalette.of(theme, dark: dark)
+                let dim = page.dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
+                let where_ = "\(theme.rawValue) \(dark ? "dark" : "light")"
+                XCTAssertLessThan(
+                    contrast(dim.ink, dim.background),
+                    contrast(page.ink, page.background),
+                    "\(where_): dimming did not quieten the ink"
+                )
+                XCTAssertEqual(dim.background, page.background, "\(where_): dimming moved the page")
+                XCTAssertEqual(dim.highlight, page.highlight, "\(where_): dimming moved a search match")
+                XCTAssertEqual(dim.accent, page.accent, "\(where_): dimming moved the accent")
+            }
+        }
+    }
+
+    /// A brightness control that can make a book unreadable is a trap. The
+    /// dimmest setting still clears AA on every page.
+    func testTheDimmestPageIsStillReadable() {
+        for theme in AttenTheme.allCases {
+            for dark in [false, true] {
+                let dim = ReaderPagePalette.of(theme, dark: dark)
+                    .dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
+                XCTAssertGreaterThanOrEqual(
+                    contrast(dim.ink, dim.background), 4.5,
+                    "\(theme.rawValue) \(dark ? "dark" : "light"): the dimmest body text is under AA"
+                )
+            }
+        }
+    }
+
+    /// Asking for more than the range allows is held at its ends rather than
+    /// taken literally — a level arriving from stored settings is not trusted.
+    func testBrightnessIsHeldInsideItsRange() {
+        let page = ReaderPagePalette.of(.quiet, dark: true)
+        let range = ReaderPagePalette.inkBrightnessRange
+        XCTAssertEqual(page.dimmingInk(to: 0), page.dimmingInk(to: range.lowerBound))
+        XCTAssertEqual(page.dimmingInk(to: 5), page)
+    }
+
     // MARK: -
 
     private func channels(_ hex: UInt) -> (red: UInt, green: UInt, blue: UInt) {
