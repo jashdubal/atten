@@ -118,6 +118,15 @@ struct TurningLeaf<Front: View, Back: View>: View {
     /// 0 is flat and unturned, 1 is flat against the other side.
     let progress: Double
     let turn: ReaderTurn
+    /// The space between the two pages of the spread, and how wide a page is.
+    ///
+    /// A leaf pivots on the spine of the book, and the spine is half a gutter
+    /// beyond the inner edge of the page — not on that edge. Turning about the
+    /// edge instead lands the leaf a whole gutter away from where the facing
+    /// page actually sits, so the page appeared to shift sideways the moment
+    /// the leaf came down and was swapped for the real one.
+    let gutter: CGFloat
+    let width: CGFloat
     @ViewBuilder let front: Front
     @ViewBuilder let back: Back
 
@@ -126,6 +135,17 @@ struct TurningLeaf<Front: View, Back: View>: View {
     }
 
     private var isShowingBack: Bool { progress > 0.5 }
+
+    /// The spine, in the leaf's own coordinates. Reflecting the leaf about it
+    /// puts the leaf exactly over the facing page, which is what stops the
+    /// swap at the end of the turn from moving anything.
+    var anchor: UnitPoint {
+        guard width > 0 else { return turn == .forward ? .leading : .trailing }
+        let half = gutter / 2 / width
+        return turn == .forward
+            ? UnitPoint(x: -half, y: 0.5)
+            : UnitPoint(x: 1 + half, y: 0.5)
+    }
 
     /// Paper catches the light as it lifts and loses it as it falls, and the
     /// page underneath darkens in the leaf's shadow. Without this the page
@@ -153,7 +173,7 @@ struct TurningLeaf<Front: View, Back: View>: View {
         .rotation3DEffect(
             .degrees(angle),
             axis: (x: 0, y: 1, z: 0),
-            anchor: turn == .forward ? .leading : .trailing,
+            anchor: anchor,
             // Shallow on purpose. A strong perspective makes the page look as
             // though it is being thrown at the reader.
             perspective: 0.36
