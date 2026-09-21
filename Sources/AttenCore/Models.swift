@@ -230,6 +230,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var readerViewMode: ReaderViewMode
     /// Whether the reader justifies its text, as a printed book does.
     public var readerJustifiesText: Bool
+    /// What the page itself is printed in, chosen apart from ``theme`` so the
+    /// app can be one thing and the page another.
+    public var readerPageTheme: ReaderPageTheme
 
     public init(
         appearance: AppearancePreference = .system,
@@ -244,7 +247,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         checksForUpdates: Bool = true,
         playbackRate: Double = 1.0,
         readerViewMode: ReaderViewMode = .page,
-        readerJustifiesText: Bool = true
+        readerJustifiesText: Bool = true,
+        readerPageTheme: ReaderPageTheme = .default
     ) {
         self.appearance = appearance
         self.theme = theme
@@ -259,6 +263,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.playbackRate = playbackRate
         self.readerViewMode = readerViewMode
         self.readerJustifiesText = readerJustifiesText
+        self.readerPageTheme = readerPageTheme
     }
 
     // Only the export folder is required, because no default for it exists
@@ -294,5 +299,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
             .flatMap { $0 } ?? .page
         readerJustifiesText = try container
             .decodeIfPresent(Bool.self, forKey: .readerJustifiesText) ?? true
+        readerPageTheme = (try? container
+            .decodeIfPresent(ReaderPageTheme.self, forKey: .readerPageTheme))
+            .flatMap { $0 } ?? .default
     }
 }

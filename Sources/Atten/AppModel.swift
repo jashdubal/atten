@@ -309,6 +309,12 @@ final class AppModel {
         saveSettings()
     }
 
+    func selectReaderPageTheme(_ theme: ReaderPageTheme) {
+        guard settings.readerPageTheme != theme else { return }
+        settings.readerPageTheme = theme
+        saveSettings()
+    }
+
     func setReaderFocus(_ on: Bool) {
         guard isReaderFocused != on else { return }
         isReaderFocused = on

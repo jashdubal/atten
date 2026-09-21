@@ -69,7 +69,7 @@ final class ThemeTests: XCTestCase {
     /// appearances — and the dark side has to actually be the darker one.
     func testEveryThemeIsADistinctLightAndDarkPair() {
         let surfaces: [KeyPath<AttenPalette, AttenThemeColor>] = [
-            \.appBackground, \.sidebar, \.surface, \.surfaceElevated, \.readerSurface,
+            \.appBackground, \.sidebar, \.surface, \.surfaceElevated,
         ]
 
         for theme in AttenTheme.allCases {
@@ -134,7 +134,7 @@ final class ThemeTests: XCTestCase {
 
         var requirements: [(String, KeyPath<AttenPalette, AttenThemeColor>, KeyPath<AttenPalette, AttenThemeColor>, Double)] = [
             ("onAccent on accent", \.onAccent, \.accent, 4.5),
-            ("readerText on readerSurface", \.readerText, \.readerSurface, 7.0),
+            ("readerText on surface", \.readerText, \.surface, 7.0),
             ("readerText on readerHighlight", \.readerText, \.readerHighlight, 4.5),
             ("separator on appBackground", \.separator, \.appBackground, 1.3),
         ]

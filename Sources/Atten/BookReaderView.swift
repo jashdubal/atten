@@ -13,6 +13,7 @@ struct BookReaderView: View {
     let book: BookRecord
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var chapterIndex = 0
     @State private var position: ReaderParagraphID?
@@ -145,13 +146,13 @@ struct BookReaderView: View {
                 detail: "Atten's copy of this book is gone. Remove it and add the book again."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AttenColor.readerSurface)
+            .background(Color(hex: palette.well))
         } else if book.format == .pdf {
             ReaderPDFView(
                 url: book.sourceURL,
                 jump: pdfJump,
                 highlights: hits,
-                theme: ThemeStore.shared.theme,
+                palette: palette,
                 mode: viewMode,
                 onOpen: { count in
                     pdfPageCount = count
@@ -174,6 +175,7 @@ struct BookReaderView: View {
                     paragraphs: paragraphs,
                     fontSize: fontSize,
                     isJustified: model.settings.readerJustifiesText,
+                    palette: palette,
                     mode: viewMode,
                     query: query,
                     opening: opening,
@@ -204,6 +206,7 @@ struct BookReaderView: View {
                     fontSize: fontSize,
                     query: query,
                     isFocusMode: isFocusMode,
+                    palette: palette,
                     position: $position
                 )
             }
@@ -214,11 +217,17 @@ struct BookReaderView: View {
                 detail: "This book has no chapters Atten could read."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AttenColor.readerSurface)
+            .background(Color(hex: palette.well))
         }
     }
 
     private var viewMode: ReaderViewMode { model.settings.readerViewMode }
+
+    /// The colours the page is printed in. `Automatic` is resolved here, where
+    /// the appearance the window is actually drawn in is known.
+    private var palette: ReaderPagePalette {
+        model.settings.readerPageTheme.palette(inDarkMode: colorScheme == .dark)
+    }
 
     // MARK: - Controls
 
@@ -285,19 +294,7 @@ struct BookReaderView: View {
             }
             .keyboardShortcut("f", modifiers: .command)
 
-            viewModeMenu
-
-            if book.format == .epub {
-                ToolbarIconButton(title: "Smaller text", systemImage: "textformat.size.smaller") {
-                    fontSize = max(Self.fontRange.lowerBound, fontSize - 1)
-                }
-                .disabled(fontSize <= Self.fontRange.lowerBound)
-
-                ToolbarIconButton(title: "Larger text", systemImage: "textformat.size.larger") {
-                    fontSize = min(Self.fontRange.upperBound, fontSize + 1)
-                }
-                .disabled(fontSize >= Self.fontRange.upperBound)
-            }
+            appearanceMenu
 
             Button(action: toggleBookmark) {
                 Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
@@ -332,10 +329,23 @@ struct BookReaderView: View {
         return book.chapters.firstIndex { $0.audioURL == playing }
     }
 
-    /// How the book is laid out, and — for an EPUB, where Atten sets the type
-    /// itself — whether it is justified the way a printed book is.
-    private var viewModeMenu: some View {
+    /// Everything about how the book looks, behind one button.
+    ///
+    /// These used to be three controls in a row — a layout menu and a pair of
+    /// text-size steppers — which is three things to recognise for one idea.
+    /// A book reader has one of these, marked Aa, and everything about the
+    /// look of the page is inside it.
+    private var appearanceMenu: some View {
         Menu {
+            Picker("Page", selection: pageThemeBinding) {
+                ForEach(ReaderPageTheme.allCases) { theme in
+                    Text(theme.displayName).tag(theme)
+                }
+            }
+            .pickerStyle(.inline)
+
+            Divider()
+
             Picker("Layout", selection: viewModeBinding) {
                 ForEach(ReaderViewMode.allCases) { mode in
                     Label(mode.displayName, systemImage: mode.icon).tag(mode)
@@ -345,19 +355,36 @@ struct BookReaderView: View {
 
             if book.format == .epub {
                 Divider()
+                Button("Smaller Text", systemImage: "textformat.size.smaller") {
+                    fontSize = max(Self.fontRange.lowerBound, fontSize - 1)
+                }
+                .disabled(fontSize <= Self.fontRange.lowerBound)
+                Button("Larger Text", systemImage: "textformat.size.larger") {
+                    fontSize = min(Self.fontRange.upperBound, fontSize + 1)
+                }
+                .disabled(fontSize >= Self.fontRange.upperBound)
                 Toggle("Justify Text", isOn: justifyBinding)
             }
         } label: {
-            Image(systemName: viewMode.icon)
+            Image(systemName: "textformat.size")
                 .font(AttenTypography.control)
                 .frame(width: 30, height: 30)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Layout: \(viewMode.displayName)")
-        .accessibilityLabel("Page layout")
-        .accessibilityValue(viewMode.displayName)
+        .help("Page appearance and layout")
+        .accessibilityLabel("Page appearance")
+        .accessibilityValue(
+            "\(model.settings.readerPageTheme.displayName), \(viewMode.displayName)"
+        )
+    }
+
+    private var pageThemeBinding: Binding<ReaderPageTheme> {
+        Binding(
+            get: { model.settings.readerPageTheme },
+            set: { model.selectReaderPageTheme($0) }
+        )
     }
 
     private var viewModeBinding: Binding<ReaderViewMode> {
