@@ -44,11 +44,17 @@ public struct ReaderPagePalette: Equatable, Sendable {
 extension ReaderPagePalette {
     /// How far the ink may be taken down.
     ///
-    /// One floor for every theme, set by the tightest of them — Quiet's light
-    /// page, which is under AA below 0.68. A dark page could go further, but a
-    /// control whose range moves when the lights change is a control the
-    /// reader cannot learn.
-    public static let inkBrightnessRange = 0.7...1.0
+    /// This range deliberately goes below WCAG AA, which the themes otherwise
+    /// clear by design: AA is a floor for text a reader is made to read, and
+    /// this is a reader choosing, on their own page, at night, with the level
+    /// in front of them and the way back a drag away. What it will not do is
+    /// let the words disappear into the page — at the dimmest setting the
+    /// tightest theme still holds about 2.5:1, which is soft, not gone.
+    ///
+    /// One floor for every theme, set by the tightest of them. A dark page
+    /// could go further, but a control whose range moves when the lights
+    /// change is a control the reader cannot learn.
+    public static let inkBrightnessRange = 0.45...1.0
 
     /// The same page with quieter ink.
     ///

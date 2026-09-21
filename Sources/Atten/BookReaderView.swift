@@ -40,13 +40,15 @@ struct BookReaderView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var panelTab = ReaderPanelTab.contents
     @State private var isChromeHovered = false
+    @State private var isShowingAppearance = false
+    /// The brightness the page is drawn at right now. Held here as well as in
+    /// settings so dragging the slider shows on the page as it moves, while
+    /// only the level the reader let go of is written to disk.
+    @State private var brightness = 1.0
     @FocusState private var isSearchFocused: Bool
     @AppStorage("Atten.readerFontSize") private var fontSize = 17.0
 
     private static let fontRange = 13.0...30.0
-    /// Nine steps across the range, which is fine enough to settle on a level
-    /// and coarse enough that a press is worth making.
-    private static let brightnessStep = 0.05
 
     private var chapter: BookChapter? {
         book.chapters.indices.contains(chapterIndex) ? book.chapters[chapterIndex] : nil
@@ -240,7 +242,7 @@ struct BookReaderView: View {
     /// behind it — which would lighten the page rather than soften the words.
     private var palette: ReaderPagePalette {
         guard book.format.isTypeset else { return themePalette }
-        return themePalette.dimmingInk(to: model.settings.readerTextBrightness)
+        return themePalette.dimmingInk(to: brightness)
     }
 
     private var themePalette: ReaderPagePalette {
@@ -316,13 +318,17 @@ struct BookReaderView: View {
 
             Spacer(minLength: 0)
 
+            zoomControls
+
+            textSizeShortcuts
+
             ToolbarIconButton(title: "Find in book (⌘F)", systemImage: "magnifyingglass") {
                 model.setReaderFocus(false)
                 isSearchFocused = true
             }
             .keyboardShortcut("f", modifiers: .command)
 
-            appearanceMenu
+            appearanceButton
 
             Button(action: toggleBookmark) {
                 Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
@@ -363,80 +369,186 @@ struct BookReaderView: View {
     /// text-size steppers — which is three things to recognise for one idea.
     /// A book reader has one of these, marked Aa, and everything about the
     /// look of the page is inside it.
-    private var appearanceMenu: some View {
-        Menu {
+    ///
+    /// A popover rather than a menu, because brightness is a slider and a
+    /// slider is a thing to drag: a menu closes on the drag that is meant to
+    /// be setting it. Everything else moved along with it so the panel stays
+    /// one place rather than two.
+    private var appearanceButton: some View {
+        ToolbarIconButton(title: "Page appearance and layout", systemImage: "textformat.size") {
+            isShowingAppearance.toggle()
+        }
+        .popover(isPresented: $isShowingAppearance, arrowEdge: .bottom) {
+            appearancePanel
+                .padding(AttenSpacing.md)
+                .frame(width: 280)
+        }
+        .accessibilityLabel("Page appearance")
+        .accessibilityValue(viewMode.displayName)
+    }
+
+    private var appearancePanel: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.md) {
+            panelLabel("Layout")
             Picker("Layout", selection: viewModeBinding) {
                 ForEach(ReaderViewMode.allCases) { mode in
-                    Label(mode.displayName, systemImage: mode.icon).tag(mode)
+                    Image(systemName: mode.icon)
+                        .help(mode.displayName)
+                        .tag(mode)
                 }
             }
-            .pickerStyle(.inline)
+            .pickerStyle(.segmented)
+            .labelsHidden()
 
             if book.format == .pdf {
-                Divider()
-
-                Button("Zoom In", systemImage: "plus.magnifyingglass") { zoom(.larger) }
-                    .keyboardShortcut("+", modifiers: .command)
-                Button("Zoom Out", systemImage: "minus.magnifyingglass") { zoom(.smaller) }
-                    .keyboardShortcut("-", modifiers: .command)
-                Button("Fit Page", systemImage: "arrow.up.left.and.down.right.magnifyingglass") {
-                    zoom(.fit)
+                Divider().overlay(AttenColor.separator)
+                panelLabel("Zoom")
+                HStack(spacing: AttenSpacing.xs) {
+                    Button("Zoom Out", systemImage: "minus.magnifyingglass") { zoom(.smaller) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(AttenSecondaryButtonStyle())
+                    Button("Fit Page") { zoom(.fit) }
+                        .buttonStyle(AttenSecondaryButtonStyle())
+                    Button("Zoom In", systemImage: "plus.magnifyingglass") { zoom(.larger) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(AttenSecondaryButtonStyle())
                 }
-                .keyboardShortcut("0", modifiers: .command)
             }
 
             if book.format.isTypeset {
-                Divider()
-
+                Divider().overlay(AttenColor.separator)
                 Picker("Typeface", selection: readerFontBinding) {
                     ForEach(ReaderFont.allCases) { font in
                         Text(font.displayName).tag(font)
                     }
                 }
-                .pickerStyle(.inline)
 
-                Divider()
+                panelLabel("Text size")
+                HStack(spacing: AttenSpacing.xs) {
+                    Button("Smaller Text", systemImage: "textformat.size.smaller") {
+                        setFontSize(fontSize - 1)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(AttenSecondaryButtonStyle())
+                    .disabled(fontSize <= Self.fontRange.lowerBound)
 
-                Button("Smaller Text", systemImage: "textformat.size.smaller") {
-                    fontSize = max(Self.fontRange.lowerBound, fontSize - 1)
+                    Text("\(Int(fontSize)) pt")
+                        .font(AttenTypography.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(AttenColor.textSecondary)
+                        .frame(maxWidth: .infinity)
+
+                    Button("Larger Text", systemImage: "textformat.size.larger") {
+                        setFontSize(fontSize + 1)
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(AttenSecondaryButtonStyle())
+                    .disabled(fontSize >= Self.fontRange.upperBound)
                 }
-                .disabled(fontSize <= Self.fontRange.lowerBound)
-                Button("Larger Text", systemImage: "textformat.size.larger") {
-                    fontSize = min(Self.fontRange.upperBound, fontSize + 1)
-                }
-                .disabled(fontSize >= Self.fontRange.upperBound)
+
+                brightnessSlider
+
                 Toggle("Justify Text", isOn: justifyBinding)
-
-                Divider()
-
-                // The same shape as the text-size pair above it: a reader who
-                // has found one has found the other. A slider inside a menu
-                // is a thing to drag in a list of things to press.
-                Button("Dimmer Text", systemImage: "sun.min") {
-                    model.setReaderTextBrightness(textBrightness - Self.brightnessStep)
-                }
-                .disabled(textBrightness <= ReaderPagePalette.inkBrightnessRange.lowerBound)
-                Button("Brighter Text", systemImage: "sun.max") {
-                    model.setReaderTextBrightness(textBrightness + Self.brightnessStep)
-                }
-                .disabled(textBrightness >= ReaderPagePalette.inkBrightnessRange.upperBound)
+                    .font(AttenTypography.body)
             }
-        } label: {
-            Image(systemName: "textformat.size")
-                .font(AttenTypography.control)
-                .frame(width: 30, height: 30)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Page appearance and layout")
-        .accessibilityLabel("Page appearance")
-        .accessibilityValue(
-            viewMode.displayName
-        )
     }
 
-    private var textBrightness: Double { model.settings.readerTextBrightness }
+    /// The ink, not the screen: the page keeps its colour and its marks, and
+    /// only the words soften. The percentage is there because a slider with no
+    /// number on it cannot be put back where it was.
+    private var brightnessSlider: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
+            HStack {
+                panelLabel("Text brightness")
+                Spacer()
+                Text("\(Int((brightness * 100).rounded()))%")
+                    .font(AttenTypography.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            HStack(spacing: AttenSpacing.xs) {
+                Image(systemName: "sun.min")
+                    .foregroundStyle(AttenColor.textSecondary)
+                Slider(
+                    value: $brightness,
+                    in: ReaderPagePalette.inkBrightnessRange,
+                    step: 0.01,
+                    // Written down when the drag ends. Saving on every tick
+                    // would rewrite the settings file a few dozen times for
+                    // one sweep of the thumb.
+                    onEditingChanged: { editing in
+                        if !editing { model.setReaderTextBrightness(brightness) }
+                    }
+                )
+                .controlSize(.small)
+                Image(systemName: "sun.max")
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Text brightness")
+            .accessibilityValue("\(Int((brightness * 100).rounded())) percent")
+        }
+    }
+
+    private func panelLabel(_ text: String) -> some View {
+        Text(text)
+            .font(AttenTypography.caption)
+            .foregroundStyle(AttenColor.textSecondary)
+    }
+
+    /// Zoom where a reader looks for it — on the page, not inside a menu.
+    /// A PDF is the one book Atten cannot set bigger by changing the type, so
+    /// this is the only way in and it should not have to be found.
+    @ViewBuilder private var zoomControls: some View {
+        if book.format == .pdf {
+            Button { zoom(.smaller) } label: {
+                Image(systemName: "minus.magnifyingglass")
+            }
+            .buttonStyle(AttenSecondaryButtonStyle())
+            .keyboardShortcut("-", modifiers: .command)
+            .help("Zoom out (⌘−)")
+            .accessibilityLabel("Zoom out")
+
+            Button { zoom(.larger) } label: {
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .buttonStyle(AttenSecondaryButtonStyle())
+            .keyboardShortcut("+", modifiers: .command)
+            .help("Zoom in (⌘+)")
+            .accessibilityLabel("Zoom in")
+
+            // Fit has no button of its own: it is the one of the three that is
+            // asked for once, and the panel is where it lives.
+            Button("Fit page") { zoom(.fit) }
+                .keyboardShortcut("0", modifiers: .command)
+                .hidden()
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// ⌘+ and ⌘− set the type on a book Atten typesets itself — the same keys
+    /// that zoom a PDF, because to the reader they are the same request: make
+    /// the words bigger. Hidden, because the panel already shows the controls.
+    @ViewBuilder private var textSizeShortcuts: some View {
+        if book.format.isTypeset {
+            Button("Larger text") { setFontSize(fontSize + 1) }
+                .keyboardShortcut("+", modifiers: .command)
+                .hidden()
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+            Button("Smaller text") { setFontSize(fontSize - 1) }
+                .keyboardShortcut("-", modifiers: .command)
+                .hidden()
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func setFontSize(_ size: Double) {
+        fontSize = min(max(Self.fontRange.lowerBound, size), Self.fontRange.upperBound)
+    }
 
     private func zoom(_ step: ReaderPDFZoom.Step) {
         pdfZoom = ReaderPDFZoom(step: step)
@@ -686,6 +798,7 @@ struct BookReaderView: View {
     // MARK: - Moving about
 
     private func restore() {
+        brightness = model.settings.readerTextBrightness
         let saved = book.lastLocation
         chapterIndex = min(max(0, saved?.chapterIndex ?? 0), max(0, book.chapters.count - 1))
         rebuildPagination()
