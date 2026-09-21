@@ -16,6 +16,28 @@ struct ReaderPage: NSViewRepresentable {
     /// Lit up behind every match while a search is running.
     let highlight: String
 
+    /// What was last put into the text view.
+    ///
+    /// A page turn animates, so SwiftUI evaluates the body of every page on
+    /// the spread on every frame of it — and setting the whole of a page's
+    /// text storage sixty times a second while it is also being transformed is
+    /// what made a turn stutter. Nothing about a page's text changes during a
+    /// turn, so this remembers enough to know that and do nothing.
+    final class Coordinator {
+        var applied: Applied?
+
+        struct Applied: Equatable {
+            /// The chapter's text is a reference type built once, so its
+            /// identity settles this without comparing a chapter of prose.
+            let text: ObjectIdentifier
+            let pageIndex: Int
+            let style: ReaderPageStyle
+            let highlight: String
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> NSTextView {
         let view = NSTextView()
         view.isEditable = false
@@ -30,6 +52,15 @@ struct ReaderPage: NSViewRepresentable {
     }
 
     func updateNSView(_ view: NSTextView, context: Context) {
+        let wanted = Coordinator.Applied(
+            text: ObjectIdentifier(layout.text),
+            pageIndex: pageIndex,
+            style: style,
+            highlight: highlight
+        )
+        guard context.coordinator.applied != wanted else { return }
+        context.coordinator.applied = wanted
+
         view.textContainer?.size = style.pageSize
         view.frame = CGRect(origin: .zero, size: style.pageSize)
         let range = layout.range(ofPage: pageIndex)
@@ -101,7 +132,7 @@ struct TurningLeaf<Front: View, Back: View>: View {
     /// turns like a card being dealt rather than like paper.
     private var shade: Double {
         let lift = 1 - abs(progress - 0.5) * 2
-        return lift * 0.30
+        return lift * 0.18
     }
 
     var body: some View {

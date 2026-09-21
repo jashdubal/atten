@@ -205,6 +205,16 @@ public enum ReaderViewMode: String, Codable, CaseIterable, Identifiable, Sendabl
     /// How many pages a turn moves through.
     public var pagesPerTurn: Int { self == .spread ? 2 : 1 }
 
+    /// Whether a turn pivots a leaf of the book.
+    ///
+    /// Only a spread can. A leaf has two sides, and a spread is the only
+    /// layout with somewhere for both of them to be: the page it lifts off
+    /// and the page it comes down on. Pivoting a single page through a
+    /// half-turn sweeps the whole measure of text across the window and shows
+    /// the reader the blank back of a sheet on the way, which is a great deal
+    /// of movement to read one page further on.
+    public var turnsALeaf: Bool { self == .spread }
+
     public var isPaged: Bool { self != .scroll }
 }
 
