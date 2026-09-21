@@ -36,7 +36,10 @@ public enum DocumentImportError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case let .unsupportedFormat(pathExtension):
-            "Atten reads PDF and EPUB books. It cannot open a .\(pathExtension) file."
+            """
+            Atten reads PDFs, EPUBs, and text, Markdown, Word and RTF \
+            documents. It cannot open a .\(pathExtension) file.
+            """
         case let .unreadable(name):
             """
             Atten could not open \(name). The file may be damaged, or protected \
@@ -44,23 +47,24 @@ public enum DocumentImportError: LocalizedError, Equatable {
             """
         case let .noText(name):
             """
-            \(name) has no text Atten can read aloud. Scanned books are images of \
-            pages rather than text, so they need to be run through OCR first.
+            \(name) has no text Atten can read aloud. Scanned documents are images \
+            of pages rather than text, so they need to be run through OCR first.
             """
         }
     }
 }
 
 public enum DocumentImporter {
-    public static let supportedExtensions = ["pdf", "epub"]
+    public static let supportedExtensions = BookFormat.supportedExtensions
 
-    /// Reads a book into chapters. This walks every page of the file, so it is
-    /// meant to be called off the main actor.
+    /// Reads a document into chapters. This walks every page of the file, so
+    /// it is meant to be called off the main actor.
     public static func extract(from url: URL) throws -> ExtractedDocument {
-        switch url.pathExtension.lowercased() {
-        case "pdf": try PDFTextExtractor.extract(from: url)
-        case "epub": try EPUBTextExtractor.extract(from: url)
-        case let other: throw DocumentImportError.unsupportedFormat(other)
+        switch BookFormat.forExtension(url.pathExtension) {
+        case .pdf: try PDFTextExtractor.extract(from: url)
+        case .epub: try EPUBTextExtractor.extract(from: url)
+        case .document: try FlatDocumentExtractor.extract(from: url)
+        case nil: throw DocumentImportError.unsupportedFormat(url.pathExtension)
         }
     }
 }

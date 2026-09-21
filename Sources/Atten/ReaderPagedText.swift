@@ -40,6 +40,9 @@ struct ReaderPagedText: View {
     let chapterID: UUID
     let chapterIndex: Int
     let chapterNumber: Int
+    /// What one division of this document is called — a book has chapters, a
+    /// report has sections — so the line above the title says the right thing.
+    let sectionNoun: String
     let title: String
     let paragraphs: [String]
     let fontSize: Double
@@ -428,13 +431,14 @@ struct ReaderPagedText: View {
         guard pageSize.width > 1, pageSize.height > 1, !paragraphs.isEmpty else { return }
         let style = self.style
         let number = chapterNumber
+        let noun = sectionNoun
         let title = self.title
         let paragraphs = self.paragraphs
         // Breaking a long chapter into lines is real work, and the reader
         // should not stop while it happens.
         let fresh = await Task.detached(priority: .userInitiated) {
             ReaderTypesetter.layout(
-                eyebrow: "Chapter \(number)",
+                eyebrow: "\(noun) \(number)",
                 title: title,
                 paragraphs: paragraphs,
                 style: style

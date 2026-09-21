@@ -3,13 +3,56 @@ import Foundation
 public enum BookFormat: String, Codable, Sendable {
     case pdf
     case epub
+    /// Anything that is one flat run of text rather than a book: a note, a
+    /// paper, a report someone wants read out to them. Atten sets the type for
+    /// these itself, exactly as it does for an EPUB.
+    case document
 
-    public var displayName: String { rawValue.uppercased() }
+    /// The extensions each format is recognised by. A document has several
+    /// because the format is about what Atten does with the file, not about
+    /// which of the interchangeable text formats it arrived in.
+    public var extensions: [String] {
+        switch self {
+        case .pdf: ["pdf"]
+        case .epub: ["epub"]
+        case .document: ["txt", "text", "md", "markdown", "rtf", "rtfd", "doc", "docx", "html", "htm"]
+        }
+    }
+
+    public static func forExtension(_ pathExtension: String) -> BookFormat? {
+        let wanted = pathExtension.lowercased()
+        return [.pdf, .epub, .document].first { $0.extensions.contains(wanted) }
+    }
+
+    public static let supportedExtensions = [BookFormat.pdf, .epub, .document]
+        .flatMap(\.extensions)
+
+    public var displayName: String {
+        switch self {
+        case .pdf, .epub: rawValue.uppercased()
+        case .document: "DOC"
+        }
+    }
+
+    /// Whether Atten sets this format's type itself. A PDF is already typeset
+    /// — it is pages of artwork, and reflowing it would be inventing a book
+    /// its publisher did not print.
+    public var isTypeset: Bool { self != .pdf }
+
+    /// What one division of the whole is called, which is the word the reader
+    /// prints above a title. A report has sections, not chapters.
+    public var sectionNoun: String {
+        switch self {
+        case .epub: "Chapter"
+        case .pdf, .document: "Section"
+        }
+    }
 
     public var icon: String {
         switch self {
         case .pdf: "doc.richtext"
         case .epub: "book.closed"
+        case .document: "doc.text"
         }
     }
 }

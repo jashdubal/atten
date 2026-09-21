@@ -84,6 +84,10 @@ final class BookCoverStore {
     /// Runs off the main actor, so it touches nothing but the file it is given.
     private nonisolated static func extract(from url: URL, format: BookFormat) -> Data? {
         switch format {
+        // A report has no cover, and inventing one would be a picture of
+        // something that does not exist. The shelf draws its own card.
+        case .document:
+            return nil
         case .epub:
             return EPUBTextExtractor.coverImageData(from: url)
         case .pdf:

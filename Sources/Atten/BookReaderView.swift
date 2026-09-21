@@ -171,6 +171,7 @@ struct BookReaderView: View {
                     chapterID: chapter.id,
                     chapterIndex: chapterIndex,
                     chapterNumber: chapterIndex + 1,
+                    sectionNoun: book.format.sectionNoun,
                     title: chapter.title,
                     paragraphs: paragraphs,
                     fontSize: fontSize,
@@ -202,6 +203,7 @@ struct BookReaderView: View {
                 ReaderTextView(
                     chapterIndex: chapterIndex,
                     chapterNumber: chapterIndex + 1,
+                    sectionNoun: book.format.sectionNoun,
                     title: chapter.title,
                     paragraphs: paragraphs,
                     fontSize: fontSize,
@@ -355,7 +357,7 @@ struct BookReaderView: View {
             }
             .pickerStyle(.inline)
 
-            if book.format == .epub {
+            if book.format.isTypeset {
                 Divider()
 
                 Picker("Typeface", selection: readerFontBinding) {
@@ -635,7 +637,9 @@ struct BookReaderView: View {
     }
 
     private var turnLabel: String {
-        viewMode.isPaged || book.format == .pdf ? "page" : "chapter"
+        viewMode.isPaged || book.format == .pdf
+            ? "page"
+            : book.format.sectionNoun.lowercased()
     }
 
     // MARK: - Moving about
@@ -694,7 +698,7 @@ struct BookReaderView: View {
     /// chapter opens; breaking those paragraphs into pages happens after, off
     /// the main thread, in the typesetter.
     private func loadChapter(startingAt paragraph: Int, reopen: Bool = true) {
-        guard book.format == .epub, let chapter else {
+        guard book.format.isTypeset, let chapter else {
             paragraphs = []
             return
         }

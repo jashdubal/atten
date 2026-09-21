@@ -101,12 +101,14 @@ final class DocumentImportTests: XCTestCase {
         XCTAssertTrue(chapters[0].text.contains("bold and a bare & ampersand."), chapters[0].text)
     }
 
-    func testANonBookFileIsRefusedByExtension() throws {
-        let url = workspace.appendingPathComponent("notes.txt")
+    /// A text file used to be refused here. It is now a document Atten reads,
+    /// so the thing being tested is a format it really has no reader for.
+    func testAFileAttenHasNoReaderForIsRefusedByExtension() throws {
+        let url = workspace.appendingPathComponent("slides.key")
         try "hello".write(to: url, atomically: true, encoding: .utf8)
 
         XCTAssertThrowsError(try DocumentImporter.extract(from: url)) { error in
-            XCTAssertEqual(error as? DocumentImportError, .unsupportedFormat("txt"))
+            XCTAssertEqual(error as? DocumentImportError, .unsupportedFormat("key"))
         }
     }
 

@@ -279,6 +279,8 @@ struct ReaderParagraphID: Hashable {
 struct ReaderTextView: View {
     let chapterIndex: Int
     let chapterNumber: Int
+    /// A book has chapters, a report has sections.
+    let sectionNoun: String
     let title: String
     let paragraphs: [String]
     let fontSize: Double
@@ -329,7 +331,7 @@ struct ReaderTextView: View {
         .onHover { if !$0 { hovered = nil } }
     }
 
-    private var eyebrow: String { "Chapter \(chapterNumber)" }
+    private var eyebrow: String { "\(sectionNoun) \(chapterNumber)" }
 
     private var opener: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {

@@ -768,8 +768,11 @@ final class AppModel {
 
     func openBookImportPanel() {
         let panel = NSOpenPanel()
-        panel.title = "Add Books to Atten"
-        panel.allowedContentTypes = [.pdf, .epub]
+        panel.title = "Add to Atten"
+        // Built from the same list the shelf accepts a drop against, so the
+        // panel and the drop target can never disagree about what opens.
+        panel.allowedContentTypes = DocumentImporter.supportedExtensions
+            .compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK else { return }
