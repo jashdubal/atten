@@ -114,6 +114,9 @@ final class ReaderTurnTests: XCTestCase {
 /// its own inner edge landed it a whole gutter away from the facing page, and
 /// the page jumped sideways when the leaf was swapped for the real one at the
 /// end of the turn.
+/// Main-actor bound because a SwiftUI view is, and building one to ask where
+/// it would land is still building one.
+@MainActor
 final class TurningLeafGeometryTests: XCTestCase {
     private let width: CGFloat = 420
     private let gutter: CGFloat = 40
