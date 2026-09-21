@@ -119,7 +119,7 @@ struct LibraryView: View {
             PageHeader(
                 eyebrow: "Library",
                 title: "Books and documents",
-                detail: "Add a PDF or EPUB, read it here, and narrate it chapter by chapter."
+                detail: "Add a book, a paper, or a report — Atten reads it here and narrates it a section at a time."
             )
             Spacer()
             Button {
@@ -144,7 +144,7 @@ struct LibraryView: View {
                 title: query.isEmpty ? "Your library is empty" : "No matching books",
                 systemImage: "books.vertical",
                 detail: query.isEmpty
-                    ? "Add a PDF or EPUB — or drop one here — and Atten reads it into chapters you can listen to."
+                    ? "Add a PDF, EPUB, Word, Markdown or text file — or drop one here — and Atten reads it into sections you can listen to."
                     : "Try a different search term."
             )
             if query.isEmpty {
