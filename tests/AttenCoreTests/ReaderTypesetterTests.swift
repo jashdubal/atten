@@ -19,13 +19,14 @@ final class ReaderTypesetterTests: XCTestCase {
             fontSize: 17,
             pageSize: CGSize(width: width, height: height),
             palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+            font: .default,
             isJustified: true
         )
     }
 
     private func layout(width: Double, height: Double = 560) -> ReaderChapterLayout {
         ReaderTypesetter.layout(
-            chapterNumber: 3,
+            eyebrow: "Chapter 3",
             title: "The Shepherd",
             paragraphs: paragraphs,
             style: style(width: width, height: height)

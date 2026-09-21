@@ -174,6 +174,7 @@ struct BookReaderView: View {
                     title: chapter.title,
                     paragraphs: paragraphs,
                     fontSize: fontSize,
+                    font: model.settings.readerFont,
                     isJustified: model.settings.readerJustifiesText,
                     palette: palette,
                     mode: viewMode,
@@ -204,6 +205,7 @@ struct BookReaderView: View {
                     title: chapter.title,
                     paragraphs: paragraphs,
                     fontSize: fontSize,
+                    font: model.settings.readerFont,
                     query: query,
                     isFocusMode: isFocusMode,
                     palette: palette,
@@ -355,6 +357,16 @@ struct BookReaderView: View {
 
             if book.format == .epub {
                 Divider()
+
+                Picker("Typeface", selection: readerFontBinding) {
+                    ForEach(ReaderFont.allCases) { font in
+                        Text(font.displayName).tag(font)
+                    }
+                }
+                .pickerStyle(.inline)
+
+                Divider()
+
                 Button("Smaller Text", systemImage: "textformat.size.smaller") {
                     fontSize = max(Self.fontRange.lowerBound, fontSize - 1)
                 }
@@ -384,6 +396,13 @@ struct BookReaderView: View {
         Binding(
             get: { model.settings.readerPageTheme },
             set: { model.selectReaderPageTheme($0) }
+        )
+    }
+
+    private var readerFontBinding: Binding<ReaderFont> {
+        Binding(
+            get: { model.settings.readerFont },
+            set: { model.selectReaderFont($0) }
         )
     }
 

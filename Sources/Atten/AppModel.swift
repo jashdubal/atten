@@ -315,6 +315,12 @@ final class AppModel {
         saveSettings()
     }
 
+    func selectReaderFont(_ font: ReaderFont) {
+        guard settings.readerFont != font else { return }
+        settings.readerFont = font
+        saveSettings()
+    }
+
     func setReaderFocus(_ on: Bool) {
         guard isReaderFocused != on else { return }
         isReaderFocused = on

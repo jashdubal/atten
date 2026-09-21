@@ -43,6 +43,8 @@ struct ReaderPagedText: View {
     let title: String
     let paragraphs: [String]
     let fontSize: Double
+    /// The face the page is set in.
+    let font: ReaderFont
     let isJustified: Bool
     /// What the page is printed in. Resolved above, so the reader never has to
     /// work out whether the system is in dark mode.
@@ -230,8 +232,7 @@ struct ReaderPagedText: View {
     /// The page number at the foot of the page, as a book prints it.
     private func folio(_ number: Int) -> some View {
         Text(String(number))
-            .font(.system(size: max(9, fontSize * 0.62)))
-            .monospacedDigit()
+            .font(Font(ReaderTypesetter.face(font, size: max(9, fontSize * 0.7), weight: .regular)))
             .foregroundStyle(Color(hex: palette.inkMuted))
             .frame(maxWidth: .infinity)
             // The control bar announces the page; a second voice saying the
@@ -418,6 +419,7 @@ struct ReaderPagedText: View {
             fontSize: fontSize,
             pageSize: pageSize,
             palette: palette,
+            font: font,
             isJustified: isJustified
         )
     }
@@ -432,7 +434,7 @@ struct ReaderPagedText: View {
         // should not stop while it happens.
         let fresh = await Task.detached(priority: .userInitiated) {
             ReaderTypesetter.layout(
-                chapterNumber: number,
+                eyebrow: "Chapter \(number)",
                 title: title,
                 paragraphs: paragraphs,
                 style: style
@@ -516,7 +518,7 @@ struct ReaderPagedText: View {
     /// pages wider than the single-page view, which is the opposite of what
     /// opening a second page is for. The measure grows with the type and with
     /// nothing else.
-    private var measure: CGFloat { fontSize * 34 }
+    private var measure: CGFloat { fontSize * 31 }
 
     /// The text box on a page. The sheet around it is this plus its margins.
     private func pageSize(in available: CGSize) -> CGSize {
