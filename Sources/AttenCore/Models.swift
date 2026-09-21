@@ -242,6 +242,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var readerJustifiesText: Bool
     /// The face the page is set in.
     public var readerFont: ReaderFont
+    /// How bright the ink on a typeset page is, as a fraction of the theme's
+    /// own. Below 1 the text is carried towards the page's ground, for reading
+    /// at night without the glare of full contrast.
+    public var readerTextBrightness: Double
 
     public init(
         appearance: AppearancePreference = .system,
@@ -257,7 +261,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         playbackRate: Double = 1.0,
         readerViewMode: ReaderViewMode = .page,
         readerJustifiesText: Bool = true,
-        readerFont: ReaderFont = .default
+        readerFont: ReaderFont = .default,
+        readerTextBrightness: Double = 1.0
     ) {
         self.appearance = appearance
         self.theme = theme
@@ -273,6 +278,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.readerViewMode = readerViewMode
         self.readerJustifiesText = readerJustifiesText
         self.readerFont = readerFont
+        self.readerTextBrightness = readerTextBrightness
     }
 
     // Only the export folder is required, because no default for it exists
@@ -311,5 +317,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
         readerFont = (try? container
             .decodeIfPresent(ReaderFont.self, forKey: .readerFont))
             .flatMap { $0 } ?? .default
+        // Clamped for the same reason the playback rate is: a level written by
+        // a version with a wider range must not land outside the one the
+        // controls can get back out of.
+        readerTextBrightness = (try container
+            .decodeIfPresent(Double.self, forKey: .readerTextBrightness))
+            .map { min(max(ReaderPagePalette.inkBrightnessRange.lowerBound, $0), ReaderPagePalette.inkBrightnessRange.upperBound) } ?? 1.0
     }
 }

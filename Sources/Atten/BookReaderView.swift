@@ -22,6 +22,7 @@ struct BookReaderView: View {
     @State private var pdfPageCount = 0
     @State private var pdfPageText = ""
     @State private var pdfJump: ReaderPDFJump?
+    @State private var pdfZoom: ReaderPDFZoom?
     @State private var pagination = ReaderPagination.empty
     /// Where the paged reader is, reported back as it turns.
     @State private var pageInChapter = 0
@@ -43,6 +44,9 @@ struct BookReaderView: View {
     @AppStorage("Atten.readerFontSize") private var fontSize = 17.0
 
     private static let fontRange = 13.0...30.0
+    /// Nine steps across the range, which is fine enough to settle on a level
+    /// and coarse enough that a press is worth making.
+    private static let brightnessStep = 0.05
 
     private var chapter: BookChapter? {
         book.chapters.indices.contains(chapterIndex) ? book.chapters[chapterIndex] : nil
@@ -151,6 +155,7 @@ struct BookReaderView: View {
             ReaderPDFView(
                 url: book.sourceURL,
                 jump: pdfJump,
+                zoom: pdfZoom,
                 highlights: hits,
                 palette: palette,
                 mode: viewMode,
@@ -229,7 +234,16 @@ struct BookReaderView: View {
 
     /// The colours the page is printed in. `Automatic` is resolved here, where
     /// the appearance the window is actually drawn in is known.
+    ///
+    /// Dimmed ink only reaches a book Atten sets itself. A PDF's text is in the
+    /// document, so the only thing quieter ink could change there is the colour
+    /// behind it — which would lighten the page rather than soften the words.
     private var palette: ReaderPagePalette {
+        guard book.format.isTypeset else { return themePalette }
+        return themePalette.dimmingInk(to: model.settings.readerTextBrightness)
+    }
+
+    private var themePalette: ReaderPagePalette {
         let theme = AttenColor.palette
         let dark = colorScheme == .dark
         func value(_ color: AttenThemeColor) -> UInt { dark ? color.dark : color.light }
@@ -358,6 +372,19 @@ struct BookReaderView: View {
             }
             .pickerStyle(.inline)
 
+            if book.format == .pdf {
+                Divider()
+
+                Button("Zoom In", systemImage: "plus.magnifyingglass") { zoom(.larger) }
+                    .keyboardShortcut("+", modifiers: .command)
+                Button("Zoom Out", systemImage: "minus.magnifyingglass") { zoom(.smaller) }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("Fit Page", systemImage: "arrow.up.left.and.down.right.magnifyingglass") {
+                    zoom(.fit)
+                }
+                .keyboardShortcut("0", modifiers: .command)
+            }
+
             if book.format.isTypeset {
                 Divider()
 
@@ -379,6 +406,20 @@ struct BookReaderView: View {
                 }
                 .disabled(fontSize >= Self.fontRange.upperBound)
                 Toggle("Justify Text", isOn: justifyBinding)
+
+                Divider()
+
+                // The same shape as the text-size pair above it: a reader who
+                // has found one has found the other. A slider inside a menu
+                // is a thing to drag in a list of things to press.
+                Button("Dimmer Text", systemImage: "sun.min") {
+                    model.setReaderTextBrightness(textBrightness - Self.brightnessStep)
+                }
+                .disabled(textBrightness <= ReaderPagePalette.inkBrightnessRange.lowerBound)
+                Button("Brighter Text", systemImage: "sun.max") {
+                    model.setReaderTextBrightness(textBrightness + Self.brightnessStep)
+                }
+                .disabled(textBrightness >= ReaderPagePalette.inkBrightnessRange.upperBound)
             }
         } label: {
             Image(systemName: "textformat.size")
@@ -393,6 +434,12 @@ struct BookReaderView: View {
         .accessibilityValue(
             viewMode.displayName
         )
+    }
+
+    private var textBrightness: Double { model.settings.readerTextBrightness }
+
+    private func zoom(_ step: ReaderPDFZoom.Step) {
+        pdfZoom = ReaderPDFZoom(step: step)
     }
 
     private var readerFontBinding: Binding<ReaderFont> {

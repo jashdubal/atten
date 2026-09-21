@@ -315,6 +315,16 @@ final class AppModel {
         saveSettings()
     }
 
+    /// Clamped here rather than at the call site, so the menu can simply step
+    /// and the level can never leave the range the palette will honour.
+    func setReaderTextBrightness(_ level: Double) {
+        let range = ReaderPagePalette.inkBrightnessRange
+        let clamped = min(max(range.lowerBound, level), range.upperBound)
+        guard settings.readerTextBrightness != clamped else { return }
+        settings.readerTextBrightness = clamped
+        saveSettings()
+    }
+
     func setReaderFocus(_ on: Bool) {
         guard isReaderFocused != on else { return }
         isReaderFocused = on
