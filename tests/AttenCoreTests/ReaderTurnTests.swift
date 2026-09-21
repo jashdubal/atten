@@ -31,7 +31,7 @@ final class ReaderTurnTests: XCTestCase {
         style: ReaderPageStyle(
             fontSize: 17,
             pageSize: CGSize(width: 380, height: 520),
-            palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+            palette: .of(.paper),
             font: .default,
             isJustified: true
         )
@@ -44,7 +44,7 @@ final class ReaderTurnTests: XCTestCase {
             style: ReaderPageStyle(
                 fontSize: 17,
                 pageSize: CGSize(width: 380, height: 520),
-                palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+                palette: .of(.paper),
                 font: .default,
                 isJustified: true
             ),
@@ -71,7 +71,7 @@ final class ReaderTurnTests: XCTestCase {
             style: ReaderPageStyle(
                 fontSize: 17,
                 pageSize: CGSize(width: 380, height: 520),
-                palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+                palette: .of(.paper),
                 font: .default,
                 isJustified: true
             )
@@ -89,7 +89,7 @@ final class ReaderTurnTests: XCTestCase {
         let dusk = ReaderPageStyle(
             fontSize: 17,
             pageSize: CGSize(width: 380, height: 520),
-            palette: ReaderPageTheme.dusk.palette(inDarkMode: false),
+            palette: .of(.quiet, dark: true),
             font: .default,
             isJustified: true
         )
@@ -98,7 +98,7 @@ final class ReaderTurnTests: XCTestCase {
         let charter = ReaderPageStyle(
             fontSize: 17,
             pageSize: CGSize(width: 380, height: 520),
-            palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+            palette: .of(.paper),
             font: .charter,
             isJustified: true
         )

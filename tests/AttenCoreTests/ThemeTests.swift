@@ -208,3 +208,19 @@ final class ThemeTests: XCTestCase {
             + 0.0722 * channel(hex & 0xff)
     }
 }
+
+/// A page built from a theme, for tests that need one.
+extension ReaderPagePalette {
+    static func of(_ theme: AttenTheme, dark: Bool = false) -> ReaderPagePalette {
+        let palette = theme.palette
+        func value(_ color: AttenThemeColor) -> UInt { dark ? color.dark : color.light }
+        return ReaderPagePalette(
+            background: value(palette.readerBackground),
+            ink: value(palette.readerInk),
+            inkMuted: value(palette.readerInkMuted),
+            accent: value(palette.readerAccent),
+            highlight: value(palette.readerHighlight),
+            isDark: dark
+        )
+    }
+}

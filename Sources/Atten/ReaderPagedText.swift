@@ -119,7 +119,7 @@ struct ReaderPagedText: View {
             .onChange(of: size) { _, new in pageSize = new }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(hex: palette.well))
+        .background(Color(hex: palette.background))
         .swipeToTurn(into: $swipeRequest)
         .task(id: TypesetKey(chapter: chapterID, style: style)) { await typeset() }
         .onChange(of: turnRequest) { _, request in
@@ -145,20 +145,9 @@ struct ReaderPagedText: View {
     /// What the sheets lie on. Darker than the page at the edges of the
     /// window, so the light in the room appears to be falling on the book
     /// rather than coming out of it.
-    private var well: some View {
-        Color(hex: palette.well)
-            .overlay {
-                RadialGradient(
-                    colors: [
-                        Color(hex: palette.page).opacity(palette.isDark ? 0.10 : 0.35),
-                        .clear,
-                    ],
-                    center: .center,
-                    startRadius: 0,
-                    endRadius: 900
-                )
-            }
-    }
+    /// Behind the page, which is the same colour as the page, because there
+    /// is no page — only margins.
+    private var well: some View { Color(hex: palette.background) }
 
     private enum Side {
         case left

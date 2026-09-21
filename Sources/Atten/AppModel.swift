@@ -309,12 +309,6 @@ final class AppModel {
         saveSettings()
     }
 
-    func selectReaderPageTheme(_ theme: ReaderPageTheme) {
-        guard settings.readerPageTheme != theme else { return }
-        settings.readerPageTheme = theme
-        saveSettings()
-    }
-
     func selectReaderFont(_ font: ReaderFont) {
         guard settings.readerFont != font else { return }
         settings.readerFont = font

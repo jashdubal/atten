@@ -25,7 +25,8 @@ enum AttenColor {
     static var onAccent: Color { palette.onAccent.color }
 
     /// Long-form text in the chrome around the page — the snippets under a
-    /// search result. The page itself is printed in ``ReaderPageTheme``.
+    /// search result. The page itself is printed in the theme's reader
+    /// colours, which ``BookReaderView`` resolves.
     static var readerText: Color { palette.readerText.color }
     /// Behind a search match or the passage being read aloud. Usually drawn at
     /// full opacity; tint it down when several highlights overlap.

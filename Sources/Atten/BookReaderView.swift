@@ -146,7 +146,7 @@ struct BookReaderView: View {
                 detail: "Atten's copy of this book is gone. Remove it and add the book again."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(hex: palette.well))
+            .background(Color(hex: palette.background))
         } else if book.format == .pdf {
             ReaderPDFView(
                 url: book.sourceURL,
@@ -221,7 +221,7 @@ struct BookReaderView: View {
                 detail: "This book has no chapters Atten could read."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(hex: palette.well))
+            .background(Color(hex: palette.background))
         }
     }
 
@@ -230,7 +230,17 @@ struct BookReaderView: View {
     /// The colours the page is printed in. `Automatic` is resolved here, where
     /// the appearance the window is actually drawn in is known.
     private var palette: ReaderPagePalette {
-        model.settings.readerPageTheme.palette(inDarkMode: colorScheme == .dark)
+        let theme = AttenColor.palette
+        let dark = colorScheme == .dark
+        func value(_ color: AttenThemeColor) -> UInt { dark ? color.dark : color.light }
+        return ReaderPagePalette(
+            background: value(theme.readerBackground),
+            ink: value(theme.readerInk),
+            inkMuted: value(theme.readerInkMuted),
+            accent: value(theme.readerAccent),
+            highlight: value(theme.readerHighlight),
+            isDark: dark
+        )
     }
 
     // MARK: - Controls
@@ -341,15 +351,6 @@ struct BookReaderView: View {
     /// look of the page is inside it.
     private var appearanceMenu: some View {
         Menu {
-            Picker("Page", selection: pageThemeBinding) {
-                ForEach(ReaderPageTheme.allCases) { theme in
-                    Text(theme.displayName).tag(theme)
-                }
-            }
-            .pickerStyle(.inline)
-
-            Divider()
-
             Picker("Layout", selection: viewModeBinding) {
                 ForEach(ReaderViewMode.allCases) { mode in
                     Label(mode.displayName, systemImage: mode.icon).tag(mode)
@@ -390,14 +391,7 @@ struct BookReaderView: View {
         .help("Page appearance and layout")
         .accessibilityLabel("Page appearance")
         .accessibilityValue(
-            "\(model.settings.readerPageTheme.displayName), \(viewMode.displayName)"
-        )
-    }
-
-    private var pageThemeBinding: Binding<ReaderPageTheme> {
-        Binding(
-            get: { model.settings.readerPageTheme },
-            set: { model.selectReaderPageTheme($0) }
+            viewMode.displayName
         )
     }
 
