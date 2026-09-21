@@ -233,6 +233,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// What the page itself is printed in, chosen apart from ``theme`` so the
     /// app can be one thing and the page another.
     public var readerPageTheme: ReaderPageTheme
+    /// The face the page is set in.
+    public var readerFont: ReaderFont
 
     public init(
         appearance: AppearancePreference = .system,
@@ -248,7 +250,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         playbackRate: Double = 1.0,
         readerViewMode: ReaderViewMode = .page,
         readerJustifiesText: Bool = true,
-        readerPageTheme: ReaderPageTheme = .default
+        readerPageTheme: ReaderPageTheme = .default,
+        readerFont: ReaderFont = .default
     ) {
         self.appearance = appearance
         self.theme = theme
@@ -264,6 +267,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.readerViewMode = readerViewMode
         self.readerJustifiesText = readerJustifiesText
         self.readerPageTheme = readerPageTheme
+        self.readerFont = readerFont
     }
 
     // Only the export folder is required, because no default for it exists
@@ -301,6 +305,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
             .decodeIfPresent(Bool.self, forKey: .readerJustifiesText) ?? true
         readerPageTheme = (try? container
             .decodeIfPresent(ReaderPageTheme.self, forKey: .readerPageTheme))
+            .flatMap { $0 } ?? .default
+        readerFont = (try? container
+            .decodeIfPresent(ReaderFont.self, forKey: .readerFont))
             .flatMap { $0 } ?? .default
     }
 }

@@ -13,12 +13,17 @@ struct ReaderPageStyle: Equatable, Sendable {
     /// Resolved on the main actor and carried here as plain values, so setting
     /// the type never has to reach back for a colour.
     var palette: ReaderPagePalette
+    /// The face the page is set in.
+    var font: ReaderFont
     /// A book justifies its text and hyphenates to avoid the gaps that
     /// justification otherwise leaves. A reader who finds that fussy can turn
     /// it off and read ragged-right.
     var isJustified: Bool
 
-    var lineSpacing: Double { fontSize * 0.5 }
+    /// A sans face needs a little more air between lines than a serif one to
+    /// hold a long measure together, because it has fewer horizontal cues to
+    /// carry the eye along a line.
+    var lineSpacing: Double { fontSize * (font.isSerif ? 0.45 : 0.52) }
     /// A new paragraph is marked by an indent rather than by a blank line,
     /// which is how a book does it and is what lets a page fill.
     var paragraphIndent: Double { fontSize * 1.4 }
@@ -90,13 +95,13 @@ struct ReaderChapterLayout: Equatable, @unchecked Sendable {
 enum ReaderTypesetter {
     /// Walks the whole chapter, so it is meant to be called off the main actor.
     nonisolated static func layout(
-        chapterNumber: Int,
+        eyebrow: String,
         title: String,
         paragraphs: [String],
         style: ReaderPageStyle
     ) -> ReaderChapterLayout {
         let (text, starts) = attributedChapter(
-            number: chapterNumber,
+            eyebrowText: eyebrow,
             title: title,
             paragraphs: paragraphs,
             style: style
@@ -111,7 +116,7 @@ enum ReaderTypesetter {
     // MARK: - Setting the type
 
     private nonisolated static func attributedChapter(
-        number: Int,
+        eyebrowText: String,
         title: String,
         paragraphs: [String],
         style: ReaderPageStyle
@@ -119,31 +124,41 @@ enum ReaderTypesetter {
         let result = NSMutableAttributedString()
         var starts: [Int] = []
 
+        // Spaced capitals in the book's own face, in the same ink as the
+        // folio. This used to be a semibold monospaced line in the accent
+        // colour, which is how a terminal announces a section and not how a
+        // book opens a chapter.
         let eyebrow = NSMutableParagraphStyle()
-        eyebrow.paragraphSpacing = style.fontSize * 0.4
+        eyebrow.paragraphSpacing = style.fontSize * 0.7
         result.append(NSAttributedString(
-            string: "CHAPTER \(number)\n",
+            string: eyebrowText.uppercased() + "\n",
             attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: style.fontSize * 0.62, weight: .semibold),
-                .foregroundColor: NSColor(hex: style.palette.accent),
-                .kern: 1.6,
+                .font: face(style.font, size: style.fontSize * 0.66, weight: .medium),
+                .foregroundColor: NSColor(hex: style.palette.inkMuted),
+                .kern: style.fontSize * 0.13,
                 .paragraphStyle: eyebrow,
             ]
         ))
 
         let heading = NSMutableParagraphStyle()
-        heading.paragraphSpacing = style.fontSize * 1.6
-        heading.lineSpacing = style.fontSize * 0.15
+        heading.paragraphSpacing = style.fontSize * 2.1
+        heading.lineSpacing = style.fontSize * 0.1
         result.append(NSAttributedString(
             string: "\(title)\n",
             attributes: [
-                .font: serif(size: style.fontSize * 1.65, weight: .semibold),
+                // Regular weight, set large. A book's chapter opening is big
+                // rather than bold; semibold at this size reads as a heading
+                // on a web page.
+                .font: face(style.font, size: style.fontSize * 1.95, weight: .regular),
                 .foregroundColor: NSColor(hex: style.palette.ink),
+                // Display sizes want a shade less space between letters than
+                // the same face set at reading size.
+                .kern: style.fontSize * -0.02,
                 .paragraphStyle: heading,
             ]
         ))
 
-        let body = serif(size: style.fontSize, weight: .regular)
+        let body = face(style.font, size: style.fontSize, weight: .regular)
         for (index, paragraph) in paragraphs.enumerated() {
             starts.append(result.length)
             let paragraphStyle = NSMutableParagraphStyle()
@@ -168,11 +183,24 @@ enum ReaderTypesetter {
         return (result, starts)
     }
 
-    nonisolated static func serif(size: Double, weight: NSFont.Weight) -> NSFont {
-        let base = NSFont.systemFont(ofSize: size, weight: weight)
-        guard let descriptor = base.fontDescriptor.withDesign(.serif),
-              let font = NSFont(descriptor: descriptor, size: size) else { return base }
-        return font
+    /// The chosen face at a size and weight, falling back to the system face
+    /// if it is not installed — which can happen, because these are fonts
+    /// macOS ships rather than fonts Atten carries.
+    nonisolated static func face(
+        _ choice: ReaderFont,
+        size: Double,
+        weight: NSFont.Weight
+    ) -> NSFont {
+        guard let family = choice.familyName else {
+            return NSFont.systemFont(ofSize: size, weight: weight)
+        }
+        let traits: [NSFontDescriptor.TraitKey: Any] = [.weight: weight]
+        let descriptor = NSFontDescriptor(fontAttributes: [
+            .family: family,
+            .traits: traits,
+        ])
+        return NSFont(descriptor: descriptor, size: size)
+            ?? NSFont.systemFont(ofSize: size, weight: weight)
     }
 
     // MARK: - Breaking it into pages

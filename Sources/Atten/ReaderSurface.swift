@@ -282,6 +282,8 @@ struct ReaderTextView: View {
     let title: String
     let paragraphs: [String]
     let fontSize: Double
+    /// The face the column is set in, the same one the paged reader uses.
+    let font: ReaderFont
     let query: String
     let isFocusMode: Bool
     let palette: ReaderPagePalette
@@ -303,7 +305,7 @@ struct ReaderTextView: View {
 
     /// Roughly 65 characters a line, which is what a book is set to, and it
     /// grows with the type rather than leaving long lines behind.
-    private var measure: CGFloat { fontSize * 38 }
+    private var measure: CGFloat { fontSize * 31 }
 
     var body: some View {
         ScrollView {
@@ -327,19 +329,18 @@ struct ReaderTextView: View {
         .onHover { if !$0 { hovered = nil } }
     }
 
+    private var eyebrow: String { "Chapter \(chapterNumber)" }
+
     private var opener: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-            Text("CHAPTER \(chapterNumber)")
-                .font(AttenTypography.caption.weight(.semibold))
-                .tracking(1.6)
-                .foregroundStyle(Color(hex: palette.accent))
+            Text(eyebrow.uppercased())
+                .font(Font(ReaderTypesetter.face(font, size: fontSize * 0.66, weight: .medium)))
+                .tracking(fontSize * 0.13)
+                .foregroundStyle(Color(hex: palette.inkMuted))
             Text(title)
-                .font(.system(size: fontSize * 1.7, weight: .semibold, design: .serif))
+                .font(Font(ReaderTypesetter.face(font, size: fontSize * 1.95, weight: .regular)))
                 .foregroundStyle(Color(hex: palette.ink))
                 .fixedSize(horizontal: false, vertical: true)
-            Rectangle()
-                .fill(Color(hex: palette.accent).opacity(0.5))
-                .frame(width: 64, height: 1)
         }
         .padding(.bottom, AttenSpacing.md)
         .accessibilityAddTraits(.isHeader)
@@ -347,9 +348,9 @@ struct ReaderTextView: View {
 
     private func paragraph(_ line: Line) -> some View {
         Text(highlighted(line.text))
-            .font(.system(size: fontSize, design: .serif))
+            .font(Font(ReaderTypesetter.face(font, size: fontSize, weight: .regular)))
             .foregroundStyle(Color(hex: palette.ink))
-            .lineSpacing(fontSize * 0.52)
+            .lineSpacing(fontSize * (font.isSerif ? 0.45 : 0.52))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(isDimmed(line.id) ? 0.26 : 1)
