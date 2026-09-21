@@ -10,9 +10,30 @@ namespace Atten.Windows;
 public sealed partial class MainWindow : Window
 {
     private readonly MainViewModel model = new();
-    private readonly MediaPlayer player = new();
+    // Windows N and KN editions have no media stack until the Media Feature
+    // Pack is installed, and constructing a MediaPlayer there throws. Creating
+    // it on first playback keeps that failure out of the window's constructor,
+    // where it would take the whole app down before anything is shown.
+    private MediaPlayer? player;
     private readonly DispatcherTimer playbackTimer = new();
     private bool isUserSeeking;
+
+    /// The player, made on first use. Everything the window listens to it for
+    /// is wired here rather than in the constructor, because until this is
+    /// called there is nothing to listen to.
+    private MediaPlayer Player
+    {
+        get
+        {
+            if (player is null)
+            {
+                player = new MediaPlayer();
+                player.PlaybackSession.PlaybackStateChanged += OnPlaybackStateChanged;
+                player.MediaEnded += OnMediaEnded;
+            }
+            return player;
+        }
+    }
 
     public MainWindow()
     {
@@ -43,9 +64,6 @@ public sealed partial class MainWindow : Window
             titleBar.ButtonInactiveBackgroundColor = global::Windows.UI.Color.FromArgb(0, 0, 0, 0);
             titleBar.ButtonInactiveForegroundColor = global::Windows.UI.Color.FromArgb(255, 120, 130, 145);
         }
-
-        player.PlaybackSession.PlaybackStateChanged += OnPlaybackStateChanged;
-        player.MediaEnded += OnMediaEnded;
 
         playbackTimer.Interval = TimeSpan.FromMilliseconds(200);
         playbackTimer.Tick += OnPlaybackTimerTick;
@@ -123,27 +141,29 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+        if (Player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
         {
-            player.Pause();
+            Player.Pause();
             model.IsPlaying = false;
         }
         else
         {
-            if (player.Source is null)
+            if (Player.Source is null)
             {
-                player.Source = MediaSource.CreateFromUri(new Uri(model.CurrentAudioPath));
+                Player.Source = MediaSource.CreateFromUri(new Uri(model.CurrentAudioPath));
             }
-            player.Play();
+            Player.Play();
             model.IsPlaying = true;
         }
     }
 
     private void OnPlayerSeekValueChanged(object sender, RangeBaseValueChangedEventArgs args)
     {
-        if (isUserSeeking && player.PlaybackSession.CanSeek)
+        // Not through `Player`: dragging a scrubber that has never played
+        // anything is no reason to go looking for a media stack.
+        if (isUserSeeking && player is { } playing && playing.PlaybackSession.CanSeek)
         {
-            player.PlaybackSession.Position = TimeSpan.FromSeconds(args.NewValue);
+            playing.PlaybackSession.Position = TimeSpan.FromSeconds(args.NewValue);
         }
     }
 
@@ -159,7 +179,7 @@ public sealed partial class MainWindow : Window
 
     private void OnClosePlayerClicked(object sender, RoutedEventArgs args)
     {
-        player.Pause();
+        player?.Pause();
         model.IsPlaying = false;
         model.IsPlayerVisible = false;
     }
@@ -200,9 +220,11 @@ public sealed partial class MainWindow : Window
 
     private void OnPlaybackTimerTick(object? sender, object e)
     {
-        if (player.Source is null) return;
+        // The timer runs from the moment the window opens, long before there
+        // is a player, so this is the one place that must never make one.
+        if (player is not { } playing || playing.Source is null) return;
 
-        var session = player.PlaybackSession;
+        var session = playing.PlaybackSession;
         var duration = session.NaturalDuration.TotalSeconds;
         var position = session.Position.TotalSeconds;
 
@@ -326,8 +348,8 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            player.Source = MediaSource.CreateFromUri(new Uri(model.CurrentAudioPath));
-            player.Play();
+            Player.Source = MediaSource.CreateFromUri(new Uri(model.CurrentAudioPath));
+            Player.Play();
             model.IsPlaying = true;
             model.IsPlayerVisible = true;
         }
