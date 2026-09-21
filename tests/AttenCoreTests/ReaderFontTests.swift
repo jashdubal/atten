@@ -65,7 +65,7 @@ final class ReaderFontTests: XCTestCase {
             ReaderPageStyle(
                 fontSize: 18,
                 pageSize: CGSize(width: 400, height: 600),
-                palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+                palette: .of(.paper),
                 font: font,
                 isJustified: true
             ).lineSpacing
@@ -84,7 +84,7 @@ final class ReaderFontTests: XCTestCase {
             style: ReaderPageStyle(
                 fontSize: 18,
                 pageSize: CGSize(width: 400, height: 600),
-                palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+                palette: .of(.paper),
                 font: .iowan,
                 isJustified: false
             )
@@ -105,7 +105,7 @@ final class ReaderFontTests: XCTestCase {
             style: ReaderPageStyle(
                 fontSize: 18,
                 pageSize: CGSize(width: 400, height: 600),
-                palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+                palette: .of(.paper),
                 font: .charter,
                 isJustified: true
             )

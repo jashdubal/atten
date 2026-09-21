@@ -44,9 +44,22 @@ struct AttenPalette: Sendable, Equatable {
     let destructive: AttenThemeColor
     let onAccent: AttenThemeColor
 
-    /// Long-form text in the chrome around the page. The page itself is
-    /// printed in ``ReaderPageTheme``, which is chosen apart from the theme.
+    /// Long-form text in the chrome around the page — the snippets under a
+    /// search result.
     let readerText: AttenThemeColor
+
+    /// The reading surface, edge to edge. Every theme reads differently, which
+    /// is the point: the page is not a separate choice bolted onto the theme,
+    /// it is what the theme looks like when it is being read.
+    let readerBackground: AttenThemeColor
+    /// The text on the page. Warmth lives here rather than in the background —
+    /// warm ink on a neutral ground is what a lamp actually does to a page,
+    /// and tinting the ground as well is what made every theme look alike.
+    let readerInk: AttenThemeColor
+    /// Folios, running heads, and the line above a chapter title.
+    let readerInkMuted: AttenThemeColor
+    /// The few marks on the page that are not words.
+    let readerAccent: AttenThemeColor
     /// Fill behind a search match or the sentence being spoken.
     let readerHighlight: AttenThemeColor
     /// Drawn at partial opacity over whatever a focused view is dimming.
@@ -86,6 +99,10 @@ extension AttenTheme {
         // primary button labels at 4.47:1, just under AA.
         onAccent: AttenThemeColor(0xFFFFFF, 0x061018),
         readerText: AttenThemeColor(0x141B26, 0xDCE6F2),
+        readerBackground: AttenThemeColor(0xFCFDFF, 0x05080E),
+        readerInk: AttenThemeColor(0x0E1522, 0xD6E2F0),
+        readerInkMuted: AttenThemeColor(0x5A6980, 0x8195AC),
+        readerAccent: AttenThemeColor(0x00617F, 0x4FC9EC),
         readerHighlight: AttenThemeColor(0xC8E9F7, 0x1D4C63),
         scrim: AttenThemeColor(0x0F172A, 0x000000)
     )
@@ -108,6 +125,10 @@ extension AttenTheme {
         destructive: AttenThemeColor(0x9E3232, 0xE58B8B),
         onAccent: AttenThemeColor(0xFFFFFF, 0x15140F),
         readerText: AttenThemeColor(0x23211D, 0xE8E4DC),
+        readerBackground: AttenThemeColor(0xFAF8F3, 0x121110),
+        readerInk: AttenThemeColor(0x241F17, 0xE9E3D6),
+        readerInkMuted: AttenThemeColor(0x6B6356, 0x958D7E),
+        readerAccent: AttenThemeColor(0x4A5A6B, 0xA8B8C8),
         readerHighlight: AttenThemeColor(0xF0E2B8, 0x4A4227),
         scrim: AttenThemeColor(0x1F1E1B, 0x000000)
     )
@@ -133,6 +154,10 @@ extension AttenTheme {
         destructive: AttenThemeColor(0x9B5757, 0xC58484),
         onAccent: AttenThemeColor(0xFFFFFF, 0x1B1B1D),
         readerText: AttenThemeColor(0x4C4C51, 0xB0B0B4),
+        readerBackground: AttenThemeColor(0xF6F5F3, 0x000000),
+        readerInk: AttenThemeColor(0x33302B, 0xD2C8B8),
+        readerInkMuted: AttenThemeColor(0x6C675F, 0x908980),
+        readerAccent: AttenThemeColor(0x6F6657, 0xBFAE93),
         readerHighlight: AttenThemeColor(0xE4E4E7, 0x34343A),
         scrim: AttenThemeColor(0x1B1B1D, 0x000000)
     )
@@ -155,6 +180,10 @@ extension AttenTheme {
         destructive: AttenThemeColor(0x9E3320, 0xEB9078),
         onAccent: AttenThemeColor(0xFFF7E8, 0x1B1208),
         readerText: AttenThemeColor(0x2B2015, 0xEDDFC7),
+        readerBackground: AttenThemeColor(0xF5EBD8, 0x17110C),
+        readerInk: AttenThemeColor(0x30251A, 0xEFE1C9),
+        readerInkMuted: AttenThemeColor(0x6E5D43, 0x9E8E74),
+        readerAccent: AttenThemeColor(0x8A4E14, 0xDFA05A),
         readerHighlight: AttenThemeColor(0xEBD79B, 0x4E3C1F),
         scrim: AttenThemeColor(0x32261A, 0x000000)
     )
@@ -177,6 +206,10 @@ extension AttenTheme {
         destructive: AttenThemeColor(0xA32B36, 0xEE8C96),
         onAccent: AttenThemeColor(0xFFFFFF, 0x0B1420),
         readerText: AttenThemeColor(0x16202B, 0xE4EAF1),
+        readerBackground: AttenThemeColor(0xF8FAFC, 0x0D1219),
+        readerInk: AttenThemeColor(0x141D28, 0xE2E9F1),
+        readerInkMuted: AttenThemeColor(0x596879, 0x8899AC),
+        readerAccent: AttenThemeColor(0x1F5A8C, 0x7FB3DC),
         readerHighlight: AttenThemeColor(0xCFE0EF, 0x2C4055),
         scrim: AttenThemeColor(0x16202B, 0x000000)
     )
@@ -199,6 +232,10 @@ extension AttenTheme {
         destructive: AttenThemeColor(0xB01D48, 0xFF8095),
         onAccent: AttenThemeColor(0xFFF0FC, 0x1A0726),
         readerText: AttenThemeColor(0x2A1233, 0xF0E4FC),
+        readerBackground: AttenThemeColor(0xFBF5FC, 0x0E0618),
+        readerInk: AttenThemeColor(0x2A1233, 0xEFE3FB),
+        readerInkMuted: AttenThemeColor(0x695276, 0x9F8CB4),
+        readerAccent: AttenThemeColor(0xA01E8E, 0xFF6EC7),
         readerHighlight: AttenThemeColor(0xF4CDEC, 0x4A2360),
         scrim: AttenThemeColor(0x2A1233, 0x000000)
     )
@@ -221,6 +258,10 @@ extension AttenTheme {
         destructive: AttenThemeColor(0xA32424, 0xFF8A7A),
         onAccent: AttenThemeColor(0xF2FFF4, 0x02160A),
         readerText: AttenThemeColor(0x0E1A0E, 0xC8F2CC),
+        readerBackground: AttenThemeColor(0xF6FAF6, 0x010401),
+        readerInk: AttenThemeColor(0x0D1A0D, 0xC6F0CA),
+        readerInkMuted: AttenThemeColor(0x4C624E, 0x83AC88),
+        readerAccent: AttenThemeColor(0x156B2E, 0x3BF56A),
         readerHighlight: AttenThemeColor(0xC6E8C9, 0x174A22),
         scrim: AttenThemeColor(0x0E1A0E, 0x000000)
     )

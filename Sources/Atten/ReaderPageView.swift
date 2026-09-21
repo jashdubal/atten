@@ -168,42 +168,17 @@ struct TurningLeaf<Front: View, Back: View>: View {
     }
 }
 
-/// The sheet a page is printed on.
+/// The page, which has no edges.
 ///
-/// A page is not the same colour all the way down. Paper on a desk is brighter
-/// where the light falls on it and duller at its foot, and a page on a screen
-/// that is one flat fill reads as a hole cut in the window rather than as
-/// something lying on top of it. The fall is slight — a few percent — and it
-/// is most of what separates a page from a background.
+/// This used to draw a sheet: a gradient, a lit top edge, a corner radius and
+/// a shadow, lying in a darker well. That put a visible rectangle around the
+/// text, and a reader who can see the edges of the page is looking at the app
+/// rather than at the book. Apple Books draws no page at all — the window is
+/// the page, and the margins are what make it one. So does this.
 struct ReaderSheet: View {
     let palette: ReaderPagePalette
 
-    var body: some View {
-        LinearGradient(
-            colors: [Color(hex: palette.page), Color(hex: palette.pageFoot)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .overlay(alignment: .top) {
-            // The lit edge of a sheet. On a dark page this is the only thing
-            // that gives it a top at all.
-            Color.white.opacity(palette.isDark ? 0.05 : 0.5)
-                .frame(height: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-        // A light sheet sits on its well by casting onto it. A dark one cannot
-        // — black on black is nothing — so it is separated by being lighter
-        // than the well instead, and the shadow only has to soften the join.
-        .shadow(
-            color: .black.opacity(palette.isDark ? 0.45 : 0.18),
-            radius: palette.isDark ? 14 : 20,
-            y: palette.isDark ? 4 : 8
-        )
-    }
-
-    /// Just enough to take the sharpness off the corner. A real page is square
-    /// at the outer edge, and anything rounder starts to look like a card.
-    static let cornerRadius: CGFloat = 3
+    var body: some View { Color(hex: palette.background) }
 }
 
 /// Catches a two-finger swipe, or a turn of a mouse wheel, over the page.

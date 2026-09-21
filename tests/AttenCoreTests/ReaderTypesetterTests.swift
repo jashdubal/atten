@@ -18,7 +18,7 @@ final class ReaderTypesetterTests: XCTestCase {
         ReaderPageStyle(
             fontSize: 17,
             pageSize: CGSize(width: width, height: height),
-            palette: ReaderPageTheme.paper.palette(inDarkMode: false),
+            palette: .of(.paper),
             font: .default,
             isJustified: true
         )

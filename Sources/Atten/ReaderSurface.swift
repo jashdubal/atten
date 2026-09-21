@@ -150,7 +150,7 @@ struct ReaderPDFView: NSViewRepresentable {
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
-        view.backgroundColor = NSColor(hex: palette.well)
+        view.backgroundColor = NSColor(hex: palette.background)
         context.coordinator.observer.watch(view)
         return view
     }
@@ -179,7 +179,7 @@ struct ReaderPDFView: NSViewRepresentable {
 
         if coordinator.appliedPalette != palette {
             coordinator.appliedPalette = palette
-            view.backgroundColor = NSColor(hex: palette.well)
+            view.backgroundColor = NSColor(hex: palette.background)
             coordinator.highlightKey = nil
         }
 
@@ -327,7 +327,7 @@ struct ReaderTextView: View {
             .padding(.top, AttenSpacing.xxl)
         }
         .scrollPosition(id: $position, anchor: .top)
-        .background(Color(hex: palette.page))
+        .background(Color(hex: palette.background))
         .onHover { if !$0 { hovered = nil } }
     }
 
