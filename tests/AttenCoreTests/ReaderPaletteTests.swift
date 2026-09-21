@@ -109,16 +109,34 @@ final class ReaderPaletteTests: XCTestCase {
         }
     }
 
-    /// A brightness control that can make a book unreadable is a trap. The
-    /// dimmest setting still clears AA on every page.
-    func testTheDimmestPageIsStillReadable() {
+    /// The dimmest setting goes under AA on purpose — that is what a reader
+    /// asking for dimmer text at night is asking for. What it must not do is
+    /// let the words vanish into the page, so every theme is held above 2:1
+    /// at the bottom of the range: soft, not gone.
+    func testTheDimmestPageStillHasWordsOnIt() {
         for theme in AttenTheme.allCases {
             for dark in [false, true] {
                 let dim = ReaderPagePalette.of(theme, dark: dark)
                     .dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
                 XCTAssertGreaterThanOrEqual(
-                    contrast(dim.ink, dim.background), 4.5,
-                    "\(theme.rawValue) \(dark ? "dark" : "light"): the dimmest body text is under AA"
+                    contrast(dim.ink, dim.background), 2.0,
+                    "\(theme.rawValue) \(dark ? "dark" : "light"): the dimmest body text is lost in the page"
+                )
+            }
+        }
+    }
+
+    /// The range has to be worth having: the dimmest page is a long way from
+    /// the brightest, or the slider is a control that does nothing.
+    func testTheRangeIsWorthHaving() {
+        for theme in AttenTheme.allCases {
+            for dark in [false, true] {
+                let page = ReaderPagePalette.of(theme, dark: dark)
+                let dim = page.dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
+                XCTAssertLessThan(
+                    contrast(dim.ink, dim.background),
+                    contrast(page.ink, page.background) / 1.5,
+                    "\(theme.rawValue) \(dark ? "dark" : "light"): the dimmest setting is barely dimmer"
                 )
             }
         }

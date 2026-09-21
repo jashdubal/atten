@@ -353,9 +353,12 @@ struct ReaderTextView: View {
         }
     }
 
-    /// Roughly 65 characters a line, which is what a book is set to, and it
-    /// grows with the type rather than leaving long lines behind.
-    private var measure: CGFloat { fontSize * 31 }
+    /// Roughly eighty characters a line — the long end of what still reads as
+    /// a column — and it grows with the type rather than leaving long lines
+    /// behind. The paged reader is set to the same measure, so switching
+    /// between scrolling and pages does not reflow the book into a different
+    /// shape.
+    private var measure: CGFloat { fontSize * 38 }
 
     var body: some View {
         ScrollView {
@@ -371,7 +374,7 @@ struct ReaderTextView: View {
             .scrollTargetLayout()
             .frame(maxWidth: measure, alignment: .leading)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, AttenSpacing.xl)
+            .padding(.horizontal, AttenSpacing.md)
             .padding(.top, AttenSpacing.xxl)
         }
         .scrollPosition(id: $position, anchor: .top)

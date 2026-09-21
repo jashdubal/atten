@@ -179,8 +179,14 @@ struct ReaderPagedText: View {
     /// edge and the eye reads from the top. The proportions are the
     /// traditional ones, scaled to the type rather than to the window so the
     /// page keeps its shape as the text grows.
+    ///
+    /// The side margins are narrower than a printed book's. Paper margins are
+    /// partly for the thumbs holding the book, and a window has no thumbs on
+    /// it — at the old width the text sat in a narrow band with a great deal
+    /// of empty page either side. Still wide enough to turn the page by
+    /// clicking, which is what the margins are for here.
     private var sheetMargin: (top: CGFloat, bottom: CGFloat, side: CGFloat) {
-        (top: fontSize * 2.4, bottom: fontSize * 2.8, side: fontSize * 2.6)
+        (top: fontSize * 2.4, bottom: fontSize * 2.8, side: fontSize * 1.6)
     }
 
     /// The margin either side of the text turns the page when it is clicked.
@@ -559,7 +565,11 @@ struct ReaderPagedText: View {
     /// pages wider than the single-page view, which is the opposite of what
     /// opening a second page is for. The measure grows with the type and with
     /// nothing else.
-    private var measure: CGFloat { fontSize * 31 }
+    ///
+    /// Set nearer eighty characters than sixty-five: sixty-five is the line a
+    /// printed page is cut to, and on a window that wide it left more empty
+    /// page than text. This is the long end of what still reads as a column.
+    private var measure: CGFloat { fontSize * 38 }
 
     /// The text box on a page. The sheet around it is this plus its margins.
     private func pageSize(in available: CGSize) -> CGSize {
