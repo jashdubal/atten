@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import XCTest
 @testable import Atten
 @testable import AttenCore
@@ -103,5 +104,64 @@ final class ReaderTurnTests: XCTestCase {
             isJustified: true
         )
         XCTAssertNotEqual(applied().style, charter)
+    }
+}
+
+/// Where a leaf lands.
+///
+/// A leaf is drawn in the slot it lifts from and rotated a half-turn, so where
+/// it comes to rest is decided entirely by the point it pivots on. Pivoting on
+/// its own inner edge landed it a whole gutter away from the facing page, and
+/// the page jumped sideways when the leaf was swapped for the real one at the
+/// end of the turn.
+final class TurningLeafGeometryTests: XCTestCase {
+    private let width: CGFloat = 420
+    private let gutter: CGFloat = 40
+
+    /// Reflects the leaf about its pivot, in the coordinates of the slot it is
+    /// drawn in: the leaf spans 0...width, and the facing page is a gutter
+    /// away on the other side.
+    private func landed(_ turn: ReaderTurn) -> ClosedRange<CGFloat> {
+        let leaf = TurningLeaf(progress: 1, turn: turn, gutter: gutter, width: width) {
+            Color.clear
+        } back: {
+            Color.clear
+        }
+        let pivot = leaf.anchor.x * width
+        let ends = [0, width].map { 2 * pivot - $0 }
+        return ends.min()!...ends.max()!
+    }
+
+    func testAForwardLeafLandsExactlyOnTheFacingPage() {
+        // The page to the left of this one ends a gutter before it begins.
+        XCTAssertEqual(landed(.forward).upperBound, -gutter, accuracy: 0.001)
+        XCTAssertEqual(landed(.forward).lowerBound, -gutter - width, accuracy: 0.001)
+    }
+
+    func testABackwardLeafLandsExactlyOnTheFacingPage() {
+        // The page to the right of this one begins a gutter after it ends.
+        XCTAssertEqual(landed(.backward).lowerBound, width + gutter, accuracy: 0.001)
+        XCTAssertEqual(landed(.backward).upperBound, width * 2 + gutter, accuracy: 0.001)
+    }
+
+    /// A leaf always lands a whole page away, never overlapping the page it
+    /// lifted from and never leaving a gap beside it.
+    func testALandedLeafIsStillAPageWide() {
+        for turn in [ReaderTurn.forward, .backward] {
+            let landed = landed(turn)
+            XCTAssertEqual(landed.upperBound - landed.lowerBound, width, accuracy: 0.001)
+        }
+    }
+
+    /// Without a width to measure the spine against there is nothing sensible
+    /// to pivot on, and the leaf falls back to its own edge rather than
+    /// dividing by zero.
+    func testALeafWithNoWidthPivotsOnItsEdge() {
+        let leaf = TurningLeaf(progress: 0.5, turn: .forward, gutter: gutter, width: 0) {
+            Color.clear
+        } back: {
+            Color.clear
+        }
+        XCTAssertEqual(leaf.anchor, .leading)
     }
 }

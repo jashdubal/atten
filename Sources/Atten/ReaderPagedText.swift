@@ -217,7 +217,12 @@ struct ReaderPagedText: View {
             if mode.turnsALeaf {
                 page(under: side).map { view(of: $0, size: size) }
                 if let turn, let leaf = leaf(on: side) {
-                    TurningLeaf(progress: turn.progress, turn: turn.direction) {
+                    TurningLeaf(
+                    progress: turn.progress,
+                    turn: turn.direction,
+                    gutter: Self.gutter,
+                    width: sheet.width
+                ) {
                         view(of: leaf.front, size: size)
                     } back: {
                         if let back = leaf.back {
