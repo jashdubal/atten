@@ -239,34 +239,55 @@ struct ToolbarIconButton: View {
 /// The Library used to get this for free from `NavigationStack`, along with a
 /// detail column that could no longer be changed from the sidebar. The button
 /// is worth keeping; the trap is not.
+///
+/// It draws as a button at rest rather than only under the pointer. It used to
+/// be secondary-coloured text on nothing at all, which meant the one control
+/// that gets someone out of a screen was the least visible thing on it — and
+/// worst in the themes that are deliberately low contrast, where secondary
+/// text is dim by design. The ink is primary, the fill and the border are
+/// there before anyone goes looking, and hovering moves it to the accent
+/// rather than being what reveals it.
 struct AttenBackButton: View {
     let title: String
     let action: () -> Void
 
     @State private var isHovering = false
 
+    private var foreground: Color {
+        isHovering ? AttenColor.onAccent : AttenColor.textPrimary
+    }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: AttenSpacing.xxs) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(title.uppercased())
-                    .font(AttenTypography.caption.weight(.medium))
-                    .tracking(0.6)
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(isHovering ? AttenColor.onAccent : AttenColor.accent)
+                Text(title)
+                    .font(AttenTypography.control)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .foregroundStyle(foreground)
             }
-            .foregroundStyle(isHovering ? AttenColor.accentHover : AttenColor.textSecondary)
-            .padding(.horizontal, AttenSpacing.xs)
+            .padding(.horizontal, AttenSpacing.sm)
             .frame(maxWidth: 190)
-            .frame(height: 26)
+            .frame(height: 28)
             .fixedSize(horizontal: true, vertical: false)
-            .background(isHovering ? AttenColor.surfaceMuted : .clear)
+            .background(isHovering ? AttenColor.accent : AttenColor.surfaceElevated)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+            .overlay {
+                RoundedRectangle(cornerRadius: AttenRadius.control)
+                    // The accent rather than the separator: every theme keeps
+                    // its accent at 3:1 against its surfaces, which is the bar
+                    // WCAG sets for the edge of a control, and the separator
+                    // sits at 1.4:1 — a hairline nobody is going to find.
+                    .strokeBorder(AttenColor.accent, lineWidth: 1.5)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: AttenMotion.fast), value: isHovering)
         .help("Back to \(title) (⌘[)")
         .accessibilityLabel("Back to \(title)")
     }
