@@ -24,9 +24,8 @@ enum AttenColor {
     static var focus: Color { palette.accentHover.color }
     static var onAccent: Color { palette.onAccent.color }
 
-    /// Long-form reading surfaces, kept separate from the surrounding chrome so
-    /// a theme can calm the page down without flattening the rest of the app.
-    static var readerSurface: Color { palette.readerSurface.color }
+    /// Long-form text in the chrome around the page — the snippets under a
+    /// search result. The page itself is printed in ``ReaderPageTheme``.
     static var readerText: Color { palette.readerText.color }
     /// Behind a search match or the passage being read aloud. Usually drawn at
     /// full opacity; tint it down when several highlights overlap.
@@ -37,7 +36,6 @@ enum AttenColor {
     /// The AppKit form of the same roles, for the views that are not SwiftUI.
     static var nsTextPrimary: NSColor { palette.textPrimary.nsColor }
     static var nsAccent: NSColor { palette.accent.nsColor }
-    static var nsReaderSurface: NSColor { palette.readerSurface.nsColor }
 
     static var palette: AttenPalette { ThemeStore.shared.palette }
 }
@@ -45,6 +43,12 @@ enum AttenColor {
 extension Color {
     init(light: UInt, dark: UInt) {
         self.init(nsColor: NSColor(light: light, dark: dark))
+    }
+
+    /// One fixed colour, for the few things that do not follow the appearance
+    /// of the app — the reader's page decides its own.
+    init(hex: UInt) {
+        self.init(nsColor: NSColor(hex: hex))
     }
 }
 

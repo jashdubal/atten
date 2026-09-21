@@ -18,8 +18,7 @@ final class ReaderTypesetterTests: XCTestCase {
         ReaderPageStyle(
             fontSize: 17,
             pageSize: CGSize(width: width, height: height),
-            bodyColor: AttenThemeColor(0x000000, 0xFFFFFF),
-            accentColor: AttenThemeColor(0x000000, 0xFFFFFF),
+            palette: ReaderPageTheme.paper.palette(inDarkMode: false),
             isJustified: true
         )
     }

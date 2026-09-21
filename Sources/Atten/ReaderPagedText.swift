@@ -44,6 +44,9 @@ struct ReaderPagedText: View {
     let paragraphs: [String]
     let fontSize: Double
     let isJustified: Bool
+    /// What the page is printed in. Resolved above, so the reader never has to
+    /// work out whether the system is in dark mode.
+    let palette: ReaderPagePalette
     let mode: ReaderViewMode
     let query: String
     let opening: ReaderOpening
@@ -93,7 +96,7 @@ struct ReaderPagedText: View {
         GeometryReader { geometry in
             let size = pageSize(in: geometry.size)
             ZStack {
-                AttenColor.readerSurface
+                well
                 spread(size: size)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -102,7 +105,7 @@ struct ReaderPagedText: View {
             .onChange(of: size) { _, new in pageSize = new }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AttenColor.readerSurface)
+        .background(Color(hex: palette.well))
         .swipeToTurn(into: $swipeRequest)
         .task(id: TypesetKey(chapter: chapterID, style: style)) { await typeset() }
         .onChange(of: turnRequest) { _, request in
@@ -124,6 +127,24 @@ struct ReaderPagedText: View {
     }
 
     // MARK: - What is on screen
+
+    /// What the sheets lie on. Darker than the page at the edges of the
+    /// window, so the light in the room appears to be falling on the book
+    /// rather than coming out of it.
+    private var well: some View {
+        Color(hex: palette.well)
+            .overlay {
+                RadialGradient(
+                    colors: [
+                        Color(hex: palette.page).opacity(palette.isDark ? 0.10 : 0.35),
+                        .clear,
+                    ],
+                    center: .center,
+                    startRadius: 0,
+                    endRadius: 900
+                )
+            }
+    }
 
     private enum Side {
         case left
@@ -148,6 +169,17 @@ struct ReaderPagedText: View {
         }
     }
 
+    /// How much sheet there is around the text.
+    ///
+    /// A book leaves more paper at the foot than at the head and more at the
+    /// outer edge than at the gutter, because the thumb goes on the outer
+    /// edge and the eye reads from the top. The proportions are the
+    /// traditional ones, scaled to the type rather than to the window so the
+    /// page keeps its shape as the text grows.
+    private var sheetMargin: (top: CGFloat, bottom: CGFloat, side: CGFloat) {
+        (top: fontSize * 2.4, bottom: fontSize * 2.8, side: fontSize * 2.6)
+    }
+
     /// The margin either side of the text turns the page when it is clicked.
     ///
     /// A book is turned by touching its edge, not by finding a button, and the
@@ -161,8 +193,8 @@ struct ReaderPagedText: View {
             .overlay {
                 Image(systemName: direction == .forward ? "chevron.right" : "chevron.left")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .opacity(hoveredMargin == direction ? 0.55 : 0)
+                    .foregroundStyle(Color(hex: palette.inkMuted))
+                    .opacity(hoveredMargin == direction ? 0.7 : 0)
                     .animation(
                         reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
                         value: hoveredMargin
@@ -174,47 +206,37 @@ struct ReaderPagedText: View {
             .accessibilityHidden(true)
     }
 
-    /// One half of the spread: the page settled there, with a leaf on top of it
-    /// when one is being turned over that side, and its folio underneath.
+    /// One half of the spread: the sheet settled there, with a leaf on top of
+    /// it when one is being turned over that side.
     @ViewBuilder private func slot(_ side: Side, size: CGSize) -> some View {
-        VStack(spacing: 0) {
-            ZStack {
-                page(under: side).map { view(of: $0, size: size) }
-                if let turn, let leaf = leaf(on: side) {
-                    TurningLeaf(progress: turn.progress, turn: turn.direction) {
-                        view(of: leaf.front, size: size)
-                    } back: {
-                        if let back = leaf.back {
-                            view(of: back, size: size)
-                        } else {
-                            ReaderPaper()
-                        }
+        let sheet = sheetSize(forText: size)
+        ZStack {
+            page(under: side).map { view(of: $0, size: size) }
+            if let turn, let leaf = leaf(on: side) {
+                TurningLeaf(progress: turn.progress, turn: turn.direction) {
+                    view(of: leaf.front, size: size)
+                } back: {
+                    if let back = leaf.back {
+                        view(of: back, size: size)
+                    } else {
+                        ReaderSheet(palette: palette)
                     }
                 }
             }
-            .frame(width: size.width, height: size.height)
-
-            folio(for: side)
-                .frame(width: size.width, height: Self.folioHeight)
         }
+        .frame(width: sheet.width, height: sheet.height)
     }
 
     /// The page number at the foot of the page, as a book prints it.
-    private func folio(for side: Side) -> some View {
-        let number = folioNumber(for: side)
-        return Text(number.map(String.init) ?? "")
-            .font(AttenTypography.caption)
+    private func folio(_ number: Int) -> some View {
+        Text(String(number))
+            .font(.system(size: max(9, fontSize * 0.62)))
             .monospacedDigit()
-            .foregroundStyle(AttenColor.textSecondary.opacity(0.7))
+            .foregroundStyle(Color(hex: palette.inkMuted))
             .frame(maxWidth: .infinity)
             // The control bar announces the page; a second voice saying the
             // number again is noise.
             .accessibilityHidden(true)
-    }
-
-    private func folioNumber(for side: Side) -> Int? {
-        guard let source = page(under: side) else { return nil }
-        return source.index + 1
     }
 
     private struct PageSource: Equatable {
@@ -227,19 +249,31 @@ struct ReaderPagedText: View {
         let back: PageSource?
     }
 
+    /// One whole sheet: the text, its margins, and its folio.
     @ViewBuilder private func view(of source: PageSource, size: CGSize) -> some View {
-        ZStack(alignment: .topLeading) {
-            ReaderPaper()
-            ReaderPage(
-                layout: source.layout,
-                pageIndex: source.index,
-                style: style(pageSize: size),
-                highlight: query
-            )
-            .frame(width: size.width, height: size.height, alignment: .topLeading)
-            .clipped()
-            .allowsHitTesting(turn == nil)
-        }
+        let margin = sheetMargin
+        ReaderSheet(palette: palette)
+            .overlay(alignment: .top) {
+                VStack(spacing: 0) {
+                    ReaderPage(
+                        layout: source.layout,
+                        pageIndex: source.index,
+                        style: style(pageSize: size),
+                        highlight: query
+                    )
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .clipped()
+                    .allowsHitTesting(turn == nil)
+
+                    Spacer(minLength: 0)
+                    folio(source.index + 1)
+                        .frame(height: Self.folioHeight)
+                }
+                .padding(.top, margin.top)
+                .padding(.bottom, margin.bottom - Self.folioHeight)
+                .padding(.horizontal, margin.side)
+            }
+            .frame(width: sheetSize(forText: size).width, height: sheetSize(forText: size).height)
     }
 
     // MARK: - Which page goes where
@@ -383,8 +417,7 @@ struct ReaderPagedText: View {
         ReaderPageStyle(
             fontSize: fontSize,
             pageSize: pageSize,
-            bodyColor: AttenColor.palette.readerText,
-            accentColor: AttenColor.palette.accent,
+            palette: palette,
             isJustified: isJustified
         )
     }
@@ -468,10 +501,11 @@ struct ReaderPagedText: View {
     // MARK: - The shape of a page
 
     /// The space between two facing pages.
-    private static let gutter: CGFloat = 56
-    private static let verticalMargin: CGFloat = 40
-    /// The strip below the text that the page number sits on.
-    private static let folioHeight: CGFloat = 26
+    private static let gutter: CGFloat = 40
+    /// The gap between the sheet and the edge of the window.
+    private static let wellMargin: CGFloat = 34
+    /// The strip at the foot of the sheet that the page number sits on.
+    private static let folioHeight: CGFloat = 18
 
     /// How wide a page of text is allowed to get.
     ///
@@ -482,15 +516,30 @@ struct ReaderPagedText: View {
     /// pages wider than the single-page view, which is the opposite of what
     /// opening a second page is for. The measure grows with the type and with
     /// nothing else.
-    private var measure: CGFloat { fontSize * 36 }
+    private var measure: CGFloat { fontSize * 34 }
 
+    /// The text box on a page. The sheet around it is this plus its margins.
     private func pageSize(in available: CGSize) -> CGSize {
-        let height = max(80, available.height - Self.verticalMargin * 2 - Self.folioHeight)
-        let margin = max(24, available.width * 0.04)
-        let usable = max(120, available.width - margin * 2)
-        let width = mode == .spread
-            ? min(measure, max(100, (usable - Self.gutter) / 2))
-            : min(measure, usable)
+        let margin = sheetMargin
+        let outer = min(Self.wellMargin, available.height * 0.06)
+        let sheetHeight = max(120, available.height - outer * 2)
+        let height = max(80, sheetHeight - margin.top - margin.bottom)
+
+        let side = max(16, min(Self.wellMargin, available.width * 0.03))
+        let usable = max(160, available.width - side * 2)
+        let sheetWidth = mode == .spread
+            ? max(160, (usable - Self.gutter) / 2)
+            : usable
+        let width = min(measure, max(120, sheetWidth - margin.side * 2))
         return CGSize(width: width.rounded(.down), height: height.rounded(.down))
+    }
+
+    /// The sheet that a text box of this size is printed on.
+    private func sheetSize(forText text: CGSize) -> CGSize {
+        let margin = sheetMargin
+        return CGSize(
+            width: text.width + margin.side * 2,
+            height: text.height + margin.top + margin.bottom
+        )
     }
 }

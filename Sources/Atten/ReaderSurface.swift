@@ -123,9 +123,9 @@ struct ReaderPDFView: NSViewRepresentable {
     let url: URL
     let jump: ReaderPDFJump?
     let highlights: [ReaderHit]
-    /// Passed in so a theme change reaches AppKit, which keeps the colour it
-    /// was last handed.
-    let theme: AttenTheme
+    /// Passed in so a change of page colour reaches AppKit, which keeps the
+    /// colour it was last handed.
+    let palette: ReaderPagePalette
     /// A PDF is already typeset, so the three view modes are three ways of
     /// arranging pages it already has — which PDFKit does natively, and far
     /// better than anything built on top of it would.
@@ -139,7 +139,7 @@ struct ReaderPDFView: NSViewRepresentable {
         var openedURL: URL?
         var handledJumpID: UUID?
         var highlightKey: String?
-        var appliedTheme: AttenTheme?
+        var appliedPalette: ReaderPagePalette?
         var appliedMode: ReaderViewMode?
     }
 
@@ -150,7 +150,7 @@ struct ReaderPDFView: NSViewRepresentable {
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.displayDirection = .vertical
-        view.backgroundColor = AttenColor.nsReaderSurface
+        view.backgroundColor = NSColor(hex: palette.well)
         context.coordinator.observer.watch(view)
         return view
     }
@@ -177,9 +177,9 @@ struct ReaderPDFView: NSViewRepresentable {
             view.autoScales = true
         }
 
-        if coordinator.appliedTheme != theme {
-            coordinator.appliedTheme = theme
-            view.backgroundColor = AttenColor.nsReaderSurface
+        if coordinator.appliedPalette != palette {
+            coordinator.appliedPalette = palette
+            view.backgroundColor = NSColor(hex: palette.well)
             coordinator.highlightKey = nil
         }
 
@@ -220,7 +220,7 @@ struct ReaderPDFView: NSViewRepresentable {
                   let selection = page.selection(
                       for: NSRange(location: hit.matchLocation, length: hit.matchLength)
                   ) else { return nil }
-            selection.color = AttenColor.palette.readerHighlight.nsColor
+            selection.color = NSColor(hex: palette.highlight)
             return selection
         }
     }
@@ -284,6 +284,7 @@ struct ReaderTextView: View {
     let fontSize: Double
     let query: String
     let isFocusMode: Bool
+    let palette: ReaderPagePalette
     @Binding var position: ReaderParagraphID?
 
     @State private var hovered: ReaderParagraphID?
@@ -322,7 +323,7 @@ struct ReaderTextView: View {
             .padding(.top, AttenSpacing.xxl)
         }
         .scrollPosition(id: $position, anchor: .top)
-        .background(AttenColor.readerSurface)
+        .background(Color(hex: palette.page))
         .onHover { if !$0 { hovered = nil } }
     }
 
@@ -331,13 +332,13 @@ struct ReaderTextView: View {
             Text("CHAPTER \(chapterNumber)")
                 .font(AttenTypography.caption.weight(.semibold))
                 .tracking(1.6)
-                .foregroundStyle(AttenColor.accent)
+                .foregroundStyle(Color(hex: palette.accent))
             Text(title)
                 .font(.system(size: fontSize * 1.7, weight: .semibold, design: .serif))
-                .foregroundStyle(AttenColor.readerText)
+                .foregroundStyle(Color(hex: palette.ink))
                 .fixedSize(horizontal: false, vertical: true)
             Rectangle()
-                .fill(AttenColor.textSecondary.opacity(0.4))
+                .fill(Color(hex: palette.accent).opacity(0.5))
                 .frame(width: 64, height: 1)
         }
         .padding(.bottom, AttenSpacing.md)
@@ -347,7 +348,7 @@ struct ReaderTextView: View {
     private func paragraph(_ line: Line) -> some View {
         Text(highlighted(line.text))
             .font(.system(size: fontSize, design: .serif))
-            .foregroundStyle(AttenColor.readerText)
+            .foregroundStyle(Color(hex: palette.ink))
             .lineSpacing(fontSize * 0.52)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -374,7 +375,7 @@ struct ReaderTextView: View {
             of: needle,
             options: [.caseInsensitive, .diacriticInsensitive]
         ) {
-            result[range].backgroundColor = AttenColor.readerHighlight
+            result[range].backgroundColor = Color(hex: palette.highlight)
             guard range.upperBound > start else { break }
             start = range.upperBound
         }

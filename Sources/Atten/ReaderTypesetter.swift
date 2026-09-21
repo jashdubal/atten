@@ -1,4 +1,5 @@
 import AppKit
+import AttenCore
 import Foundation
 
 /// How a page of a book is set: the type, the measure, and how much of it fits.
@@ -9,10 +10,9 @@ import Foundation
 struct ReaderPageStyle: Equatable, Sendable {
     var fontSize: Double
     var pageSize: CGSize
-    /// Read off the theme on the main actor and carried here as plain values,
-    /// so setting the type never has to reach back for a colour.
-    var bodyColor: AttenThemeColor
-    var accentColor: AttenThemeColor
+    /// Resolved on the main actor and carried here as plain values, so setting
+    /// the type never has to reach back for a colour.
+    var palette: ReaderPagePalette
     /// A book justifies its text and hyphenates to avoid the gaps that
     /// justification otherwise leaves. A reader who finds that fussy can turn
     /// it off and read ragged-right.
@@ -125,7 +125,7 @@ enum ReaderTypesetter {
             string: "CHAPTER \(number)\n",
             attributes: [
                 .font: NSFont.monospacedSystemFont(ofSize: style.fontSize * 0.62, weight: .semibold),
-                .foregroundColor: style.accentColor.nsColor,
+                .foregroundColor: NSColor(hex: style.palette.accent),
                 .kern: 1.6,
                 .paragraphStyle: eyebrow,
             ]
@@ -138,7 +138,7 @@ enum ReaderTypesetter {
             string: "\(title)\n",
             attributes: [
                 .font: serif(size: style.fontSize * 1.65, weight: .semibold),
-                .foregroundColor: style.bodyColor.nsColor,
+                .foregroundColor: NSColor(hex: style.palette.ink),
                 .paragraphStyle: heading,
             ]
         ))
@@ -160,7 +160,7 @@ enum ReaderTypesetter {
                 string: paragraph + (index == paragraphs.count - 1 ? "" : "\n"),
                 attributes: [
                     .font: body,
-                    .foregroundColor: style.bodyColor.nsColor,
+                    .foregroundColor: NSColor(hex: style.palette.ink),
                     .paragraphStyle: paragraphStyle,
                 ]
             ))
