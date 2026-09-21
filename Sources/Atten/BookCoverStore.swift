@@ -41,16 +41,16 @@ final class BookCoverStore {
         inFlight.insert(book.id)
         defer { inFlight.remove(book.id) }
 
-        let found = await extractor.image(
+        let found = await extractor.data(
             from: book.sourceURL,
             format: book.format,
             cachedAt: cacheURL(book.id)
         )
-        guard let found else {
+        guard let found, let image = NSImage(data: found) else {
             missing.insert(book.id)
             return
         }
-        images[book.id] = found
+        images[book.id] = image
     }
 
     func forget(_ bookID: UUID) {
@@ -62,18 +62,28 @@ final class BookCoverStore {
     /// An actor, so however many cards ask at once the archives are opened one
     /// after another rather than all together.
     private actor Extractor {
-        func image(from source: URL, format: BookFormat, cachedAt cached: URL) -> NSImage? {
-            if let data = try? Data(contentsOf: cached), let image = NSImage(data: data) {
-                return image
+        /// Hands back the cover's bytes rather than the cover.
+        ///
+        /// `NSImage` is not Sendable, so returning one from an actor is a
+        /// compile error under Swift 6's concurrency checking — and one that a
+        /// new enough toolchain lets through, which is why this reached CI
+        /// rather than the machine it was written on. Data crosses safely, and
+        /// the image is made on the main actor, where it is going to be drawn.
+        func data(from source: URL, format: BookFormat, cachedAt cached: URL) -> Data? {
+            // Decoded, not merely present: a cache file that cannot be read as
+            // an image has to be extracted again rather than counted as a book
+            // with no cover.
+            if let cached = try? Data(contentsOf: cached), NSImage(data: cached) != nil {
+                return cached
             }
             guard let data = BookCoverStore.extract(from: source, format: format),
-                  let image = NSImage(data: data) else { return nil }
+                  NSImage(data: data) != nil else { return nil }
             try? FileManager.default.createDirectory(
                 at: cached.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
             try? data.write(to: cached, options: .atomic)
-            return image
+            return data
         }
     }
 
