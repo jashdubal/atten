@@ -94,8 +94,17 @@ struct ReaderPagedText: View {
     }
 
     /// Long enough to read as paper moving, short enough that turning several
-    /// pages in a row does not feel like waiting.
-    private static let turnDuration = 0.42
+    /// pages in a row does not feel like waiting. A leaf pivoting through a
+    /// half-turn has further to go than a page sliding across, so it is given
+    /// longer.
+    private var turnDuration: Double { mode.turnsALeaf ? 0.42 : 0.3 }
+
+    /// Paper is flicked and then comes to rest. Easing into the movement as
+    /// well as out of it is what made a turn read as an animation playing
+    /// rather than as something being moved.
+    private var turnCurve: Animation {
+        .timingCurve(0.2, 0.9, 0.25, 1, duration: turnDuration)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -216,20 +225,54 @@ struct ReaderPagedText: View {
     @ViewBuilder private func slot(_ side: Side, size: CGSize) -> some View {
         let sheet = sheetSize(forText: size)
         ZStack {
-            page(under: side).map { view(of: $0, size: size) }
-            if let turn, let leaf = leaf(on: side) {
-                TurningLeaf(progress: turn.progress, turn: turn.direction) {
-                    view(of: leaf.front, size: size)
-                } back: {
-                    if let back = leaf.back {
-                        view(of: back, size: size)
-                    } else {
-                        ReaderSheet(palette: palette)
+            if mode.turnsALeaf {
+                page(under: side).map { view(of: $0, size: size) }
+                if let turn, let leaf = leaf(on: side) {
+                    TurningLeaf(progress: turn.progress, turn: turn.direction) {
+                        view(of: leaf.front, size: size)
+                    } back: {
+                        if let back = leaf.back {
+                            view(of: back, size: size)
+                        } else {
+                            ReaderSheet(palette: palette)
+                        }
                     }
                 }
+            } else {
+                slidingPages(size: size)
             }
         }
         .frame(width: sheet.width, height: sheet.height)
+    }
+
+    /// A single page turning.
+    ///
+    /// One page has no leaf to pivot — the back of the sheet is not the next
+    /// page, it is the back of the sheet — so the next page comes in over the
+    /// last one instead, the way a hand lays one sheet of a report down on
+    /// another. Nothing is rotated, so no line of type moves anywhere it was
+    /// not already going, and the only thing that changes shape is the shadow
+    /// the arriving page casts along its leading edge.
+    @ViewBuilder private func slidingPages(size: CGSize) -> some View {
+        let leaving = outgoing.map { PageSource(layout: $0.layout, index: $0.pageIndex) }
+            ?? source(pageIndex)
+        if let turn {
+            // Going forward the new page arrives on top; going back it is the
+            // page being left that slides away to uncover the old one.
+            let forward = turn.direction == .forward
+            let arriving = source(turn.destination)
+            let travel = sheetSize(forText: size).width
+            ZStack {
+                (forward ? leaving : arriving).map { view(of: $0, size: size) }
+                (forward ? arriving : leaving).map { top in
+                    view(of: top, size: size)
+                        .offset(x: travel * (forward ? 1 - turn.progress : turn.progress))
+                        .shadow(color: .black.opacity(palette.isDark ? 0.5 : 0.22), radius: 16, x: -8)
+                }
+            }
+        } else {
+            leaving.map { view(of: $0, size: size) }
+        }
     }
 
     /// The page number at the foot of the page, as a book prints it.
@@ -382,7 +425,7 @@ struct ReaderPagedText: View {
         let token = UUID()
         turnToken = token
         turn = Turn(direction: direction, destination: destination, progress: 0)
-        withAnimation(.easeInOut(duration: Self.turnDuration)) {
+        withAnimation(turnCurve) {
             turn?.progress = 1
         } completion: {
             // The turn this belongs to may already have been landed by the
@@ -493,7 +536,7 @@ struct ReaderPagedText: View {
         let token = UUID()
         turnToken = token
         turn = Turn(direction: direction, destination: landing, progress: 0)
-        withAnimation(.easeInOut(duration: Self.turnDuration)) {
+        withAnimation(turnCurve) {
             turn?.progress = 1
         } completion: {
             guard turnToken == token else { return }
