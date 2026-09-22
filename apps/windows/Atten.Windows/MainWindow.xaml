@@ -4,58 +4,21 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Atten.Windows"
     Title="Atten">
-    <Grid x:Name="Root"
-          Background="{ThemeResource AttenCanvasBrush}">
-        <Grid.KeyboardAccelerators>
-            <!-- Keep the two high-frequency actions available without a
-                 mouse. The focused control still owns normal Enter/Escape. -->
-            <KeyboardAccelerator Key="Enter"
-                                 Modifiers="Control"
-                                 Invoked="OnGenerateKeyboardAccelerator" />
-            <KeyboardAccelerator Key="Escape"
-                                 Invoked="OnCancelKeyboardAccelerator" />
-        </Grid.KeyboardAccelerators>
+    <Grid x:Name="Root">
         <NavigationView x:Name="Navigation"
                         PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed"
-                        IsPaneToggleButtonVisible="True"
-                        CompactModeThresholdWidth="700"
-                        ExpandedModeThresholdWidth="1000"
-                        IsSettingsVisible="False"
                         SelectionChanged="OnNavigationSelectionChanged">
             <NavigationView.MenuItems>
-                <NavigationViewItemHeader Content="Create" />
-                <NavigationViewItem Content="Studio" Tag="Studio" IsSelected="True"
-                                    AutomationProperties.Name="Studio" />
-                <NavigationViewItem Content="Playground" Tag="Playground"
-                                    AutomationProperties.Name="Playground" />
-                <NavigationViewItemHeader Content="Manage" />
-                <NavigationViewItem Content="Voices" Tag="Voices"
-                                    AutomationProperties.Name="Voices" />
-                <NavigationViewItem Content="Projects" Tag="Projects"
-                                    AutomationProperties.Name="Projects" />
-                <NavigationViewItem Content="Exports" Tag="Exports"
-                                    AutomationProperties.Name="Exports" />
-                <NavigationViewItem Content="Settings &amp; Models" Tag="Settings"
-                                    AutomationProperties.Name="Settings and speech models" />
+                <NavigationViewItem Content="Studio" Tag="Studio" IsSelected="True" />
+                <NavigationViewItem Content="Playground" Tag="Playground" />
+                <NavigationViewItem Content="Voices" Tag="Voices" />
+                <NavigationViewItem Content="Projects" Tag="Projects" />
+                <NavigationViewItem Content="Exports" Tag="Exports" />
+                <NavigationViewItem Content="Settings" Tag="Settings" />
             </NavigationView.MenuItems>
 
-            <NavigationView.Header>
-                <StackPanel Spacing="2" Padding="4,0,0,4">
-                    <TextBlock x:Name="ScreenTitle"
-                               Text="Studio"
-                               Style="{StaticResource AttenPageTextStyle}"
-                               FontSize="24"
-                               FontWeight="SemiBold" />
-                    <TextBlock x:Name="ScreenSubtitle"
-                               Text="Create speech locally"
-                               Style="{StaticResource AttenSecondaryTextStyle}"
-                               TextWrapping="Wrap" />
-                </StackPanel>
-            </NavigationView.Header>
-
-            <Grid Padding="28,12,28,20" RowSpacing="16"
-                  Background="{ThemeResource AttenCanvasBrush}">
+            <Grid Padding="28" RowSpacing="16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -64,8 +27,7 @@
 
                 <StackPanel Spacing="6">
                     <TextBlock Text="{Binding Status}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                    <ProgressBar x:Name="GeneratingProgress"
-                                 IsIndeterminate="True"
+                    <ProgressBar IsIndeterminate="True"
                                  Visibility="{Binding GeneratingVisibility}"
                                  MinHeight="4" />
                 </StackPanel>
@@ -73,30 +35,21 @@
                 <!-- Studio Panel -->
                 <Grid x:Name="StudioPanel" Grid.Row="1" ColumnSpacing="20">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition x:Name="StudioEditorColumn" Width="*" MinWidth="280" />
-                        <ColumnDefinition x:Name="StudioInspectorColumn" Width="340" MinWidth="260" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="340" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Spacing="12">
-                        <TextBlock Text="Create speech" Style="{StaticResource TitleTextBlockStyle}"
-                                   AutomationProperties.HeadingLevel="1" />
-                        <TextBlock Text="Write a script, choose a supported local voice, and generate audio."
-                                   Style="{StaticResource AttenSecondaryTextStyle}"
-                                   TextWrapping="Wrap" />
+                        <TextBlock Text="Create speech" Style="{StaticResource TitleTextBlockStyle}" />
                         <TextBox Header="Project title"
-                                 x:Name="ProjectTitleTextBox"
                                  Text="{Binding DraftTitle, Mode=TwoWay}"
-                                 PlaceholderText="Untitled narration"
-                                 AutomationProperties.Name="Project title" />
+                                 PlaceholderText="Untitled narration" />
                         <TextBox Header="Script"
-                                 x:Name="ScriptTextBox"
                                  Text="{Binding DraftText, Mode=TwoWay}"
                                  AcceptsReturn="True"
                                  TextWrapping="Wrap"
                                  MinHeight="360"
-                                 PlaceholderText="Start writing or paste text here..."
-                                 AutomationProperties.Name="Speech script"
-                                 AutomationProperties.HelpText="Text to synthesize with the selected voice" />
+                                 PlaceholderText="Start writing or paste text here in any language (English, Arabic, Spanish, French, German, Japanese, etc.)..." />
                     </StackPanel>
 
                     <ScrollViewer Grid.Column="1">
@@ -147,16 +100,13 @@
 
                             <Button x:Name="GenerateButton"
                                     Content="Generate Speech"
-                                    Style="{StaticResource AttenPrimaryButtonStyle}"
                                     Click="OnGenerateClicked"
                                     HorizontalAlignment="Stretch"
-                                    Margin="0,6,0,0"
-                                    AutomationProperties.Name="Generate speech" />
+                                    Margin="0,6,0,0" />
 
                             <Button Content="Cancel"
                                     Click="OnCancelClicked"
-                                    HorizontalAlignment="Stretch"
-                                    AutomationProperties.Name="Cancel generation" />
+                                    HorizontalAlignment="Stretch" />
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -168,8 +118,7 @@
                 </StackPanel>
 
                 <!-- Voices Panel -->
-                <Grid x:Name="VoicesPanel" Grid.Row="1" RowSpacing="14" Visibility="Collapsed"
-                      AutomationProperties.Name="Voices and languages">
+                <Grid x:Name="VoicesPanel" Grid.Row="1" RowSpacing="14" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
@@ -180,8 +129,7 @@
                              Header="Filter voices"
                              Text="{Binding VoiceSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              PlaceholderText="Search by voice name, language (e.g. Arabic, German), engine, or trait..." />
-                    <ListView Grid.Row="2" ItemsSource="{Binding GroupedVoices}" SelectionMode="None"
-                              AutomationProperties.Name="Available voices">
+                    <ListView Grid.Row="2" ItemsSource="{Binding GroupedVoices}" SelectionMode="None">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:VoiceGroup">
                                 <StackPanel Spacing="6" Margin="0,4,0,16">
@@ -222,8 +170,7 @@
                 </Grid>
 
                 <!-- Projects Panel -->
-                <Grid x:Name="ProjectsPanel" Grid.Row="1" RowSpacing="12" Visibility="Collapsed"
-                      AutomationProperties.Name="Projects">
+                <Grid x:Name="ProjectsPanel" Grid.Row="1" RowSpacing="12" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
@@ -248,10 +195,7 @@
                 </StackPanel>
 
                 <!-- Settings & Hugging Face Discovery Panel -->
-                <ScrollViewer x:Name="SettingsPanel" Grid.Row="1" Visibility="Collapsed"
-                              HorizontalScrollBarVisibility="Disabled"
-                              VerticalScrollBarVisibility="Auto"
-                              AutomationProperties.Name="Settings and speech models">
+                <ScrollViewer x:Name="SettingsPanel" Grid.Row="1" Visibility="Collapsed">
                     <StackPanel Spacing="18" MaxWidth="760" HorizontalAlignment="Left">
                         <TextBlock Text="Settings &amp; Speech Models" Style="{StaticResource TitleTextBlockStyle}" />
                         
@@ -484,13 +428,12 @@
 
                 <!-- Interactive Media Player Bar (Bottom) -->
                 <Border Grid.Row="2"
-                        Background="{ThemeResource AttenSurfaceBrush}"
-                        BorderBrush="{ThemeResource AttenSeparatorBrush}"
+                        Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1"
                         CornerRadius="10"
                         Padding="16,10"
-                        Visibility="{Binding PlayerVisibility}"
-                        AutomationProperties.Name="Audio player">
+                        Visibility="{Binding PlayerVisibility}">
                     <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -502,10 +445,9 @@
 
                         <!-- Play/Pause Button -->
                         <Button Click="OnTogglePlayPauseClicked"
-                                Style="{StaticResource AttenPrimaryButtonStyle}"
+                                Style="{StaticResource AccentButtonStyle}"
                                 Padding="12,8"
-                                ToolTipService.ToolTip="Play / Pause"
-                                AutomationProperties.Name="Play or pause audio">
+                                ToolTipService.ToolTip="Play / Pause">
                             <StackPanel Orientation="Horizontal" Spacing="6">
                                 <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="{Binding PlayPauseIcon}" FontSize="12" />
                                 <TextBlock Text="{Binding PlayPauseLabel}" FontWeight="SemiBold" />
@@ -520,8 +462,7 @@
                                     ValueChanged="OnPlayerSeekValueChanged"
                                     PointerEntered="OnPlayerSeekPointerEntered"
                                     PointerCaptureLost="OnPlayerSeekPointerCaptureLost"
-                                    Margin="0,-4,0,-4"
-                                    AutomationProperties.Name="Audio position" />
+                                    Margin="0,-4,0,-4" />
                         </StackPanel>
 
                         <!-- Time text -->
@@ -536,16 +477,13 @@
                         <Button Grid.Column="3"
                                 Content="Reveal in Folder"
                                 Click="OnRevealClicked"
-                                VerticalAlignment="Center"
-                                AutomationProperties.Name="Reveal audio in folder" />
+                                VerticalAlignment="Center" />
 
                         <!-- Close Button -->
                         <Button Grid.Column="4"
                                 Click="OnClosePlayerClicked"
                                 VerticalAlignment="Center"
-                                Padding="8,6"
-                                AutomationProperties.Name="Close audio player"
-                                ToolTipService.ToolTip="Close audio player">
+                                Padding="8,6">
                             <FontIcon FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Glyph="&#xE711;" FontSize="10" />
                         </Button>
                     </Grid>
