@@ -11,6 +11,8 @@ struct LibraryView: View {
     @Bindable var model: AppModel
     @State private var selectedFilter: LibraryFilter = .books
     @State private var isTargeted = false
+    @AppStorage("Atten.libraryListView") private var showsList = false
+    @State private var sortOrder = LibrarySort.recentlyAdded
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -87,25 +89,27 @@ struct LibraryView: View {
     }
 
     private var shelfPage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                header
-                LibraryStatusArea(shelf: shelf)
-                if !shelf.books.isEmpty {
-                    searchAndFilters
-                }
-                importHint
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                    header
+                    LibraryStatusArea(shelf: shelf)
+                    if !shelf.books.isEmpty {
+                        searchAndFilters
+                    }
 
-                if filteredBooks.isEmpty {
-                    emptyState
-                } else {
-                    grid
+                    if filteredBooks.isEmpty {
+                        emptyState
+                    } else {
+                        collection(availableWidth: geometry.size.width)
+                    }
+                    importHint
                 }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 32)
+                .frame(maxWidth: 1440, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(.horizontal, AttenSpacing.xl)
-            .padding(.vertical, AttenSpacing.lg)
-            .frame(maxWidth: 1120, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(AttenBackdrop())
         .overlay {
@@ -120,7 +124,7 @@ struct LibraryView: View {
 
     private var header: some View {
         ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom) {
+            HStack(alignment: .top) {
                 pageHeader
                 Spacer(minLength: AttenSpacing.md)
                 addBookButton
@@ -133,11 +137,22 @@ struct LibraryView: View {
     }
 
     private var pageHeader: some View {
-        PageHeader(
-            eyebrow: "Library",
-            title: "Books and documents",
-            detail: "Add a book, a paper, or a report — Atten reads it here and narrates it a section at a time."
-        )
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Circle().fill(AttenColor.accent).frame(width: 6, height: 6)
+                Text("LIBRARY")
+                    .font(.system(size: 9, weight: .medium))
+                    .tracking(3.5)
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            Text("Books and documents")
+                .font(.system(size: 38, weight: .regular))
+                .foregroundStyle(AttenColor.textPrimary)
+            Text("Add a book, a paper, or a report — Atten reads it here and narrates it a section at a time.")
+                .font(.system(size: 14))
+                .foregroundStyle(AttenColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var addBookButton: some View {
@@ -146,64 +161,100 @@ struct LibraryView: View {
         } label: {
             Label("Add book", systemImage: "plus")
         }
-        .buttonStyle(AttenPrimaryButtonStyle())
+        .buttonStyle(LibraryAddButtonStyle())
         .disabled(shelf.isImporting)
         .fixedSize()
     }
 
     private var searchAndFilters: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: AttenSpacing.md) {
-                searchField
-                filterPicker
-            }
-            VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-                searchField
-                filterPicker
+        VStack(alignment: .leading, spacing: 24) {
+            searchField
+            Rectangle().fill(AttenColor.border).frame(height: 1)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 20) {
+                    filterPicker
+                    Spacer(minLength: 16)
+                    displayControls
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    filterPicker
+                    HStack { Spacer(); displayControls }
+                }
             }
         }
     }
 
     private var filterPicker: some View {
-        Picker("Library view", selection: $selectedFilter) {
+        HStack(spacing: 6) {
             ForEach(LibraryFilter.allCases) { filter in
-                Label(filter.title, systemImage: filter.systemImage)
-                    .tag(filter)
+                Button { selectedFilter = filter } label: {
+                    Text(filter == .books ? "All" : filter.title)
+                        .font(AttenTypography.control)
+                        .padding(.horizontal, 16)
+                        .frame(height: 32)
+                }
+                .buttonStyle(LibraryFilterButtonStyle(selected: selectedFilter == filter))
+                .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(maxWidth: 420)
         .accessibilityLabel("Library filter")
+    }
+
+    private var displayControls: some View {
+        HStack(spacing: 16) {
+            HStack(spacing: 8) {
+                Text("Sort by")
+                    .foregroundStyle(AttenColor.textMuted)
+                Menu {
+                    Picker("Sort by", selection: $sortOrder) {
+                        ForEach(LibrarySort.allCases) { order in
+                            Text(order.rawValue).tag(order)
+                        }
+                    }
+                } label: {
+                    Text(selectedFilter == .recentlyAdded ? "Recently added" : sortOrder.rawValue)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(selectedFilter == .recentlyAdded)
+                .help("Sort books; Recently Added always shows the newest imports first")
+            }
+            .font(AttenTypography.metadata)
+            Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
+            HStack(spacing: 4) {
+                layoutButton(list: false, icon: "square.grid.2x2.fill", title: "Grid view")
+                layoutButton(list: true, icon: "list.bullet", title: "List view")
+            }
+        }
+    }
+
+    private func layoutButton(list: Bool, icon: String, title: String) -> some View {
+        Button { showsList = list } label: {
+            Image(systemName: icon).frame(width: 38, height: 32)
+        }
+        .buttonStyle(LibraryFilterButtonStyle(selected: showsList == list))
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(showsList == list ? .isSelected : [])
     }
 
     private var importHint: some View {
         HStack(spacing: AttenSpacing.xs) {
             Image(systemName: "arrow.down.doc")
-                .foregroundStyle(AttenColor.accent)
+                .foregroundStyle(AttenColor.textMuted)
             Text("Drop a PDF, EPUB, Kindle, Word, RTF, Markdown, HTML or text file here")
                 .font(AttenTypography.caption)
                 .foregroundStyle(AttenColor.textSecondary)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, AttenSpacing.sm)
-        .padding(.vertical, AttenSpacing.xs)
-        .background(AttenColor.surface.opacity(0.65))
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-        .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.control)
-                .stroke(
-                    isTargeted ? AttenColor.accent : AttenColor.separator,
-                    style: StrokeStyle(lineWidth: isTargeted ? 1.5 : 1, dash: [5, 4])
-                )
-        }
+        .padding(.top, 8)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Drop a supported document here to add it to your library")
     }
 
     private var searchField: some View {
-        AttenSearchField(prompt: "Search library", text: $model.libraryQuery)
-            .frame(minWidth: 220, maxWidth: 320)
+        AttenSearchField(prompt: "Search your library…", text: $model.libraryQuery, height: 44)
+            .frame(maxWidth: 640)
     }
 
     private var emptyState: some View {
@@ -219,43 +270,61 @@ struct LibraryView: View {
             )
             if !isFiltering {
                 Button("Add a Book") { model.openBookImportPanel() }
-                    .buttonStyle(AttenPrimaryButtonStyle())
+                    .buttonStyle(LibraryAddButtonStyle())
                     .fixedSize()
                     .padding(.bottom, AttenSpacing.lg)
             }
         }
-        .attenSurface()
     }
 
-    private var grid: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: AttenSpacing.lg)],
-            spacing: AttenSpacing.lg
-        ) {
-            ForEach(filteredBooks) { book in
-                BookCard(
-                    book: book,
-                    narrated: shelf.narratedCount(of: book),
-                    cover: shelf.covers.cover(for: book.id),
-                    progress: shelf.progress
-                ) {
-                    model.openInLibrary(.book(book.id))
+    @ViewBuilder private func collection(availableWidth: CGFloat) -> some View {
+        if showsList {
+            LazyVStack(spacing: 0) {
+                ForEach(filteredBooks) { book in
+                    shelfItem(book)
+                        .padding(.vertical, 14)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(AttenColor.border).frame(height: 1)
+                        }
                 }
-                .task(id: book.id) { await shelf.covers.load(book) }
-                .contextMenu {
-                    Button("Open", systemImage: "book") { model.openInLibrary(.book(book.id)) }
-                    Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
-                    Divider()
-                    Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                        shelf.remove(book.id)
-                    }
-                }
+            }
+        } else {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: availableWidth >= 1100 ? 210 : 170, maximum: 260), spacing: 20)],
+                alignment: .leading,
+                spacing: 32
+            ) {
+                ForEach(filteredBooks) { book in shelfItem(book) }
+            }
+        }
+    }
+
+    private func shelfItem(_ book: BookRecord) -> some View {
+        BookCard(
+            book: book,
+            narrated: shelf.narratedCount(of: book),
+            cover: shelf.covers.cover(for: book.id),
+            progress: shelf.progress,
+            isList: showsList,
+            open: { model.openInLibrary(.book(book.id)) },
+            read: { model.openInLibrary(.reader(book.id)) },
+            remove: { shelf.remove(book.id) }
+        )
+        .task(id: book.id) { await shelf.covers.load(book) }
+        .contextMenu {
+            Button("Open", systemImage: "book") { model.openInLibrary(.book(book.id)) }
+            Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
+            Divider()
+            Button("Remove from Library", systemImage: "trash", role: .destructive) {
+                shelf.remove(book.id)
             }
         }
     }
 
     private var filteredBooks: [BookRecord] {
-        shelf.filteredBooks(for: selectedFilter, query: query)
+        let books = shelf.filteredBooks(for: selectedFilter, query: query)
+        guard selectedFilter != .recentlyAdded else { return books }
+        return sortOrder.sorted(books)
     }
 
     /// Dropping a book onto the shelf is the same import as the panel. Books
@@ -332,140 +401,183 @@ struct LibraryStatusArea: View {
     }
 }
 
-/// A book on the shelf.
-///
-/// Books are recognised by their covers long before their titles are read, and
-/// a shelf that shows none is a list with rounded corners on it. Both formats
-/// carry a cover — a PDF's first page, an EPUB's named artwork — and a book
-/// with none gets a plain board with its title on it, which is what a book with
-/// no jacket looks like.
+/// The cover and metadata open the book; the menu remains a separate control.
 private struct BookCard: View {
     let book: BookRecord
     let narrated: Int
     let cover: NSImage?
     let progress: BookshelfModel.NarrationProgress?
+    let isList: Bool
     let open: () -> Void
+    let read: () -> Void
+    let remove: () -> Void
 
     @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     private var isNarrating: Bool { progress?.bookID == book.id }
-
     private var isFullyNarrated: Bool {
         !book.chapters.isEmpty && narrated == book.chapters.count
     }
 
     var body: some View {
         Button(action: open) {
-            VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-                jacket
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title)
-                        .font(AttenTypography.control.weight(.semibold))
-                        .foregroundStyle(AttenColor.textPrimary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                    Text(book.author ?? "Unknown author")
-                        .font(AttenTypography.metadata)
-                        .foregroundStyle(AttenColor.textSecondary)
-                        .lineLimit(1)
+            let layout = isList
+                ? AnyLayout(HStackLayout(alignment: .center, spacing: 20))
+                : AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+            layout {
+                jacket.frame(width: isList ? 64 : nil)
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(book.title)
+                            .font(AttenTypography.control.weight(.semibold))
+                            .foregroundStyle(AttenColor.textPrimary)
+                            .lineLimit(2)
+                        Text(book.author ?? "Unknown author")
+                            .font(AttenTypography.metadata)
+                            .foregroundStyle(AttenColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
+                        .frame(maxWidth: isList ? 360 : nil)
+                        .accessibilityHidden(true)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                NarrationMeter(
-                    narrated: narrated,
-                    total: book.chapters.count,
-                    isRunning: isNarrating
-                )
-                .accessibilityHidden(true)
+                .padding(.trailing, isList ? 40 : 0)
             }
+            .multilineTextAlignment(.leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .onHover { isHovering = $0 }
-        // The card is one thing to press, and it says what it is. The progress
-        // meter inside it makes an element of its own, which was the only part
-        // of the card VoiceOver could find; hidden, the button speaks for the
-        // whole card and can still be pressed.
         .accessibilityLabel(book.title)
         .accessibilityValue(
             "\(book.author ?? "Unknown author"), \(narrated) of \(book.chapters.count) chapters narrated"
                 + (book.sourceExists ? "" : ", source file unavailable")
         )
         .accessibilityHint("Open this book")
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                Button("Open", systemImage: "book", action: open)
+                Button("Read", systemImage: "text.alignleft", action: read)
+                Divider()
+                Button("Remove from Library", systemImage: "trash", role: .destructive, action: remove)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(AttenColor.textPrimary)
+                    .frame(width: 28, height: 24)
+                    .background(AttenColor.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: 4))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .environment(\.colorScheme, cover == nil && !isList ? .light : colorScheme)
+            .background(cover != nil && !isList ? AttenColor.surface.opacity(0.92) : .clear,
+                        in: RoundedRectangle(cornerRadius: 4))
+            .padding(8)
+            .accessibilityLabel("Actions for \(book.title)")
+        }
     }
 
     private var jacket: some View {
-        ZStack {
-            if let cover {
-                Image(nsImage: cover)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                blankBoard
+        Color.clear
+            .aspectRatio(0.72, contentMode: .fit)
+            .overlay {
+                GeometryReader { geometry in
+                    if let cover {
+                        Image(nsImage: cover)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    } else {
+                        blankBoard
+                    }
+                }
             }
-        }
-        .frame(maxWidth: .infinity)
-        // The shape of a book rather than the shape of a window.
-        .aspectRatio(2.0 / 3.0, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
-        .overlay {
-            // A hairline so a dark jacket does not bleed into a dark shelf,
-            // and a shadow so the book sits on the shelf rather than in it.
-            RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.45), radius: isHovering ? 22 : 14, y: isHovering ? 10 : 6)
-        .overlay(alignment: .topTrailing) {
-            if !book.sourceExists {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(AttenColor.warning)
-                    .padding(6)
-                    .shadow(color: .black.opacity(0.35), radius: 3)
-                    .help("Source file unavailable")
-            } else if isFullyNarrated {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(AttenColor.success)
-                    .padding(6)
-                    .shadow(color: .black.opacity(0.35), radius: 3)
-                    .help("Fully narrated")
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(isHovering ? AttenColor.textSecondary.opacity(0.5) : AttenColor.border, lineWidth: 1)
             }
-        }
-        .shadow(
-            color: .black.opacity(isHovering ? 0.28 : 0.16),
-            radius: isHovering ? 12 : 5,
-            y: isHovering ? 5 : 2
-        )
-        .offset(y: isHovering ? -3 : 0)
-        .animation(
-            AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion),
-            value: isHovering
-        )
+            .overlay(alignment: .bottomTrailing) {
+                if !book.sourceExists {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(AttenColor.warning)
+                        .padding(8)
+                        .help("Source file unavailable")
+                } else if isFullyNarrated {
+                    Circle().fill(AttenColor.success)
+                        .frame(width: 7, height: 7)
+                        .padding(10)
+                        .help("Fully narrated")
+                }
+            }
     }
 
-    /// A book with no jacket: boards, and the title stamped on them.
+    /// A quiet typeset jacket for documents without embedded artwork.
+    /// All text comes from the imported record, including the format label.
     private var blankBoard: some View {
-        ZStack {
-            LinearGradient(
-                colors: [AttenColor.surfaceElevated, AttenColor.surfaceMuted],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            VStack(spacing: AttenSpacing.xs) {
-                Image(systemName: book.format.icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(AttenColor.accent.opacity(0.75))
-                Text(book.title)
-                    .font(.system(size: 13, weight: .medium, design: .serif))
-                    .foregroundStyle(AttenColor.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(4)
+        VStack(alignment: .leading, spacing: isList ? 6 : 18) {
+            Text(book.format.displayName.uppercased())
+                .font(.system(size: isList ? 5 : 8, weight: .medium))
+                .tracking(isList ? 1 : 2.8)
+            Text(book.title)
+                .font(.system(size: isList ? 9 : 23, weight: .regular, design: .serif))
+                .lineLimit(isList ? 3 : 5)
+                .multilineTextAlignment(.leading)
+            Rectangle().fill(Color(hex: 0x76746F)).frame(width: isList ? 12 : 26, height: 1)
+            Spacer(minLength: 0)
+            if !isList {
+                Text(book.author ?? "ATTEN LIBRARY")
+                    .font(.system(size: 9, weight: .medium))
+                    .tracking(2)
+                    .lineLimit(2)
             }
-            .padding(AttenSpacing.sm)
         }
+        .foregroundStyle(Color(hex: 0x363530))
+        .padding(isList ? 8 : 26)
+        .padding(.top, isList ? 0 : 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(hex: 0xE4DFD5))
+    }
+}
+
+private struct LibraryFilterButtonStyle: ButtonStyle {
+    let selected: Bool
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(selected ? AttenColor.textPrimary : AttenColor.textSecondary)
+            .background(selected || isHovering || configuration.isPressed ? AttenColor.surfaceElevated : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(selected ? AttenColor.border : .clear, lineWidth: 1)
+            }
+            .onHover { isHovering = $0 }
+    }
+}
+
+private struct LibraryAddButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(AttenColor.textPrimary)
+            .padding(.horizontal, 18)
+            .frame(height: 40)
+            .background(isHovering || configuration.isPressed ? AttenColor.surfaceElevated : AttenColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7).strokeBorder(AttenColor.accent, lineWidth: 1)
+            }
+            .opacity(isEnabled ? 1 : 0.45)
+            .onHover { isHovering = $0 }
     }
 }
 
@@ -474,16 +586,28 @@ struct NarrationMeter: View {
     let total: Int
     let isRunning: Bool
 
-    private var fraction: Double { total > 0 ? Double(narrated) / Double(total) : 0 }
+    private var fraction: Double { total > 0 ? min(1, max(0, Double(narrated) / Double(total))) : 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-            ProgressView(value: fraction)
-                .progressViewStyle(.linear)
-                .tint(narrated == total && total > 0 ? AttenColor.success : AttenColor.accent)
-            Text(label)
-                .font(AttenTypography.caption)
-                .foregroundStyle(AttenColor.textSecondary)
+            GeometryReader { geometry in
+                Capsule().fill(AttenColor.progressTrack)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(narrated >= total && total > 0 ? AttenColor.success : AttenColor.accent)
+                            .frame(width: geometry.size.width * fraction)
+                    }
+            }
+            .frame(height: 5)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(label)
+                Spacer(minLength: 0)
+                Text("\(Int(fraction * 100))%")
+                    .monospacedDigit()
+            }
+            .font(AttenTypography.caption)
+            .foregroundStyle(AttenColor.textSecondary)
+            .padding(.top, 4)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)

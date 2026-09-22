@@ -61,9 +61,6 @@ struct BookReaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            progressLine
-            readerCanvas
-            Divider().overlay(AttenColor.separator)
             controls
                 .opacity(isFocusMode && !isChromeHovered ? 0.35 : 1)
                 .animation(
@@ -71,8 +68,12 @@ struct BookReaderView: View {
                     value: isChromeHovered
                 )
                 .onHover { isChromeHovered = $0 }
+            progressLine
+            readerCanvas
         }
         .background(AttenColor.appBackground)
+        .environment(\.attenMutedControls, true)
+        .tint(AttenColor.textSecondary)
         .navigationTitle(book.title)
         .attenScreenTitle(book.title)
         .onExitCommand {
@@ -126,16 +127,12 @@ struct BookReaderView: View {
         }
     }
 
-    /// The page gets the whole reader width when the tools are closed. On a
-    /// wide display it is capped so a PDF or a spread does not become a tiny
-    /// strip of content at the far edges, and the EPUB readers remain centered
-    /// in the same calm measure.
+    /// Let the reader use the window; each reading mode lays out its own margins.
     private var readerCanvas: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Color(hex: palette.background)
                 page
-                    .frame(maxWidth: 1280)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if isToolsPresented {
@@ -201,7 +198,7 @@ struct BookReaderView: View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 AttenColor.separator.opacity(0.4)
-                AttenColor.accent
+                AttenColor.textMuted.opacity(0.55)
                     .frame(width: geometry.size.width * progressFraction)
                     .animation(
                         reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
@@ -336,14 +333,14 @@ struct BookReaderView: View {
             compactControls
         }
         .padding(.horizontal, AttenSpacing.md)
-        .padding(.vertical, AttenSpacing.xs)
+        .padding(.vertical, 2)
         .background(AttenColor.surface)
         .overlay {
             // Keyboard equivalents remain available even when the compact
             // layout moves their visible counterparts behind a menu.
             readerKeyboardShortcuts
         }
-        .popover(isPresented: $isShowingAppearance, arrowEdge: .bottom) {
+        .popover(isPresented: $isShowingAppearance, arrowEdge: .top) {
             appearancePanel
                 .padding(AttenSpacing.md)
                 .frame(width: 280)
@@ -361,12 +358,6 @@ struct BookReaderView: View {
 
             narrationButton
 
-            if isFocusMode, model.playerTitle != nil {
-                // Root chrome folds away in Zen; the compact player remains
-                // discoverable here and inherits the reader's reveal-on-hover
-                // transport treatment.
-                GlobalPlayer(model: model)
-            }
 
             Spacer(minLength: 0)
 
@@ -407,12 +398,6 @@ struct BookReaderView: View {
             .accessibilityLabel(spokenReadout)
             Spacer(minLength: AttenSpacing.xs)
             readerToolsButton
-            if isFocusMode, model.playerTitle != nil {
-                // Keep the same transport in both responsive layouts. It is
-                // faded with the rest of the Zen chrome until the pointer or
-                // keyboard reaches it, but never removed from accessibility.
-                GlobalPlayer(model: model)
-            }
             compactMoreMenu
         }
     }
@@ -552,7 +537,7 @@ struct BookReaderView: View {
                 .font(AttenTypography.control)
                 .frame(width: 30, height: 30)
                 .foregroundStyle(
-                    isBookmarked ? AttenColor.accentSecondary : AttenColor.textPrimary
+                    isBookmarked ? AttenColor.textSecondary : AttenColor.textMuted
                 )
         }
         .buttonStyle(.plain)
@@ -859,7 +844,7 @@ struct BookReaderView: View {
             } else if playingChapterIndex == chapterIndex {
                 // The chapter on screen is the one playing. The reader used to put
                 // its own skip/play/time row here, which meant two sets of
-                // controls for one sound; the transport lives in the top chrome
+                // controls for one sound; the transport lives in the bottom player
                 // now, so this only says which chapter you are hearing.
                 playingIndicator
             } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
@@ -898,9 +883,9 @@ struct BookReaderView: View {
     }
 
     /// Not a control. The chapter on screen is the one playing, and the
-    /// transport that acts on it is in the top chrome. It is also a compact
+    /// transport that acts on it is in the bottom player. It is also a compact
     /// route into the full Now Playing screen, so a reader does not have to
-    /// aim for the small player in the window chrome.
+    /// aim for the player at the bottom of the window.
     private var playingIndicator: some View {
         Button {
             model.openNowPlaying()
@@ -911,10 +896,10 @@ struct BookReaderView: View {
                 Text("Playing")
                     .font(AttenTypography.control)
             }
-            .foregroundStyle(AttenColor.accent)
+            .foregroundStyle(AttenColor.textSecondary)
             .padding(.horizontal, AttenSpacing.sm)
             .frame(height: 30)
-            .background(AttenColor.accent.opacity(0.12))
+            .background(AttenColor.surfaceElevated)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
         }
         .buttonStyle(.plain)
