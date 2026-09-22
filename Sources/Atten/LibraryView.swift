@@ -9,6 +9,7 @@ enum LibraryRoute: Hashable {
 
 struct LibraryView: View {
     @Bindable var model: AppModel
+    @State private var selectedFilter: LibraryFilter = .books
     @State private var isTargeted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -92,7 +93,10 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: AttenSpacing.lg) {
                 header
                 LibraryStatusArea(shelf: shelf)
-                if !shelf.books.isEmpty { searchField }
+                if !shelf.books.isEmpty {
+                    searchAndFilters
+                }
+                importHint
 
                 if filteredBooks.isEmpty {
                     emptyState
@@ -117,39 +121,105 @@ struct LibraryView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom) {
-            PageHeader(
-                eyebrow: "Library",
-                title: "Books and documents",
-                detail: "Add a book, a paper, or a report — Atten reads it here and narrates it a section at a time."
-            )
-            Spacer()
-            Button {
-                model.openBookImportPanel()
-            } label: {
-                Label("Add book", systemImage: "plus")
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .bottom) {
+                pageHeader
+                Spacer(minLength: AttenSpacing.md)
+                addBookButton
             }
-            .buttonStyle(AttenPrimaryButtonStyle())
-            .disabled(shelf.isImporting)
-            .fixedSize()
+            VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                pageHeader
+                addBookButton
+            }
         }
+    }
+
+    private var pageHeader: some View {
+        PageHeader(
+            eyebrow: "Library",
+            title: "Books and documents",
+            detail: "Add a book, a paper, or a report — Atten reads it here and narrates it a section at a time."
+        )
+    }
+
+    private var addBookButton: some View {
+        Button {
+            model.openBookImportPanel()
+        } label: {
+            Label("Add book", systemImage: "plus")
+        }
+        .buttonStyle(AttenPrimaryButtonStyle())
+        .disabled(shelf.isImporting)
+        .fixedSize()
+    }
+
+    private var searchAndFilters: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AttenSpacing.md) {
+                searchField
+                filterPicker
+            }
+            VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+                searchField
+                filterPicker
+            }
+        }
+    }
+
+    private var filterPicker: some View {
+        Picker("Library view", selection: $selectedFilter) {
+            ForEach(LibraryFilter.allCases) { filter in
+                Label(filter.title, systemImage: filter.systemImage)
+                    .tag(filter)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 420)
+        .accessibilityLabel("Library filter")
+    }
+
+    private var importHint: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Image(systemName: "arrow.down.doc")
+                .foregroundStyle(AttenColor.accent)
+            Text("Drop a PDF, EPUB, Kindle, Word, RTF, Markdown, HTML or text file here")
+                .font(AttenTypography.caption)
+                .foregroundStyle(AttenColor.textSecondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, AttenSpacing.sm)
+        .padding(.vertical, AttenSpacing.xs)
+        .background(AttenColor.surface.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.control)
+                .stroke(
+                    isTargeted ? AttenColor.accent : AttenColor.separator,
+                    style: StrokeStyle(lineWidth: isTargeted ? 1.5 : 1, dash: [5, 4])
+                )
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Drop a supported document here to add it to your library")
     }
 
     private var searchField: some View {
         AttenSearchField(prompt: "Search library", text: $model.libraryQuery)
-            .frame(maxWidth: 280)
+            .frame(minWidth: 220, maxWidth: 320)
     }
 
     private var emptyState: some View {
-        VStack(spacing: AttenSpacing.md) {
+        let isFiltering = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || selectedFilter != .books
+        return VStack(spacing: AttenSpacing.md) {
             AttenEmptyState(
-                title: query.isEmpty ? "Your library is empty" : "No matching books",
-                systemImage: "books.vertical",
-                detail: query.isEmpty
+                title: isFiltering ? "No books found" : "Your library is empty",
+                systemImage: isFiltering ? "line.3.horizontal.decrease.circle" : "books.vertical",
+                detail: !isFiltering
                     ? "Add a PDF, EPUB, Word, Markdown or text file — or drop one here — and Atten reads it into sections you can listen to."
-                    : "Try a different search term."
+                    : "Try another search or filter, or add a supported document."
             )
-            if query.isEmpty {
+            if !isFiltering {
                 Button("Add a Book") { model.openBookImportPanel() }
                     .buttonStyle(AttenPrimaryButtonStyle())
                     .fixedSize()
@@ -161,7 +231,7 @@ struct LibraryView: View {
 
     private var grid: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 150, maximum: 200), spacing: AttenSpacing.lg)],
+            columns: [GridItem(.adaptive(minimum: 170, maximum: 260), spacing: AttenSpacing.lg)],
             spacing: AttenSpacing.lg
         ) {
             ForEach(filteredBooks) { book in
@@ -187,10 +257,7 @@ struct LibraryView: View {
     }
 
     private var filteredBooks: [BookRecord] {
-        guard !query.isEmpty else { return shelf.books }
-        return shelf.books.filter {
-            "\($0.title) \($0.author ?? "")".localizedCaseInsensitiveContains(query)
-        }
+        shelf.filteredBooks(for: selectedFilter, query: query)
     }
 
     /// Dropping a book onto the shelf is the same import as the panel. Books
@@ -292,6 +359,7 @@ private struct BookCard: View {
         .accessibilityLabel(book.title)
         .accessibilityValue(
             "\(book.author ?? "Unknown author"), \(narrated) of \(book.chapters.count) chapters narrated"
+                + (book.sourceExists ? "" : ", source file unavailable")
         )
         .accessibilityHint("Open this book")
     }
@@ -318,7 +386,14 @@ private struct BookCard: View {
         }
         .shadow(color: .black.opacity(0.45), radius: isHovering ? 22 : 14, y: isHovering ? 10 : 6)
         .overlay(alignment: .topTrailing) {
-            if isFullyNarrated {
+            if !book.sourceExists {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(AttenColor.warning)
+                    .padding(6)
+                    .shadow(color: .black.opacity(0.35), radius: 3)
+                    .help("Source file unavailable")
+            } else if isFullyNarrated {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(AttenColor.success)

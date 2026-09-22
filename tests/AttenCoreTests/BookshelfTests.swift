@@ -82,6 +82,36 @@ final class BookshelfTests: XCTestCase {
         XCTAssertFalse(shelf.isFullyNarrated(narrated))
     }
 
+    func testLibraryFiltersCombineMetadataSearchAndNarrationState() async throws {
+        await shelf.importBook(
+            from: try makePDF(pages: ["Older book."]),
+            defaults: settings()
+        )
+        let older = try XCTUnwrap(shelf.books.first)
+        // The import date is real metadata, so the second import is the first
+        // result in Recently Added without a separate category to maintain.
+        try await Task.sleep(for: .milliseconds(2))
+        await shelf.importBook(
+            from: try makePDF(pages: ["Newer book."]),
+            defaults: settings()
+        )
+        let newer = try XCTUnwrap(shelf.books.first)
+
+        XCTAssertEqual(shelf.filteredBooks(for: .books).map(\.id), [newer.id, older.id])
+        XCTAssertEqual(shelf.filteredBooks(for: .recentlyAdded).map(\.id), [newer.id, older.id])
+        XCTAssertTrue(shelf.filteredBooks(for: .audiobooks).isEmpty)
+
+        shelf.narrate(newer.id, chapters: [0], useMPS: false)
+        try await waitForNarration()
+
+        XCTAssertEqual(shelf.filteredBooks(for: .audiobooks).map(\.id), [newer.id])
+        XCTAssertEqual(
+            shelf.filteredBooks(for: .audiobooks, query: newer.title).map(\.id),
+            [newer.id]
+        )
+        XCTAssertTrue(shelf.filteredBooks(for: .audiobooks, query: older.title).isEmpty)
+    }
+
     func testNarratingABookWritesOneAudioFilePerChapter() async throws {
         await shelf.importBook(
             from: try makePDF(pages: (1...25).map { "Page \($0)." }),

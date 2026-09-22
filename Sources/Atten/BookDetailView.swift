@@ -1,3 +1,4 @@
+import AppKit
 import AttenCore
 import SwiftUI
 
@@ -24,6 +25,7 @@ struct BookDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 header
                 LibraryStatusArea(shelf: shelf)
+                if !book.sourceExists { missingSourceNotice }
                 controls
                 chapterList
             }
@@ -34,6 +36,7 @@ struct BookDetailView: View {
         }
         .background(AttenBackdrop())
         .navigationTitle(book.title)
+        .task(id: book.id) { await shelf.covers.load(book) }
         .confirmationDialog(
             "Re-narrate \(book.title) with the new voice?",
             isPresented: Binding(
@@ -63,13 +66,64 @@ struct BookDetailView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: AttenSpacing.md) {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: AttenSpacing.lg) {
+                cover
+                VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                    titleBlock
+                    actionsMenu
+                }
+            }
+            VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                HStack(alignment: .top, spacing: AttenSpacing.md) {
+                    cover
+                    titleBlock
+                }
+                actionsMenu
+            }
+        }
+    }
+
+    private var cover: some View {
+        ZStack {
+            if let image = shelf.covers.cover(for: book.id) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                LinearGradient(
+                    colors: [AttenColor.surfaceElevated, AttenColor.surfaceMuted],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                VStack(spacing: AttenSpacing.xs) {
+                    Image(systemName: book.format.icon)
+                        .font(.system(size: 26))
+                        .foregroundStyle(AttenColor.accent.opacity(0.8))
+                    Text(book.format.displayName)
+                        .font(AttenTypography.caption.weight(.semibold))
+                        .foregroundStyle(AttenColor.textSecondary)
+                }
+            }
+        }
+        .frame(width: 132, height: 198)
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+        .accessibilityLabel("Cover for \(book.title)")
+    }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.md) {
             PageHeader(
                 eyebrow: book.format.displayName,
                 title: book.title,
                 detail: [
                     book.author,
-                    "\(book.chapters.count) chapters",
+                    "\(book.chapters.count) \(book.format.sectionNoun.lowercased())s",
                     "\(book.wordCount.formatted()) words",
                     book.bookmarks.isEmpty
                         ? nil
@@ -78,24 +132,51 @@ struct BookDetailView: View {
                 .compactMap { $0 }
                 .joined(separator: " · ")
             )
-            Spacer(minLength: 0)
-            Menu {
-                Button("Reveal Source in Finder", systemImage: "folder") {
-                    model.revealBookSource(book)
-                }
-                .disabled(!book.sourceExists)
-                Divider()
-                Button("Remove from Library…", systemImage: "trash", role: .destructive) {
-                    confirmRemoval = true
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .frame(width: 28, height: 28)
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 30)
-            .accessibilityLabel("Actions for \(book.title)")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var actionsMenu: some View {
+        Menu {
+            Button("Reveal Source in Finder", systemImage: "folder") {
+                model.revealBookSource(book)
+            }
+            .disabled(!book.sourceExists)
+            Divider()
+            Button("Remove from Library…", systemImage: "trash", role: .destructive) {
+                confirmRemoval = true
+            }
+        } label: {
+            Label("Actions", systemImage: "ellipsis")
+                .labelStyle(.iconOnly)
+                .frame(width: 30, height: 30)
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Actions for \(book.title)")
+    }
+
+    private var missingSourceNotice: some View {
+        HStack(alignment: .top, spacing: AttenSpacing.xs) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(AttenColor.warning)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Source file unavailable")
+                    .font(AttenTypography.control.weight(.semibold))
+                    .foregroundStyle(AttenColor.textPrimary)
+                Text("Reading and revealing the original file are disabled. Narration already on disk remains available.")
+                    .font(AttenTypography.caption)
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(AttenSpacing.sm)
+        .background(AttenColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.control)
+                .stroke(AttenColor.warning.opacity(0.8), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var controls: some View {
