@@ -10,10 +10,24 @@ enum ReaderPanelTab: String, CaseIterable, Identifiable {
     var icon: String { self == .contents ? "list.bullet" : "bookmark" }
 }
 
+/// Geometry for the floating reader tools. The panel is deliberately capped
+/// on wide windows, while the available width is respected on a narrow one.
+/// Keeping this outside the view makes the narrow-window contract explicit and
+/// testable without needing to instantiate AppKit views.
+enum ReaderToolsLayout {
+    static let edgeInset: CGFloat = 16
+    static let maximumPanelWidth: CGFloat = 360
+
+    static func panelWidth(for availableWidth: CGFloat) -> CGFloat {
+        max(0, min(maximumPanelWidth, availableWidth - edgeInset * 2))
+    }
+}
+
 /// Everything about the book that is not the book: where you are in it, where
-/// you have been, and where a word you remember turns up. Typing in the field
-/// takes the panel over, because a search is what you want to look at while
-/// you are searching; clearing it hands the panel back.
+/// you have been, and where a word you remember turns up. The reader presents
+/// this view as a floating tool surface, so it never permanently narrows the
+/// canvas. Typing in the field takes the panel over, because a search is what
+/// you want to look at while you are searching; clearing it hands the panel back.
 struct ReaderSidePanel: View {
     let book: BookRecord
     let chapterIndex: Int
@@ -30,6 +44,7 @@ struct ReaderSidePanel: View {
     let selectHit: (ReaderHit) -> Void
     let selectBookmark: (Bookmark) -> Void
     let removeBookmark: (Bookmark) -> Void
+    let onClose: (() -> Void)?
     @FocusState.Binding var isSearchFocused: Bool
 
     private var isSearchingBook: Bool {
@@ -38,6 +53,8 @@ struct ReaderSidePanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            header
+            Divider().overlay(AttenColor.separator.opacity(0.6))
             searchField
             Divider().overlay(AttenColor.separator.opacity(0.6))
             if isSearchingBook {
@@ -47,8 +64,31 @@ struct ReaderSidePanel: View {
                 list
             }
         }
-        .frame(width: 268)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AttenColor.sidebar)
+        .attenElevated(.floating, radius: AttenRadius.card, fill: AttenColor.sidebar)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Reader tools")
+    }
+
+    private var header: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Label("Reader tools", systemImage: "slider.horizontal.3")
+                .font(AttenTypography.control.weight(.semibold))
+                .foregroundStyle(AttenColor.textPrimary)
+                .lineLimit(1)
+            Spacer(minLength: AttenSpacing.xs)
+            if let onClose {
+                ToolbarIconButton(
+                    title: "Close reader tools",
+                    systemImage: "xmark"
+                ) {
+                    onClose()
+                }
+            }
+        }
+        .padding(.horizontal, AttenSpacing.sm)
+        .padding(.vertical, AttenSpacing.xs)
     }
 
     // MARK: Search
