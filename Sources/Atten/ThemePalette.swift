@@ -79,10 +79,12 @@ extension AttenPalette {
     /// rather than by a step: a panel here is a change of depth, not a box
     /// drawn on top of the window.
     ///
-    /// The accent is the brand's, from the landing page: cyan `0x5DDBFF`, with
-    /// violet `0x9E70FF` beside it. It is spent sparingly. Apple Music is the
-    /// reference for how little accent a dark app needs — its red lands on
-    /// about four things per screen and everything else is grey.
+    /// The chrome is achromatic. Every accent role is a neutral — near-white
+    /// on the dark side, near-black on the light one — because a hue used for
+    /// selection, progress and primary actions at once stops being an accent
+    /// and becomes the theme. The brand's cyan and violet survive only in
+    /// ``brandGradient``, and only as light: the atmosphere behind a screen,
+    /// never a fill on a control.
     ///
     /// Light is a deliberate companion, not an inversion, and the page keeps
     /// its warm paper: warm ink is what a lamp does to a page, and the
@@ -96,29 +98,28 @@ extension AttenPalette {
         separator: AttenThemeColor(0xD0D8E3, 0x1F2734),
         textPrimary: AttenThemeColor(0x0B121C, 0xE7EEF8),
         textSecondary: AttenThemeColor(0x55637A, 0x8FA2BA),
-        accent: AttenThemeColor(0x0B6E8F, 0x5DDBFF),
-        accentHover: AttenThemeColor(0x095A73, 0x91E8FF),
-        accentSecondary: AttenThemeColor(0x6D28D9, 0x9E70FF),
+        accent: AttenThemeColor(0x111922, 0xE8EEF6),
+        accentHover: AttenThemeColor(0x000000, 0xFFFFFF),
+        accentSecondary: AttenThemeColor(0x4C5561, 0xB2BAC3),
         success: AttenThemeColor(0x177A50, 0x4ADE80),
         warning: AttenThemeColor(0x8A5A12, 0xF0B849),
         destructive: AttenThemeColor(0xB42346, 0xFB7185),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x061018),
+        onAccent: AttenThemeColor(0xFFFFFF, 0x06080C),
         readerText: AttenThemeColor(0x141B26, 0xDCE6F2),
         readerBackground: AttenThemeColor(0xFBFAF7, 0x06080C),
         readerInk: AttenThemeColor(0x2A2721, 0xD6CFC2),
         readerInkMuted: AttenThemeColor(0x6A6459, 0x8B8578),
-        readerAccent: AttenThemeColor(0x1F5A8C, 0x8FB8C9),
-        readerHighlight: AttenThemeColor(0xD9E6F5, 0x1E3350),
+        readerAccent: AttenThemeColor(0x6E6459, 0xA79F92),
+        readerHighlight: AttenThemeColor(0xE8E2D4, 0x2B2A27),
         scrim: AttenThemeColor(0x0B121C, 0x000000)
     )
 
-    /// Atten's mark, for the few places that carry the brand rather than
-    /// information: the wordmark, an empty state's glyph, the one hero line.
+    /// The brand's colour, kept for light rather than for paint.
     ///
     /// Taken from the landing page verbatim — cyan through pale cyan to
-    /// violet. It is used sparingly on purpose. An accent that appears
-    /// everywhere is not an accent, and the reference for this app's chrome is
-    /// Apple Music, where the accent lands on perhaps four things per screen
-    /// and the rest is grey on near-black.
+    /// violet. It belongs in effects: the glow behind a screen, a halo under
+    /// something active. It is deliberately not available as a fill, because
+    /// a gradient on a button is the fastest way to make an interface look
+    /// like a demo of itself.
     static let brandGradient = [Color(hex: 0x5DDBFF), Color(hex: 0xB7F2FF), Color(hex: 0x9E70FF)]
 }
