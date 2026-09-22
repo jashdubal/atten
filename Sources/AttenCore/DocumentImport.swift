@@ -60,9 +60,10 @@ public enum DocumentImporter {
     /// Reads a document into chapters. This walks every page of the file, so
     /// it is meant to be called off the main actor.
     public static func extract(from url: URL) throws -> ExtractedDocument {
-        switch BookFormat.forExtension(url.pathExtension) {
+        switch BookFormat.resolve(for: url) {
         case .pdf: try PDFTextExtractor.extract(from: url)
         case .epub: try EPUBTextExtractor.extract(from: url)
+        case .mobi: try MOBITextExtractor.extract(from: url)
         case .document: try FlatDocumentExtractor.extract(from: url)
         case nil: throw DocumentImportError.unsupportedFormat(url.pathExtension)
         }
@@ -96,6 +97,49 @@ public enum DocumentText {
         text = text.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
         text = text.replacingOccurrences(of: " *\\n *", with: "\n", options: .regularExpression)
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A line that opens a division of the book and names nothing else:
+    /// "CHAPTER 1", "PART II". The title it belongs to is on the line under it.
+    static let marker = try? NSRegularExpression(
+        pattern: "^(CHAPTER|PART|BOOK|SECTION) +([0-9]+|[IVXLCDM]+)$"
+    )
+
+    static func isMarker(_ line: String) -> Bool {
+        guard let marker else { return false }
+        // Only in the book's own capitals. A cross-reference reads "Chapter 8",
+        // and mistaking one for an opening would cut a chapter in half.
+        let range = NSRange(line.startIndex..<line.endIndex, in: line)
+        return marker.firstMatch(in: line, options: [.anchored], range: range) != nil
+    }
+
+    /// A line short enough to be a title rather than the first sentence of one.
+    /// Trailing punctuation that continues a sentence is the giveaway; a colon
+    /// is not, because a title often carries one before its subtitle.
+    private static func titleLike(_ line: String) -> String? {
+        let trimmed = line.trimmingCharacters(in: CharacterSet(charactersIn: ": "))
+        guard !trimmed.isEmpty, trimmed.count <= 90,
+              trimmed.split(whereSeparator: \.isWhitespace).count <= 14,
+              !",;.".contains(trimmed.last!) else { return nil }
+        return trimmed
+    }
+
+    /// What to call a chapter. A book that marks its openings with a heading
+    /// element says so plainly; one that only styles a paragraph does not, and
+    /// then the first line of the chapter is the title printed on the page.
+    public static func chapterTitle(heading: String?, text: String, position: Int) -> String {
+        if let heading, !heading.isEmpty { return heading }
+        let lines = text.split(separator: "\n").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+
+        if let first = lines.first {
+            if isMarker(first), let subtitle = lines.dropFirst().first.flatMap(titleLike) {
+                return "\(first): \(subtitle)"
+            }
+            if let title = titleLike(first) { return title }
+        }
+        return "Chapter \(position)"
     }
 }
 
@@ -215,7 +259,11 @@ public enum EPUBTextExtractor {
             let text = DocumentText.normalize(document.text)
             guard !text.isEmpty else { continue }
             chapters.append(DocumentChapter(
-                title: document.heading ?? "Chapter \(chapters.count + 1)",
+                title: DocumentText.chapterTitle(
+                    heading: document.heading,
+                    text: text,
+                    position: chapters.count + 1
+                ),
                 text: text
             ))
         }
@@ -355,22 +403,7 @@ public enum EPUBTextExtractor {
     /// tags, which reads worse but never loses a chapter.
     private static func readDocument(at url: URL) -> (text: String, heading: String?) {
         guard let data = try? Data(contentsOf: url) else { return ("", nil) }
-        let source = HTMLEntities.substituteNamed(in: String(decoding: data, as: UTF8.self))
-
-        let parser = XMLParser(data: Data(source.utf8))
-        parser.shouldResolveExternalEntities = false
-        let collector = XHTMLTextCollector()
-        parser.delegate = collector
-        if parser.parse(), !collector.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return (collector.text, collector.heading)
-        }
-
-        let stripped = source.replacingOccurrences(
-            of: "<[^>]+>",
-            with: "\n",
-            options: .regularExpression
-        )
-        return (HTMLEntities.decodeRemaining(in: stripped), nil)
+        return XHTMLText.read(String(decoding: data, as: UTF8.self))
     }
 
     // MARK: XML helpers
@@ -437,17 +470,65 @@ public enum EPUBTextExtractor {
             if targets.contains(localName(elementName)) { openIndex = nil }
         }
     }
+}
+
+/// Flattening XHTML to the words a voice reads. An EPUB keeps its markup in
+/// files and a Kindle book keeps it in one run of text, but past that point
+/// they are the same job, so both formats come through here.
+enum XHTMLText {
+    fileprivate static let skipped: Set<String> = ["script", "style", "head"]
+    fileprivate static let blocks: Set<String> = [
+        "p", "div", "br", "li", "tr", "td", "blockquote", "section",
+        "article", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6",
+    ]
+    fileprivate static let headings: Set<String> = ["h1", "h2", "h3"]
+
+    /// XHTML in the wild uses HTML entity names no XML parser knows, and is now
+    /// and then not well-formed at all. Substituting the common names first
+    /// fixes the usual case; anything still unparsable falls back to stripping
+    /// tags, which reads worse but never loses a chapter.
+    static func read(_ html: String) -> (text: String, heading: String?) {
+        let source = HTMLEntities.substituteNamed(in: html)
+
+        let parser = XMLParser(data: Data(source.utf8))
+        parser.shouldResolveExternalEntities = false
+        let collector = XHTMLTextCollector()
+        parser.delegate = collector
+        if parser.parse(), !collector.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return (collector.text, collector.heading)
+        }
+
+        return (HTMLEntities.decodeRemaining(in: strippingTags(from: source)), nil)
+    }
+
+    private static let tag = try? NSRegularExpression(pattern: "<[^>]+>")
+
+    /// Only a block ends a line. An emphasis or a link sits inside a sentence,
+    /// and a newline in its place is a paragraph break that splits the sentence
+    /// in two — which the voice reads as a pause in the middle of a thought.
+    private static func strippingTags(from source: String) -> String {
+        guard let tag else { return source }
+        var result = source
+        let full = NSRange(source.startIndex..<source.endIndex, in: source)
+        for match in tag.matches(in: source, range: full).reversed() {
+            guard let range = Range(match.range, in: source) else { continue }
+            let name = tagName(in: source[range])
+            result.replaceSubrange(range, with: blocks.contains(name) ? "\n" : "")
+        }
+        return result
+    }
+
+    /// The element a tag opens or closes, taken off the front of `<p class=…>`
+    /// or `</p>` and compared the way every other name here is.
+    private static func tagName(in tag: Substring) -> String {
+        let name = tag.dropFirst().drop { $0 == "/" }
+            .prefix { !$0.isWhitespace && $0 != ">" && $0 != "/" }
+        return localName(String(name))
+    }
 
     /// Flattens an XHTML chapter to spoken text and picks up its heading, which
     /// is the chapter title a reader recognizes.
     private final class XHTMLTextCollector: NSObject, XMLParserDelegate {
-        private static let skipped: Set<String> = ["script", "style", "head"]
-        private static let blocks: Set<String> = [
-            "p", "div", "br", "li", "tr", "td", "blockquote", "section",
-            "article", "figcaption", "h1", "h2", "h3", "h4", "h5", "h6",
-        ]
-        private static let headings: Set<String> = ["h1", "h2", "h3"]
-
         private var skipDepth = 0
         private var headingBuffer: String?
         private(set) var text = ""
@@ -461,13 +542,13 @@ public enum EPUBTextExtractor {
             attributes: [String: String] = [:]
         ) {
             let name = localName(elementName)
-            if Self.skipped.contains(name) {
+            if XHTMLText.skipped.contains(name) {
                 skipDepth += 1
                 return
             }
             guard skipDepth == 0 else { return }
-            if Self.blocks.contains(name) { text += "\n" }
-            if Self.headings.contains(name), heading == nil, headingBuffer == nil {
+            if XHTMLText.blocks.contains(name) { text += "\n" }
+            if XHTMLText.headings.contains(name), heading == nil, headingBuffer == nil {
                 headingBuffer = ""
             }
         }
@@ -485,19 +566,19 @@ public enum EPUBTextExtractor {
             qualifiedName: String?
         ) {
             let name = localName(elementName)
-            if Self.skipped.contains(name) {
+            if XHTMLText.skipped.contains(name) {
                 skipDepth = max(0, skipDepth - 1)
                 return
             }
             guard skipDepth == 0 else { return }
-            if Self.headings.contains(name), let buffer = headingBuffer {
+            if XHTMLText.headings.contains(name), let buffer = headingBuffer {
                 let title = buffer
                     .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 heading = title.isEmpty ? nil : title
                 headingBuffer = nil
             }
-            if Self.blocks.contains(name) { text += "\n" }
+            if XHTMLText.blocks.contains(name) { text += "\n" }
         }
     }
 }

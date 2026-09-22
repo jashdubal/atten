@@ -97,7 +97,7 @@ final class BookshelfModel {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
-        guard let format = BookFormat.forExtension(url.pathExtension) else {
+        guard let format = BookFormat.resolve(for: url) else {
             errorMessage = DocumentImportError
                 .unsupportedFormat(url.pathExtension)
                 .localizedDescription

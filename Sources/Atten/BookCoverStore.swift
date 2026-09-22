@@ -100,6 +100,8 @@ final class BookCoverStore {
             return nil
         case .epub:
             return EPUBTextExtractor.coverImageData(from: url)
+        case .mobi:
+            return MOBITextExtractor.coverImageData(from: url)
         case .pdf:
             guard let document = PDFDocument(url: url),
                   !document.isLocked,

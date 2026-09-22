@@ -3,6 +3,8 @@ import Foundation
 public enum BookFormat: String, Codable, Sendable {
     case pdf
     case epub
+    /// A Kindle book: Mobipocket, and the KF8 files that succeeded it.
+    case mobi
     /// Anything that is one flat run of text rather than a book: a note, a
     /// paper, a report someone wants read out to them. Atten sets the type for
     /// these itself, exactly as it does for an EPUB.
@@ -15,21 +17,45 @@ public enum BookFormat: String, Codable, Sendable {
         switch self {
         case .pdf: ["pdf"]
         case .epub: ["epub"]
+        case .mobi: ["mobi", "azw", "azw3", "prc"]
         case .document: ["txt", "text", "md", "markdown", "rtf", "rtfd", "doc", "docx", "html", "htm"]
         }
     }
 
     public static func forExtension(_ pathExtension: String) -> BookFormat? {
         let wanted = pathExtension.lowercased()
-        return [.pdf, .epub, .document].first { $0.extensions.contains(wanted) }
+        return [.pdf, .epub, .mobi, .document].first { $0.extensions.contains(wanted) }
     }
 
-    public static let supportedExtensions = [BookFormat.pdf, .epub, .document]
+    /// The format a file's first bytes say it is. Only the two book containers
+    /// are recognised, because they are the two that get confused: a `.docx` is
+    /// a zip as well, and it is a document however its bytes begin.
+    static func forContents(of url: URL) -> BookFormat? {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        defer { try? handle.close() }
+        guard let header = try? handle.read(upToCount: 68), header.count >= 68 else { return nil }
+        if header.prefix(4).elementsEqual([0x50, 0x4B, 0x03, 0x04]) { return .epub }
+        // A Palm database names its type and creator at byte 60.
+        if header[60..<68].elementsEqual(Array("BOOKMOBI".utf8)) { return .mobi }
+        return nil
+    }
+
+    /// The format Atten will actually read the file as. Kindle books are handed
+    /// around named `.epub` often enough that the extension alone is not worth
+    /// trusting for a book — so for a book, the bytes decide. Every other
+    /// format is taken at its extension.
+    public static func resolve(for url: URL) -> BookFormat? {
+        let declared = forExtension(url.pathExtension)
+        guard declared == .epub || declared == .mobi else { return declared }
+        return forContents(of: url) ?? declared
+    }
+
+    public static let supportedExtensions = [BookFormat.pdf, .epub, .mobi, .document]
         .flatMap(\.extensions)
 
     public var displayName: String {
         switch self {
-        case .pdf, .epub: rawValue.uppercased()
+        case .pdf, .epub, .mobi: rawValue.uppercased()
         case .document: "DOC"
         }
     }
@@ -43,7 +69,7 @@ public enum BookFormat: String, Codable, Sendable {
     /// prints above a title. A report has sections, not chapters.
     public var sectionNoun: String {
         switch self {
-        case .epub: "Chapter"
+        case .epub, .mobi: "Chapter"
         case .pdf, .document: "Section"
         }
     }
@@ -51,7 +77,7 @@ public enum BookFormat: String, Codable, Sendable {
     public var icon: String {
         switch self {
         case .pdf: "doc.richtext"
-        case .epub: "book.closed"
+        case .epub, .mobi: "book.closed"
         case .document: "doc.text"
         }
     }
