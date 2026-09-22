@@ -307,11 +307,14 @@ private struct BookCard: View {
         .frame(maxWidth: .infinity)
         // The shape of a book rather than the shape of a window.
         .aspectRatio(2.0 / 3.0, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.card)
-                .stroke(AttenColor.separator.opacity(0.9), lineWidth: 1)
+            // A hairline so a dark jacket does not bleed into a dark shelf,
+            // and a shadow so the book sits on the shelf rather than in it.
+            RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
         }
+        .shadow(color: .black.opacity(0.45), radius: isHovering ? 22 : 14, y: isHovering ? 10 : 6)
         .overlay(alignment: .topTrailing) {
             if isFullyNarrated {
                 Image(systemName: "checkmark.circle.fill")

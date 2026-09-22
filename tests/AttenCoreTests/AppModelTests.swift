@@ -157,14 +157,14 @@ final class AppModelTests: XCTestCase {
     /// the speed menu offered two settings that looked like neighbours of the
     /// ones it actually had.
     func testListeningSpeedsAreWrittenOutInFull() {
-        XCTAssertEqual(PlayerBar.rateText(0.75), "0.75×")
-        XCTAssertEqual(PlayerBar.rateText(1.0), "1×")
-        XCTAssertEqual(PlayerBar.rateText(1.25), "1.25×")
-        XCTAssertEqual(PlayerBar.rateText(1.75), "1.75×")
-        XCTAssertEqual(PlayerBar.rateText(2.0), "2×")
+        XCTAssertEqual(PlaybackFormat.rateText(0.75), "0.75×")
+        XCTAssertEqual(PlaybackFormat.rateText(1.0), "1×")
+        XCTAssertEqual(PlaybackFormat.rateText(1.25), "1.25×")
+        XCTAssertEqual(PlaybackFormat.rateText(1.75), "1.75×")
+        XCTAssertEqual(PlaybackFormat.rateText(2.0), "2×")
         XCTAssertEqual(
-            Set(PlayerBar.rates.map(PlayerBar.rateText)).count,
-            PlayerBar.rates.count,
+            Set(PlaybackFormat.rates.map(PlaybackFormat.rateText)).count,
+            PlaybackFormat.rates.count,
             "Every speed in the menu should be distinguishable from the others"
         )
     }
