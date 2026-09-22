@@ -156,11 +156,12 @@ private struct ContinueReadingCard: View {
             }
         }
         .frame(width: 96 * AttenMetrics.coverAspectRatio, height: 96)
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover))
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.cover)
-                .stroke(AttenColor.separator, lineWidth: 1)
+            RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
         }
+        .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
         .accessibilityHidden(true)
     }
 }

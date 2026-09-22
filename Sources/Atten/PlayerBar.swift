@@ -64,12 +64,11 @@ struct GlobalPlayer: View {
             }
             .padding(.horizontal, AttenSpacing.sm)
             .frame(height: AttenMetrics.compactPlayerHeight)
-            .background(AttenColor.surfaceElevated)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.player))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.player)
-                    .stroke(AttenColor.separator, lineWidth: 1)
-            }
+            .attenElevated(
+                .raised,
+                radius: AttenRadius.player,
+                fill: AttenColor.surfaceElevated
+            )
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Player: \(title), \(subtitle)")
@@ -88,8 +87,8 @@ struct GlobalPlayer: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AttenColor.onAccent)
                 .frame(width: 28, height: 28)
-                .background(AttenColor.accent)
-                .clipShape(Circle())
+                .background(Circle().fill(AttenGradient.brand))
+                .shadow(color: Color(hex: 0x5DDBFF).opacity(0.35), radius: 8)
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
@@ -107,7 +106,7 @@ struct GlobalPlayer: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(AttenColor.progressTrack)
                 Capsule()
-                    .fill(AttenColor.progress)
+                    .fill(AttenGradient.brandAcross)
                     .frame(width: geometry.size.width * fraction)
             }
         }
@@ -156,6 +155,7 @@ struct ExpandedPlayerPanel: View {
         .padding(AttenSpacing.md)
         .frame(width: AttenMetrics.expandedPlayerWidth)
         .background(AttenColor.surface)
+        .background(.ultraThinMaterial)
     }
 
     private var heading: some View {
@@ -220,9 +220,9 @@ struct ExpandedPlayerPanel: View {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(AttenColor.onAccent)
-                    .frame(width: 40, height: 40)
-                    .background(AttenColor.accent)
-                    .clipShape(Circle())
+                    .frame(width: 44, height: 44)
+                    .background(Circle().fill(AttenGradient.brand))
+                    .shadow(color: Color(hex: 0x5DDBFF).opacity(0.4), radius: 14, y: 3)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
@@ -417,7 +417,7 @@ struct ScrubBar: View {
                     .fill(AttenColor.progressTrack)
                     .frame(height: thickness)
                 Capsule()
-                    .fill(AttenColor.progress)
+                    .fill(AttenGradient.brandAcross)
                     .frame(width: width * fraction, height: thickness)
                 if isActive {
                     Circle()
