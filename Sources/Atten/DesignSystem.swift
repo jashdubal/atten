@@ -206,9 +206,12 @@ struct AttenSurfaceModifier: ViewModifier {
             .padding(padding)
             .background(elevated ? AttenColor.surfaceElevated : AttenColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+            // A hairline at a fraction of its weight rather than a drawn box.
+            // The surface is already a step off the ground; an opaque border
+            // on top of that reads as a panel pasted onto the window.
             .overlay {
                 RoundedRectangle(cornerRadius: AttenRadius.card)
-                    .stroke(AttenColor.separator, lineWidth: 1)
+                    .strokeBorder(AttenColor.separator.opacity(0.6), lineWidth: 0.5)
             }
     }
 }
@@ -493,9 +496,10 @@ struct InspectorSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-            Text("> \(title.uppercased())")
-                .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.accent)
+            Text(title.uppercased())
+                .font(AttenTypography.metadata.weight(.semibold))
+                .tracking(1.4)
+                .foregroundStyle(AttenColor.textSecondary)
             content
         }
     }

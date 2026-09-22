@@ -152,7 +152,7 @@ struct SettingsView: View {
                 ) {
                     HStack(spacing: AttenSpacing.xs) {
                         Text(model.settings.outputDirectory)
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(AttenTypography.metadata)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -223,9 +223,9 @@ private struct SettingsPane<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-                Text("> \(title.uppercased())")
-                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(AttenColor.accent)
+                Text(title)
+                    .font(AttenTypography.pageTitle)
+                    .foregroundStyle(AttenColor.textPrimary)
                 Text(detail)
                     .font(AttenTypography.body)
                     .foregroundStyle(AttenColor.textSecondary)
@@ -247,7 +247,7 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent(action) {
             Text(keys)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(AttenTypography.readout)
                 .foregroundStyle(AttenColor.textSecondary)
                 .padding(.horizontal, AttenSpacing.xs)
                 .padding(.vertical, AttenSpacing.xxs)
