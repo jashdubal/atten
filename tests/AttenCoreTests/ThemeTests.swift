@@ -181,6 +181,46 @@ final class ThemeTests: XCTestCase {
         }
     }
 
+    /// The accent is the brand's, not a generic system blue. It is taken from
+    /// the landing page, and a screen that picks its own blue is the failure
+    /// this asserts against.
+    func testTheAccentIsTheBrandAccent() {
+        XCTAssertEqual(AttenPalette.atten.accent.dark, 0x5DDBFF, "dark accent is not the brand cyan")
+        XCTAssertEqual(
+            AttenPalette.atten.accentSecondary.dark, 0x9E70FF,
+            "the violet beside it is not the brand violet"
+        )
+        XCTAssertEqual(
+            AttenPalette.atten.onAccent.dark, 0x061018,
+            "the ink on the accent is not the brand's"
+        )
+    }
+
+    /// In the dark the page and the chrome share one ground, which is what
+    /// makes the page have no edges and the app feel like one surface rather
+    /// than a window with panels pasted on it.
+    func testTheDarkPageAndTheAppShareOneGround() {
+        XCTAssertEqual(
+            AttenPalette.atten.readerBackground.dark,
+            AttenPalette.atten.appBackground.dark,
+            "the reading black and the app background have come apart"
+        )
+    }
+
+    /// Surfaces lift off that ground by a step, not a jump. Too much
+    /// separation and every panel reads as a box drawn on the window.
+    func testDarkSurfacesLiftOffTheGroundGently() {
+        let ground = relativeLuminance(AttenPalette.atten.appBackground.dark)
+        for (name, role) in [
+            ("surface", AttenPalette.atten.surface),
+            ("surfaceElevated", AttenPalette.atten.surfaceElevated),
+        ] {
+            let lift = (relativeLuminance(role.dark) + 0.05) / (ground + 0.05)
+            XCTAssertGreaterThan(lift, 1.0, "\(name) does not read as raised at all")
+            XCTAssertLessThan(lift, 1.6, "\(name) reads as a box rather than a change of depth")
+        }
+    }
+
     /// Dark is a cool near-black rather than the neutral grey it replaced —
     /// that is the brief, and it is the one thing about the new palette that a
     /// later well-meaning tidy could undo without noticing.

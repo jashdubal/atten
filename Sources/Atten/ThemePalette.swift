@@ -73,38 +73,52 @@ struct AttenPalette: Sendable, Equatable {
 extension AttenPalette {
     /// Atten's palette.
     ///
-    /// Dark is a cool near-black rather than the grey the old Quiet theme used
-    /// and rather than the void Terminal used: lifted just off black so the
-    /// chrome has somewhere to sit, tipped towards navy so the blue accent
-    /// belongs to it. The page keeps Quiet's reading comfort — warm ink on a
-    /// near-black ground — because that part was right, and the brightness
-    /// control still takes the ink further down for a dark room.
+    /// Dark is the reading black — the same `0x06080C` the page is printed on
+    /// — carried out into the whole app, so the chrome and the page share one
+    /// ground and the page has no edges. Surfaces lift off it by a few points
+    /// rather than by a step: a panel here is a change of depth, not a box
+    /// drawn on top of the window.
     ///
-    /// Light is a deliberate companion, not an inversion: paper-white surfaces
-    /// over a cool off-white ground, with the same blue carrying the same
-    /// meaning at a weight that survives daylight.
+    /// The accent is the brand's, from the landing page: cyan `0x5DDBFF`, with
+    /// violet `0x9E70FF` beside it. It is spent sparingly. Apple Music is the
+    /// reference for how little accent a dark app needs — its red lands on
+    /// about four things per screen and everything else is grey.
+    ///
+    /// Light is a deliberate companion, not an inversion, and the page keeps
+    /// its warm paper: warm ink is what a lamp does to a page, and the
+    /// brightness control still takes the ink down for a dark room.
     static let atten = AttenPalette(
-        appBackground: AttenThemeColor(0xF4F6FA, 0x0A0D12),
-        sidebar: AttenThemeColor(0xEAEEF5, 0x070A0E),
-        surface: AttenThemeColor(0xFFFFFF, 0x11151C),
-        surfaceElevated: AttenThemeColor(0xFAFCFF, 0x161B24),
-        surfaceMuted: AttenThemeColor(0xE4E9F2, 0x1C222C),
-        separator: AttenThemeColor(0xC3CCDA, 0x272E3A),
-        textPrimary: AttenThemeColor(0x0E141C, 0xE6ECF5),
-        textSecondary: AttenThemeColor(0x55637A, 0x93A1B5),
-        accent: AttenThemeColor(0x0A66C2, 0x6FB4FF),
-        accentHover: AttenThemeColor(0x074D96, 0x9ECBFF),
-        accentSecondary: AttenThemeColor(0x1F6F86, 0x7FD1E8),
+        appBackground: AttenThemeColor(0xF7F8FA, 0x06080C),
+        sidebar: AttenThemeColor(0xF3F5F8, 0x080B10),
+        surface: AttenThemeColor(0xFFFFFF, 0x0B0F16),
+        surfaceElevated: AttenThemeColor(0xFCFDFF, 0x0E131B),
+        surfaceMuted: AttenThemeColor(0xEDF0F5, 0x141A24),
+        separator: AttenThemeColor(0xD0D8E3, 0x1F2734),
+        textPrimary: AttenThemeColor(0x0B121C, 0xE7EEF8),
+        textSecondary: AttenThemeColor(0x55637A, 0x8FA2BA),
+        accent: AttenThemeColor(0x0B6E8F, 0x5DDBFF),
+        accentHover: AttenThemeColor(0x095A73, 0x91E8FF),
+        accentSecondary: AttenThemeColor(0x6D28D9, 0x9E70FF),
         success: AttenThemeColor(0x177A50, 0x4ADE80),
         warning: AttenThemeColor(0x8A5A12, 0xF0B849),
         destructive: AttenThemeColor(0xB42346, 0xFB7185),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x06111F),
-        readerText: AttenThemeColor(0x141B26, 0xDCE4F0),
+        onAccent: AttenThemeColor(0xFFFFFF, 0x061018),
+        readerText: AttenThemeColor(0x141B26, 0xDCE6F2),
         readerBackground: AttenThemeColor(0xFBFAF7, 0x06080C),
         readerInk: AttenThemeColor(0x2A2721, 0xD6CFC2),
         readerInkMuted: AttenThemeColor(0x6A6459, 0x8B8578),
-        readerAccent: AttenThemeColor(0x1F5A8C, 0x9FB6D8),
+        readerAccent: AttenThemeColor(0x1F5A8C, 0x8FB8C9),
         readerHighlight: AttenThemeColor(0xD9E6F5, 0x1E3350),
-        scrim: AttenThemeColor(0x0E141C, 0x000000)
+        scrim: AttenThemeColor(0x0B121C, 0x000000)
     )
+
+    /// Atten's mark, for the few places that carry the brand rather than
+    /// information: the wordmark, an empty state's glyph, the one hero line.
+    ///
+    /// Taken from the landing page verbatim — cyan through pale cyan to
+    /// violet. It is used sparingly on purpose. An accent that appears
+    /// everywhere is not an accent, and the reference for this app's chrome is
+    /// Apple Music, where the accent lands on perhaps four things per screen
+    /// and the rest is grey on near-black.
+    static let brandGradient = [Color(hex: 0x5DDBFF), Color(hex: 0xB7F2FF), Color(hex: 0x9E70FF)]
 }
