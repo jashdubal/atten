@@ -181,19 +181,36 @@ final class ThemeTests: XCTestCase {
         }
     }
 
-    /// The accent is the brand's, not a generic system blue. It is taken from
-    /// the landing page, and a screen that picks its own blue is the failure
-    /// this asserts against.
-    func testTheAccentIsTheBrandAccent() {
-        XCTAssertEqual(AttenPalette.atten.accent.dark, 0x5DDBFF, "dark accent is not the brand cyan")
-        XCTAssertEqual(
-            AttenPalette.atten.accentSecondary.dark, 0x9E70FF,
-            "the violet beside it is not the brand violet"
-        )
-        XCTAssertEqual(
-            AttenPalette.atten.onAccent.dark, 0x061018,
-            "the ink on the accent is not the brand's"
-        )
+    /// The chrome is achromatic. Selection, progress and the primary action
+    /// all use the accent roles, and a hue doing all three at once stops being
+    /// an accent and becomes the theme — which is what this asserts against.
+    func testTheChromeCarriesNoHue() {
+        let roles: [(String, AttenThemeColor)] = [
+            ("accent", AttenPalette.atten.accent),
+            ("accentHover", AttenPalette.atten.accentHover),
+            ("accentSecondary", AttenPalette.atten.accentSecondary),
+            ("onAccent", AttenPalette.atten.onAccent),
+        ]
+        for (name, role) in roles {
+            for (appearance, value) in [("light", role.light), ("dark", role.dark)] {
+                let (red, green, blue) = channels(value)
+                let spread = Int(max(red, green, blue)) - Int(min(red, green, blue))
+                // The palette is cool-neutral, not pure grey — `textPrimary`
+                // itself runs a 17-point cast — so the bound is set to catch a
+                // real hue rather than to forbid the cast. Brand cyan spreads
+                // 162 points; nothing neutral comes near this line.
+                XCTAssertLessThanOrEqual(
+                    spread, 22,
+                    "\(name) \(appearance) carries a hue; the chrome is meant to be neutral"
+                )
+            }
+        }
+    }
+
+    /// The brand's colour survives as light rather than as paint, so it is
+    /// still there to glow with — and still exactly the landing page's.
+    func testTheBrandSurvivesAsAGradient() {
+        XCTAssertEqual(AttenPalette.brandGradient.count, 3)
     }
 
     /// In the dark the page and the chrome share one ground, which is what

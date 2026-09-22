@@ -89,7 +89,10 @@ extension NSColor {
 /// achromatic: light is white, shadow is black, and the palette supplies the
 /// colour.
 enum AttenGradient {
-    /// Cyan → pale cyan → violet, on the diagonal. For a mark or a fill.
+    /// Cyan → pale cyan → violet, on the diagonal.
+    ///
+    /// For light — a glow, a halo — not for a fill. A gradient poured into a
+    /// button makes an interface look like a demo of itself.
     static var brand: LinearGradient {
         LinearGradient(
             colors: AttenPalette.brandGradient,
@@ -197,12 +200,6 @@ extension View {
         modifier(AttenElevatedSurface(elevation: elevation, radius: radius, fill: fill))
     }
 
-    /// Put the brand gradient through this view's own shape — a title, a
-    /// glyph, a filled bar.
-    func attenBrandFilled() -> some View {
-        overlay { AttenGradient.brandAcross }
-            .mask(self)
-    }
 }
 
 enum AttenSpacing {
@@ -340,13 +337,13 @@ struct AttenAtmosphere: View {
         if colorScheme == .dark {
             ZStack(alignment: .top) {
                 EllipticalGradient(
-                    colors: [Color(hex: 0x5DDBFF).opacity(0.22), .clear],
+                    colors: [Color(hex: 0x5DDBFF).opacity(0.10), .clear],
                     center: .init(x: 0.18, y: 0.0),
                     startRadiusFraction: 0,
                     endRadiusFraction: 0.62
                 )
                 EllipticalGradient(
-                    colors: [Color(hex: 0x7E3CFF).opacity(0.20), .clear],
+                    colors: [Color(hex: 0x7E3CFF).opacity(0.09), .clear],
                     center: .init(x: 0.72, y: 0.06),
                     startRadiusFraction: 0,
                     endRadiusFraction: 0.58
@@ -409,21 +406,11 @@ private struct AttenPrimaryButtonBody: View {
             .frame(minHeight: 38)
             .background {
                 RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
-                    .fill(AttenGradient.brand)
-                    .brightness(isPressed ? -0.06 : (isHovering ? 0.05 : 0))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5)
+                    .fill(isHovering ? AttenColor.accentHover : AttenColor.accent)
+                    .brightness(isPressed ? -0.05 : 0)
             }
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
-            // The one glow in the app. A primary action that emits a little
-            // light is the difference between a button and a painted rectangle.
-            .shadow(
-                color: Color(hex: 0x5DDBFF).opacity(isEnabled ? (isHovering ? 0.38 : 0.24) : 0),
-                radius: isHovering ? 18 : 12,
-                y: 4
-            )
+            .shadow(color: .black.opacity(isEnabled ? 0.3 : 0), radius: 10, y: 3)
             .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
             .scaleEffect(isPressed && !reduceMotion ? AttenState.pressedScale : 1)
             .animation(AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion), value: isPressed)
