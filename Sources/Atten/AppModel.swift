@@ -375,6 +375,21 @@ final class AppModel {
 
     var playerSubtitle: String? { queue.current?.subtitle }
 
+    /// The generated Studio record behind the current file, when there is
+    /// one. Narrated book chapters deliberately do not become projects: the
+    /// chapter and its book are the source of truth for those tracks.
+    var playingProject: ProjectRecord? {
+        guard let url = queue.current?.url else { return nil }
+        return projects.first { $0.audioURL == url }
+    }
+
+    /// A named route rather than a sheet keeps Now Playing available from
+    /// Home, the reader, and every detail screen without creating a second
+    /// playback owner.
+    func openNowPlaying() {
+        section = .nowPlaying
+    }
+
     /// The book the current track came from, when it came from one.
     ///
     /// A narration track carries its chapter's identifier, so the shelf can be
@@ -948,7 +963,24 @@ final class AppModel {
     /// One file, with nothing before or after it — a preview, a sample, a
     /// finished draft.
     private func play(url: URL, subtitle: String? = nil) {
-        play(tracks: [PlaybackTrack(url: url, subtitle: subtitle)])
+        let project = projects.first { $0.audioURL == url }
+        let isPlaygroundSample = url.path.hasPrefix(playgroundDirectory.path)
+        let isVoicePreview = url.path.contains("/Voice Previews/")
+        let title = project?.title
+            ?? (isPlaygroundSample ? "Playground sample" : nil)
+            ?? (isVoicePreview ? "Voice preview" : nil)
+        let source = subtitle
+            ?? project.map { project in
+                let voice = VoiceCatalog.voice(id: project.voiceID)?.name ?? project.voiceID
+                return "Studio · \(voice)"
+            }
+            ?? (isPlaygroundSample ? "Studio playground" : nil)
+        let track = if let title {
+            PlaybackTrack(url: url, title: title, subtitle: source)
+        } else {
+            PlaybackTrack(url: url, subtitle: source)
+        }
+        play(tracks: [track])
     }
 
     private func start(_ track: PlaybackTrack, secondsBeforeEnd: TimeInterval? = nil) {
