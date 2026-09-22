@@ -35,6 +35,7 @@ final class ModelLibrary {
     var isSearching = false
     var searchError: String?
     var lastMessage: String?
+    var cancelledMessage: String?
 
     var query = "" {
         didSet { if query != oldValue { scheduleSearch() } }
@@ -225,6 +226,9 @@ final class ModelLibrary {
     func download(_ modelID: String) {
         guard downloads[modelID]?.phase != .downloading, !isInstalled(modelID) else { return }
 
+        lastMessage = nil
+        cancelledMessage = nil
+
         var pending = loadPendingDownloads()
         pending.insert(modelID)
         savePendingDownloads(pending)
@@ -282,6 +286,7 @@ final class ModelLibrary {
     }
 
     func cancel(_ modelID: String) {
+        cancelledMessage = nil
         downloader.stop(modelID)
         let task = downloadTasks[modelID]
         downloads[modelID] = nil
@@ -291,12 +296,13 @@ final class ModelLibrary {
             // Wait for the process to exit before removing its partial files.
             await task?.value
             try? store.delete(modelID)
-            self?.lastMessage = "Cancelled \(modelID) and removed partial files."
+            self?.cancelledMessage = "Cancelled \(modelID) and removed partial files."
             self?.rescanInstalled()
         }
     }
 
     func delete(_ modelID: String) {
+        cancelledMessage = nil
         do {
             try store.delete(modelID)
             downloads[modelID] = nil
@@ -309,6 +315,7 @@ final class ModelLibrary {
     }
 
     private func finishDownload(_ modelID: String) {
+        cancelledMessage = nil
         downloads[modelID] = nil
         removePending(modelID)
         lastMessage = "\(modelID) is ready to use in Studio."

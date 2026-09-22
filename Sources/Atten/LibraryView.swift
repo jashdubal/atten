@@ -284,18 +284,51 @@ struct LibraryStatusArea: View {
     let shelf: BookshelfModel
 
     var body: some View {
-        if let message = shelf.successMessage {
-            StatusBanner(kind: .success, message: message, dismiss: shelf.dismissStatus)
-        }
-        if let message = shelf.errorMessage {
-            StatusBanner(kind: .error, message: message, dismiss: shelf.dismissStatus)
-        }
-        if shelf.isImporting {
-            HStack(spacing: AttenSpacing.xs) {
-                ProgressView().controlSize(.small)
-                Text("Reading the book into chapters…")
-                    .font(AttenTypography.metadata)
-                    .foregroundStyle(AttenColor.textSecondary)
+        VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+            if shelf.isImporting {
+                AttenProgressStatus(
+                    title: "Importing document",
+                    detail: "Reading the source into chapters. This may take a moment.",
+                    phase: .active
+                )
+            }
+
+            if let progress = shelf.progress, let book = shelf.book(id: progress.bookID) {
+                AttenProgressStatus(
+                    title: "Narrating \(book.title)",
+                    detail: "Chapter \(progress.completed + 1) of \(progress.total): \(progress.chapterTitle)",
+                    phase: .active,
+                    progress: progress.total > 0 ? progress.fraction : nil,
+                    progressLabel: "\(progress.completed) of \(progress.total) chapters",
+                    actionTitle: "Stop",
+                    action: shelf.cancelNarration
+                )
+            }
+
+            if let message = shelf.importSuccessMessage {
+                StatusBanner(kind: .success, message: message, dismiss: shelf.dismissStatus)
+            }
+            if let message = shelf.narrationSuccessMessage {
+                StatusBanner(kind: .success, message: message, dismiss: shelf.dismissStatus)
+            }
+            if let message = shelf.cancelledMessage {
+                StatusBanner(kind: .cancelled, message: message, dismiss: shelf.dismissStatus)
+            }
+            if let message = shelf.importErrorMessage {
+                StatusBanner(kind: .error, message: message, dismiss: shelf.dismissStatus)
+            }
+            if let message = shelf.narrationErrorMessage {
+                StatusBanner(kind: .error, message: message, dismiss: shelf.dismissStatus)
+            }
+            if let message = shelf.successMessage,
+               message != shelf.importSuccessMessage,
+               message != shelf.narrationSuccessMessage {
+                StatusBanner(kind: .success, message: message, dismiss: shelf.dismissStatus)
+            }
+            if let message = shelf.errorMessage,
+               message != shelf.importErrorMessage,
+               message != shelf.narrationErrorMessage {
+                StatusBanner(kind: .error, message: message, dismiss: shelf.dismissStatus)
             }
         }
     }

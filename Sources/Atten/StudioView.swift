@@ -117,7 +117,13 @@ struct StudioView: View {
         if let success = model.successMessage, !isCompletedState {
             StatusBanner(kind: .success, message: success, dismiss: model.dismissStatus)
         }
-        if case let .error(message) = studioState {
+        if case .completed = studioState {
+            AttenProgressStatus(
+                title: "Speech ready",
+                detail: "The generated audio is ready in the shared player and Projects.",
+                phase: .success
+            )
+        } else if case let .error(message) = studioState {
             errorBanner(message)
         } else if case .cancelled = studioState {
             cancelledBanner
@@ -339,13 +345,11 @@ struct StudioView: View {
         switch studioState {
         case .generating:
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
-                HStack(spacing: AttenSpacing.xs) {
-                    ProgressView().controlSize(.small)
-                    Text("Generating speech…")
-                        .font(AttenTypography.body.weight(.medium))
-                    Spacer()
-                }
-                .foregroundStyle(AttenColor.textPrimary)
+                AttenProgressStatus(
+                    title: "Generating speech",
+                    detail: "The local speech backend is working. Progress is indeterminate because it does not report a fraction.",
+                    phase: .active
+                )
                 Button("Cancel generation", role: .cancel) {
                     cancellationNotice = true
                     model.cancelGeneration()

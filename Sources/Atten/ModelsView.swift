@@ -102,6 +102,9 @@ struct ModelsView: View {
         if let message = library.lastMessage {
             StatusBanner(kind: .success, message: message) { library.lastMessage = nil }
         }
+        if let message = library.cancelledMessage {
+            StatusBanner(kind: .cancelled, message: message) { library.cancelledMessage = nil }
+        }
         if let error = library.searchError {
             StatusBanner(kind: .warning, message: error) { library.searchError = nil }
         }
@@ -266,23 +269,28 @@ private struct ModelRow: View {
     }
 
     private func progress(_ state: ModelLibrary.DownloadState) -> some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-            ProgressView(value: Double(state.progress.percent), total: 100)
-                .tint(state.phase == .downloading ? AttenColor.accent : AttenColor.textSecondary)
-            HStack(spacing: AttenSpacing.sm) {
-                Text(statusText(state))
-                    .lineLimit(1)
-                    .foregroundStyle(isFailure(state) ? AttenColor.destructive : AttenColor.textSecondary)
-                Spacer()
-                Text("\(state.progress.percent)%")
-                if !state.progress.sizeText.isEmpty { Text(state.progress.sizeText) }
-                if !state.progress.speed.isEmpty { Text(state.progress.speed) }
-                if !state.progress.eta.isEmpty { Text("ETA \(state.progress.eta)") }
-            }
-            .font(AttenTypography.caption)
-            .foregroundStyle(AttenColor.textSecondary)
-            .monospacedDigit()
+        let phase: AttenTaskPhase
+        switch state.phase {
+        case .downloading: phase = .active
+        case .paused: phase = .cancelled
+        case .failed: phase = .error
         }
+        let metadata = [
+            state.progress.sizeText,
+            state.progress.speed,
+            state.progress.eta.isEmpty ? "" : "ETA \(state.progress.eta)",
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " · ")
+
+        return AttenProgressStatus(
+            title: "Download \(model.name)",
+            detail: statusText(state),
+            phase: phase,
+            progress: state.progress.fraction,
+            progressLabel: state.progress.fraction == nil ? nil : "\(state.progress.percent)%",
+            metadata: metadata.isEmpty ? nil : metadata
+        )
     }
 
     private func statusText(_ state: ModelLibrary.DownloadState) -> String {
@@ -290,8 +298,4 @@ private struct ModelRow: View {
         return state.progress.status
     }
 
-    private func isFailure(_ state: ModelLibrary.DownloadState) -> Bool {
-        if case .failed = state.phase { return true }
-        return false
-    }
 }

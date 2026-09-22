@@ -27,6 +27,15 @@ final class ModelLibraryTests: XCTestCase {
         XCTAssertEqual(HuggingFaceCatalog.downloadableByteCount(of: files), 1_310)
     }
 
+    func testDownloadProgressIsIndeterminateWithoutABackendPercentage() {
+        XCTAssertNil(ModelDownloadProgress(status: "Connecting…").fraction)
+        XCTAssertEqual(
+            ModelDownloadProgress(percent: 0, hasPercentage: true).fraction,
+            0
+        )
+        XCTAssertNil(ModelDownloadProgress(percent: 101, hasPercentage: true).fraction)
+    }
+
     func testCompatibilityFilterKeepsSupportedArchitecturesOnly() {
         XCTAssertTrue(HuggingFaceCatalog.isCompatible(id: "facebook/mms-tts-ara", tags: []))
         XCTAssertTrue(HuggingFaceCatalog.isCompatible(id: "someone/custom", tags: ["vits"]))

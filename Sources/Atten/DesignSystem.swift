@@ -653,7 +653,7 @@ struct InspectorSection<Content: View>: View {
 }
 
 struct StatusBanner: View {
-    enum Kind { case success, warning, error }
+    enum Kind { case success, warning, error, cancelled }
 
     let kind: Kind
     let message: String
@@ -664,6 +664,7 @@ struct StatusBanner: View {
         case .success: AttenColor.success
         case .warning: AttenColor.warning
         case .error: AttenColor.destructive
+        case .cancelled: AttenColor.warning
         }
     }
 
@@ -672,6 +673,7 @@ struct StatusBanner: View {
         case .success: "checkmark.circle.fill"
         case .warning: "exclamationmark.circle.fill"
         case .error: "exclamationmark.triangle.fill"
+        case .cancelled: "pause.circle.fill"
         }
     }
 
@@ -695,6 +697,133 @@ struct StatusBanner: View {
             RoundedRectangle(cornerRadius: AttenRadius.control)
                 .stroke(color, lineWidth: 1)
         }
+        // Keep the dismiss control discoverable while announcing the banner
+        // itself as one status region.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(message)
+    }
+}
+
+/// A common, honest presentation for work that may be active, complete,
+/// stopped, or failed. A missing fraction intentionally renders an
+/// indeterminate spinner; callers must not invent a percentage for a backend
+/// that does not report one.
+enum AttenTaskPhase: Equatable {
+    case idle
+    case active
+    case success
+    case error
+    case cancelled
+}
+
+struct AttenProgressStatus: View {
+    let title: String
+    let detail: String
+    let phase: AttenTaskPhase
+    let progress: Double?
+    let progressLabel: String?
+    let metadata: String?
+    let actionTitle: String?
+    let action: (() -> Void)?
+
+    init(
+        title: String,
+        detail: String,
+        phase: AttenTaskPhase,
+        progress: Double? = nil,
+        progressLabel: String? = nil,
+        metadata: String? = nil,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.detail = detail
+        self.phase = phase
+        self.progress = progress
+        self.progressLabel = progressLabel
+        self.metadata = metadata
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    private var color: Color {
+        switch phase {
+        case .idle: AttenColor.textSecondary
+        case .active: AttenColor.accent
+        case .success: AttenColor.success
+        case .error: AttenColor.destructive
+        case .cancelled: AttenColor.warning
+        }
+    }
+
+    private var icon: String {
+        switch phase {
+        case .idle: "circle"
+        case .active: "arrow.triangle.2.circlepath"
+        case .success: "checkmark.circle.fill"
+        case .error: "exclamationmark.triangle.fill"
+        case .cancelled: "pause.circle.fill"
+        }
+    }
+
+    private var spokenStatus: String {
+        [title, detail, progressLabel, metadata].compactMap { $0 }.joined(separator: ". ")
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AttenSpacing.xs) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
+                Text(title)
+                    .font(AttenTypography.control.weight(.semibold))
+                    .foregroundStyle(AttenColor.textPrimary)
+                Text(detail)
+                    .font(AttenTypography.caption)
+                    .foregroundStyle(AttenColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let progress {
+                    ProgressView(value: progress)
+                        .progressViewStyle(.linear)
+                        .tint(color)
+                } else if phase == .active {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                if progressLabel != nil || metadata != nil {
+                    HStack(spacing: AttenSpacing.sm) {
+                        if let progressLabel { Text(progressLabel) }
+                        if let metadata { Text(metadata) }
+                    }
+                    .font(AttenTypography.caption.monospacedDigit())
+                    .foregroundStyle(AttenColor.textSecondary)
+                }
+            }
+
+            Spacer(minLength: AttenSpacing.xs)
+
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(AttenSpacing.sm)
+        .background(AttenColor.surface)
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+        .overlay {
+            RoundedRectangle(cornerRadius: AttenRadius.control)
+                .stroke(color.opacity(0.8), lineWidth: 1)
+        }
+        // The optional action (for example, Stop) must remain a separate
+        // accessible control rather than being swallowed by the status text.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(spokenStatus)
+        .accessibilityAddTraits(phase == .active ? .updatesFrequently : [])
     }
 }
 

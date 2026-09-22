@@ -63,6 +63,13 @@ final class BookshelfModel {
     private(set) var narratedCounts: [UUID: Int] = [:]
     var errorMessage: String?
     var successMessage: String?
+    var cancelledMessage: String?
+    /// Per-operation messages keep an import completion from hiding a
+    /// narration failure (and vice versa) when both run at once.
+    var importErrorMessage: String?
+    var importSuccessMessage: String?
+    var narrationErrorMessage: String?
+    var narrationSuccessMessage: String?
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let store: BookLibraryStore
@@ -151,6 +158,11 @@ final class BookshelfModel {
     /// chapters. Extraction walks every page, so it runs off the main actor.
     func importBook(from url: URL, defaults: AppSettings) async {
         guard !isImporting else { return }
+        errorMessage = nil
+        successMessage = nil
+        cancelledMessage = nil
+        importErrorMessage = nil
+        importSuccessMessage = nil
         isImporting = true
         defer { isImporting = false }
 
@@ -158,9 +170,10 @@ final class BookshelfModel {
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
         guard let format = BookFormat.resolve(for: url) else {
-            errorMessage = DocumentImportError
+            importErrorMessage = DocumentImportError
                 .unsupportedFormat(url.pathExtension)
                 .localizedDescription
+            errorMessage = importErrorMessage
             return
         }
 
@@ -185,14 +198,16 @@ final class BookshelfModel {
                 books.insert(book, at: 0)
                 refreshNarrationCounts()
                 try await store.save(books)
-                successMessage = "Added \(book.title) — \(book.chapters.count) chapters."
+                importSuccessMessage = "Added \(book.title) — \(book.chapters.count) chapters."
+                successMessage = importSuccessMessage
             } catch {
                 // A book Atten cannot read must not leave a copy behind.
                 try? FileManager.default.removeItem(at: destination)
                 throw error
             }
         } catch {
-            errorMessage = error.localizedDescription
+            importErrorMessage = error.localizedDescription
+            errorMessage = importErrorMessage
         }
     }
 
@@ -234,6 +249,10 @@ final class BookshelfModel {
         }
 
         errorMessage = nil
+        successMessage = nil
+        cancelledMessage = nil
+        narrationErrorMessage = nil
+        narrationSuccessMessage = nil
         let directory = directories.narrations
             .appendingPathComponent(bookID.uuidString, isDirectory: true)
         progress = NarrationProgress(
@@ -289,20 +308,25 @@ final class BookshelfModel {
                     try await store.save(books)
                 }
                 let finished = books.first { $0.id == bookID }
-                successMessage = finished?.isFullyNarrated == true
+                narrationSuccessMessage = finished?.isFullyNarrated == true
                     ? "\(book.title) is fully narrated."
                     : "Narration finished."
+                successMessage = narrationSuccessMessage
             } catch is CancellationError {
                 return
             } catch BackendError.cancelled {
                 return
             } catch {
-                errorMessage = error.localizedDescription
+                narrationErrorMessage = error.localizedDescription
+                errorMessage = narrationErrorMessage
             }
         }
     }
 
     func cancelNarration() {
+        if let current = progress, let book = book(id: current.bookID) {
+            cancelledMessage = "Narration cancelled for \(book.title). \(current.completed) of \(current.total) chapters remain available."
+        }
         narrationTask?.cancel()
         narrationTask = nil
         generator.cancel()
@@ -415,6 +439,10 @@ final class BookshelfModel {
     func remove(_ bookID: UUID) {
         guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         if progress?.bookID == bookID { cancelNarration() }
+        importErrorMessage = nil
+        importSuccessMessage = nil
+        narrationErrorMessage = nil
+        narrationSuccessMessage = nil
         let book = books.remove(at: index)
         try? FileManager.default.removeItem(at: book.sourceURL)
         removeNarrations(for: bookID, chapters: book.chapters)
@@ -450,5 +478,10 @@ final class BookshelfModel {
     func dismissStatus() {
         errorMessage = nil
         successMessage = nil
+        cancelledMessage = nil
+        importErrorMessage = nil
+        importSuccessMessage = nil
+        narrationErrorMessage = nil
+        narrationSuccessMessage = nil
     }
 }
