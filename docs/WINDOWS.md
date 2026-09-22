@@ -23,6 +23,24 @@ uv sync --frozen --group release --no-editable
 dotnet build apps/windows/Atten.Windows/Atten.Windows.csproj -c Debug -r win-x64
 ```
 
+The Windows shell intentionally covers the features that are implemented in
+`apps/windows/Atten.Windows`: Create (Studio and Playground), then Manage
+(Voices, Projects, Exports, and Settings & Models). Studio writes through the
+existing local backend, Voices uses the shared catalog, Projects and Exports
+use the existing local storage/output folder, and Settings & Models exposes
+the existing engine and Hugging Face download controls. Home, Library, and
+Reader are not Windows features in this port; those are macOS-only surfaces
+and are not represented by placeholder Windows navigation items.
+
+The shell follows the Windows appearance setting with semantic light/dark
+surfaces, leaves caption colours to Windows in High Contrast mode, and keeps
+the window above a usable Studio size at common display scales. `Ctrl+Enter`
+starts generation and `Escape` cancels an active generation. The system
+animation preference disables the app-owned progress animation; WinUI's
+keyboard focus, tab order, text scaling, and built-in control accessibility
+remain enabled. Long content scrolls instead of adding unsupported compact
+features.
+
 For development, set `ATTEN_BACKEND_ROOT` to the repository root so the app can
 launch `cli.py`. Published builds embed the PyInstaller backend and staged
 Kokoro model instead.
@@ -86,18 +104,45 @@ the log distinguishes the two ways Atten can fail to start:
 
 ## Current status
 
-The first Windows scaffold includes:
+The supported Windows surface includes:
 
 - Studio generation through the Python backend
+- Playground, Voices, Projects, Exports, and Settings & Models shell sections
 - Shared `resources/voices.json`
 - Project/settings storage under `%LOCALAPPDATA%\Atten`
 - Backend status probing
 - MP3/WAV playback through Windows media APIs
 - Explorer reveal for generated output
+- Light/dark semantic resources, High Contrast hand-off, keyboard generation
+  and cancellation, reduced-motion handling, and a DPI-safe minimum window
+  size
 
-Still required before a production Windows release:
+The following are deliberately not claimed as Windows parity:
 
-- Full parity polish for Playground, Voices, Projects, Exports, and Settings
+- macOS Home, Library, PDF/EPUB Reader, chapter narration, and reader focus
+  mode
 - File/folder picker wiring
 - CUDA hardware smoke tests
 - App icon assets and release signing
+
+## Verification status
+
+The repository authoring environment used for this change is not Windows and
+does not have `dotnet` or `pwsh` available, so no Windows UI or packaging check
+is being represented as passed. On a Windows 11 x64 machine, run these exact
+checks before release:
+
+```powershell
+dotnet --info
+dotnet build apps/windows/Atten.Windows/Atten.Windows.csproj -c Debug -r win-x64
+scripts/build-windows.ps1 -BackendFlavor cpu
+```
+
+Then launch the staged executable with `--validate-install` and
+`--validate-launch`, and manually check each supported navigation item,
+generation/cancel (`Ctrl+Enter`/`Escape`), tab and keyboard focus, light and
+dark appearance, Windows High Contrast, 100%/150%/200% display scaling, and
+the Windows reduced-motion setting. Repeat the package check with
+`-BackendFlavor cuda` only on a machine with a CUDA-enabled PyTorch wheel;
+CUDA behavior is otherwise unverified here. These checks are also the exact
+remaining evidence needed for the Windows-only portions of this issue.

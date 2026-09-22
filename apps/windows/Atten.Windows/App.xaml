@@ -1,12 +1,62 @@
 <Application
     x:Class="Atten.Windows.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    RequestedTheme="Default">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+                The shell only names semantic roles. These dictionaries keep
+                the WinUI system/high-contrast palette in charge while giving
+                the app a deliberate light and dark surface hierarchy.
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AttenCanvasBrush" Color="#F7F8FA" />
+                    <SolidColorBrush x:Key="AttenSurfaceBrush" Color="#FFFFFF" />
+                    <SolidColorBrush x:Key="AttenSurfaceMutedBrush" Color="#EDF0F5" />
+                    <SolidColorBrush x:Key="AttenTextPrimaryBrush" Color="#0B121C" />
+                    <SolidColorBrush x:Key="AttenTextSecondaryBrush" Color="#55637A" />
+                    <SolidColorBrush x:Key="AttenSeparatorBrush" Color="#D0D8E3" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="AttenCanvasBrush" Color="#06080C" />
+                    <SolidColorBrush x:Key="AttenSurfaceBrush" Color="#0B0F16" />
+                    <SolidColorBrush x:Key="AttenSurfaceMutedBrush" Color="#141A24" />
+                    <SolidColorBrush x:Key="AttenTextPrimaryBrush" Color="#E7EEF8" />
+                    <SolidColorBrush x:Key="AttenTextSecondaryBrush" Color="#8FA2BA" />
+                    <SolidColorBrush x:Key="AttenSeparatorBrush" Color="#1F2734" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="AttenCanvasBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="AttenSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+                    <SolidColorBrush x:Key="AttenSurfaceMutedBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+                    <SolidColorBrush x:Key="AttenTextPrimaryBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                    <SolidColorBrush x:Key="AttenTextSecondaryBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+                    <SolidColorBrush x:Key="AttenSeparatorBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <Style x:Key="AttenPageTextStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource AttenTextPrimaryBrush}" />
+            </Style>
+            <Style x:Key="AttenSecondaryTextStyle" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{ThemeResource AttenTextSecondaryBrush}" />
+            </Style>
+            <Style x:Key="AttenPrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="Padding" Value="16,10" />
+            </Style>
+            <Style x:Key="AttenCardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource AttenSurfaceBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource AttenSeparatorBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="8" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
