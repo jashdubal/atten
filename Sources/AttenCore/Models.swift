@@ -220,7 +220,6 @@ public enum ReaderViewMode: String, Codable, CaseIterable, Identifiable, Sendabl
 
 public struct AppSettings: Codable, Equatable, Sendable {
     public var appearance: AppearancePreference
-    public var theme: AttenTheme
     public var outputDirectory: String
     public var defaultFormat: AudioFormat
     public var defaultSpeed: Double
@@ -242,14 +241,13 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var readerJustifiesText: Bool
     /// The face the page is set in.
     public var readerFont: ReaderFont
-    /// How bright the ink on a typeset page is, as a fraction of the theme's
+    /// How bright the ink on a typeset page is, as a fraction of the page's
     /// own. Below 1 the text is carried towards the page's ground, for reading
     /// at night without the glare of full contrast.
     public var readerTextBrightness: Double
 
     public init(
         appearance: AppearancePreference = .system,
-        theme: AttenTheme = .default,
         outputDirectory: String,
         defaultFormat: AudioFormat = .mp3,
         defaultSpeed: Double = 1.0,
@@ -265,7 +263,6 @@ public struct AppSettings: Codable, Equatable, Sendable {
         readerTextBrightness: Double = 1.0
     ) {
         self.appearance = appearance
-        self.theme = theme
         self.outputDirectory = outputDirectory
         self.defaultFormat = defaultFormat
         self.defaultSpeed = defaultSpeed
@@ -283,16 +280,20 @@ public struct AppSettings: Codable, Equatable, Sendable {
 
     // Only the export folder is required, because no default for it exists
     // here. Every other key falls back on its own, so a blob written by an
-    // older Atten missing newer keys — or by a newer one holding an appearance,
-    // theme, or format this version has never heard of — still keeps the
-    // preferences that make sense rather than being discarded whole.
+    // older Atten missing newer keys — or by a newer one holding an appearance
+    // or format this version has never heard of — still keeps the preferences
+    // that make sense rather than being discarded whole.
+    //
+    // `theme` is the one key that is read by nobody: Atten had seven named
+    // themes and now has one palette under a light/dark switch. A settings
+    // file still carrying `"theme": "matrix"` decodes without it and keeps
+    // every other preference, which is the whole of that migration. The key
+    // is simply not written back out.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
         appearance = (try? container.decodeIfPresent(AppearancePreference.self, forKey: .appearance))
             .flatMap { $0 } ?? .system
-        theme = (try? container.decodeIfPresent(AttenTheme.self, forKey: .theme))
-            .flatMap { $0 } ?? .default
         defaultFormat = (try? container.decodeIfPresent(AudioFormat.self, forKey: .defaultFormat))
             .flatMap { $0 } ?? .mp3
         defaultSpeed = try container.decodeIfPresent(Double.self, forKey: .defaultSpeed) ?? 1.0

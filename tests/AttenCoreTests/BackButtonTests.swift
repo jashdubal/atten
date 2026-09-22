@@ -7,24 +7,21 @@ import XCTest
 /// without hunting for it.
 ///
 /// It used to be secondary-coloured text on no background at all, which became
-/// a button only once the pointer was already on it — worst in the themes that
-/// are deliberately low contrast, where secondary text is dim by design.
+/// a button only once the pointer was already on it.
 final class BackButtonTests: XCTestCase {
     /// WCAG sets 3:1 for the visual boundary of a control against what is
     /// behind it. The button's edge is drawn in the accent for exactly this
     /// reason: the separator, which it used to use, sits near 1.4:1.
     func testTheButtonsEdgeIsVisibleAgainstEveryScreenItSitsOn() {
-        for theme in AttenTheme.allCases {
-            let palette = theme.palette
-            for (name, behind) in backgrounds(of: palette) {
-                for appearance in [false, true] {
-                    let edge = value(palette.accent, dark: appearance)
-                    XCTAssertGreaterThanOrEqual(
-                        contrast(edge, value(behind, dark: appearance)),
-                        3.0,
-                        "\(theme.rawValue) \(appearance ? "dark" : "light"): the back button's edge on \(name)"
-                    )
-                }
+        let palette = AttenPalette.atten
+        for (name, behind) in backgrounds(of: palette) {
+            for appearance in [false, true] {
+                let edge = value(palette.accent, dark: appearance)
+                XCTAssertGreaterThanOrEqual(
+                    contrast(edge, value(behind, dark: appearance)),
+                    3.0,
+                    "\(appearance ? "dark" : "light"): the back button's edge on \(name)"
+                )
             }
         }
     }
@@ -32,36 +29,32 @@ final class BackButtonTests: XCTestCase {
     /// And its label has to be readable on its own fill, at the bar for body
     /// text rather than the one for decoration.
     func testTheButtonsLabelIsReadableOnItsOwnFill() {
-        for theme in AttenTheme.allCases {
-            let palette = theme.palette
-            for appearance in [false, true] {
-                let fill = value(palette.surfaceElevated, dark: appearance)
-                XCTAssertGreaterThanOrEqual(
-                    contrast(value(palette.textPrimary, dark: appearance), fill), 7.0,
-                    "\(theme.rawValue): the back button's title"
-                )
-                XCTAssertGreaterThanOrEqual(
-                    contrast(value(palette.accent, dark: appearance), fill), 3.0,
-                    "\(theme.rawValue): the back button's chevron"
-                )
-            }
+        let palette = AttenPalette.atten
+        for appearance in [false, true] {
+            let fill = value(palette.surfaceElevated, dark: appearance)
+            XCTAssertGreaterThanOrEqual(
+                contrast(value(palette.textPrimary, dark: appearance), fill), 7.0,
+                "\(appearance ? "dark" : "light"): the back button's title"
+            )
+            XCTAssertGreaterThanOrEqual(
+                contrast(value(palette.accent, dark: appearance), fill), 3.0,
+                "\(appearance ? "dark" : "light"): the back button's chevron"
+            )
         }
     }
 
     /// Hovering it fills with the accent, so the label has to survive that.
     func testTheButtonStaysReadableWhileHovered() {
-        for theme in AttenTheme.allCases {
-            let palette = theme.palette
-            for appearance in [false, true] {
-                XCTAssertGreaterThanOrEqual(
-                    contrast(
-                        value(palette.onAccent, dark: appearance),
-                        value(palette.accent, dark: appearance)
-                    ),
-                    4.5,
-                    "\(theme.rawValue): the back button under the pointer"
-                )
-            }
+        let palette = AttenPalette.atten
+        for appearance in [false, true] {
+            XCTAssertGreaterThanOrEqual(
+                contrast(
+                    value(palette.onAccent, dark: appearance),
+                    value(palette.accent, dark: appearance)
+                ),
+                4.5,
+                "\(appearance ? "dark" : "light"): the back button under the pointer"
+            )
         }
     }
 

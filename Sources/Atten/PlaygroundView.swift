@@ -85,7 +85,7 @@ struct PlaygroundView: View {
     private var sampleEditor: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             HStack {
-                Label("> SAMPLE_TEXT", systemImage: "text.bubble")
+                Label("Sample text", systemImage: "text.bubble")
                     .font(AttenTypography.sectionTitle)
                 Spacer()
                 Text("\(sampleText.count)/500")

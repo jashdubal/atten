@@ -86,7 +86,7 @@ struct StudioView: View {
     private var editorPane: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             HStack {
-                Label("> SCRIPT", systemImage: "text.alignleft")
+                Label("Script", systemImage: "text.alignleft")
                     .font(AttenTypography.sectionTitle)
                     .foregroundStyle(AttenColor.textPrimary)
                 Spacer()
@@ -367,7 +367,7 @@ struct VoiceAvatar: View {
                         .stroke(avatarColor.opacity(0.7), lineWidth: 1)
                 }
             Image(systemName: voice.gender == "Female" ? "person.fill" : "person.fill")
-                .font(.system(size: size * 0.40, weight: .medium, design: .monospaced))
+                .font(.system(size: size * 0.40, weight: .medium))
                 .foregroundStyle(avatarColor)
         }
         .frame(width: size, height: size)

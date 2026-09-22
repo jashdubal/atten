@@ -4,7 +4,7 @@ import Observation
 import SwiftUI
 
 /// One semantic colour, given as the light-mode and dark-mode hex pair it
-/// resolves to. Holding the raw values keeps the palettes readable as a table
+/// resolves to. Holding the raw values keeps the palette readable as a table
 /// and lets the accessibility tests measure contrast without a running app.
 struct AttenThemeColor: Sendable, Equatable {
     let light: UInt
@@ -24,8 +24,14 @@ struct AttenThemeColor: Sendable, Equatable {
 }
 
 /// Every colour the interface draws with. Views never name a hue; they name one
-/// of these roles through `AttenColor`, which is what lets a new theme — or a
-/// new screen, like the reader — pick up the right colours for free.
+/// of these roles through `AttenColor`, which is what lets a new screen pick up
+/// the right colours for free.
+///
+/// There is one palette. Appearance — light or dark — is the only axis, and
+/// each role carries both sides of it, so switching appearance is a repaint
+/// rather than a different design. What used to be seven themes is gone: seven
+/// palettes meant seven sets of contrast to defend and no single surface the
+/// rest of the app could be designed against.
 struct AttenPalette: Sendable, Equatable {
     let appBackground: AttenThemeColor
     let sidebar: AttenThemeColor
@@ -48,9 +54,7 @@ struct AttenPalette: Sendable, Equatable {
     /// search result.
     let readerText: AttenThemeColor
 
-    /// The reading surface, edge to edge. Every theme reads differently, which
-    /// is the point: the page is not a separate choice bolted onto the theme,
-    /// it is what the theme looks like when it is being read.
+    /// The reading surface, edge to edge.
     let readerBackground: AttenThemeColor
     /// The text on the page. Warmth lives here rather than in the background —
     /// warm ink on a neutral ground is what a lamp actually does to a page,
@@ -66,232 +70,56 @@ struct AttenPalette: Sendable, Equatable {
     let scrim: AttenThemeColor
 }
 
-extension AttenTheme {
-    var palette: AttenPalette {
-        switch self {
-        case .terminal: Self.terminalPalette
-        case .paper: Self.paperPalette
-        case .quiet: Self.quietPalette
-        case .sepia: Self.sepiaPalette
-        case .slate: Self.slatePalette
-        case .vaporwave: Self.vaporwavePalette
-        case .matrix: Self.matrixPalette
-        }
-    }
-
-    // Cool terminal palette: crisp cyan and violet over graphite/navy surfaces.
-    private static let terminalPalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF3F7FC, 0x080C14),
-        sidebar: AttenThemeColor(0xE8EFF8, 0x0C121E),
-        surface: AttenThemeColor(0xFFFFFF, 0x101826),
-        surfaceElevated: AttenThemeColor(0xF8FBFF, 0x141E2E),
-        surfaceMuted: AttenThemeColor(0xDDE8F5, 0x1A2940),
-        separator: AttenThemeColor(0xB7C6D9, 0x273852),
-        textPrimary: AttenThemeColor(0x101827, 0xE7EEF8),
-        textSecondary: AttenThemeColor(0x51647B, 0x8FA2BA),
-        accent: AttenThemeColor(0x007EA7, 0x5DDBFF),
-        accentHover: AttenThemeColor(0x005F7A, 0x91E8FF),
-        accentSecondary: AttenThemeColor(0x6848D8, 0xA78BFA),
+extension AttenPalette {
+    /// Atten's palette.
+    ///
+    /// Dark is the reading black — the same `0x06080C` the page is printed on
+    /// — carried out into the whole app, so the chrome and the page share one
+    /// ground and the page has no edges. Surfaces lift off it by a few points
+    /// rather than by a step: a panel here is a change of depth, not a box
+    /// drawn on top of the window.
+    ///
+    /// The chrome is achromatic. Every accent role is a neutral — near-white
+    /// on the dark side, near-black on the light one — because a hue used for
+    /// selection, progress and primary actions at once stops being an accent
+    /// and becomes the theme. The brand's cyan and violet survive only in
+    /// ``brandGradient``, and only as light: the atmosphere behind a screen,
+    /// never a fill on a control.
+    ///
+    /// Light is a deliberate companion, not an inversion, and the page keeps
+    /// its warm paper: warm ink is what a lamp does to a page, and the
+    /// brightness control still takes the ink down for a dark room.
+    static let atten = AttenPalette(
+        appBackground: AttenThemeColor(0xF7F8FA, 0x06080C),
+        sidebar: AttenThemeColor(0xF4F6F9, 0x07090E),
+        surface: AttenThemeColor(0xFFFFFF, 0x0B0F16),
+        surfaceElevated: AttenThemeColor(0xFCFDFF, 0x0E131B),
+        surfaceMuted: AttenThemeColor(0xEDF0F5, 0x141A24),
+        separator: AttenThemeColor(0xD0D8E3, 0x1F2734),
+        textPrimary: AttenThemeColor(0x0B121C, 0xE7EEF8),
+        textSecondary: AttenThemeColor(0x55637A, 0x8FA2BA),
+        accent: AttenThemeColor(0x111922, 0xE8EEF6),
+        accentHover: AttenThemeColor(0x000000, 0xFFFFFF),
+        accentSecondary: AttenThemeColor(0x4C5561, 0xB2BAC3),
         success: AttenThemeColor(0x177A50, 0x4ADE80),
-        warning: AttenThemeColor(0xA23E65, 0xF472B6),
+        warning: AttenThemeColor(0x8A5A12, 0xF0B849),
         destructive: AttenThemeColor(0xB42346, 0xFB7185),
-        // Pure white rather than the near-white it inherited, which left
-        // primary button labels at 4.47:1, just under AA.
-        onAccent: AttenThemeColor(0xFFFFFF, 0x061018),
+        onAccent: AttenThemeColor(0xFFFFFF, 0x06080C),
         readerText: AttenThemeColor(0x141B26, 0xDCE6F2),
-        readerBackground: AttenThemeColor(0xFCFDFF, 0x05080E),
-        readerInk: AttenThemeColor(0x0E1522, 0xD6E2F0),
-        readerInkMuted: AttenThemeColor(0x5A6980, 0x8195AC),
-        readerAccent: AttenThemeColor(0x00617F, 0x4FC9EC),
-        readerHighlight: AttenThemeColor(0xC8E9F7, 0x1D4C63),
-        scrim: AttenThemeColor(0x0F172A, 0x000000)
+        readerBackground: AttenThemeColor(0xFBFAF7, 0x06080C),
+        readerInk: AttenThemeColor(0x2A2721, 0xD6CFC2),
+        readerInkMuted: AttenThemeColor(0x6A6459, 0x8B8578),
+        readerAccent: AttenThemeColor(0x6E6459, 0xA79F92),
+        readerHighlight: AttenThemeColor(0xE8E2D4, 0x2B2A27),
+        scrim: AttenThemeColor(0x0B121C, 0x000000)
     )
 
-    // Muted white over warm neutral greys, with slate-blue ink for accents.
-    private static let paperPalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF7F6F3, 0x171614),
-        sidebar: AttenThemeColor(0xEFEDE8, 0x121110),
-        surface: AttenThemeColor(0xFFFFFF, 0x1F1E1B),
-        surfaceElevated: AttenThemeColor(0xFBFAF7, 0x262521),
-        surfaceMuted: AttenThemeColor(0xE7E4DD, 0x2E2C27),
-        separator: AttenThemeColor(0xCFCAC0, 0x3D3A34),
-        textPrimary: AttenThemeColor(0x1F1E1B, 0xEDEAE3),
-        textSecondary: AttenThemeColor(0x5C584F, 0xAEA89C),
-        accent: AttenThemeColor(0x4A5A6B, 0xA8B8C8),
-        accentHover: AttenThemeColor(0x33404E, 0xC4D2E0),
-        accentSecondary: AttenThemeColor(0x6E5F4B, 0xC9B394),
-        success: AttenThemeColor(0x2F6B4F, 0x74C79B),
-        warning: AttenThemeColor(0x8A6420, 0xDFB877),
-        destructive: AttenThemeColor(0x9E3232, 0xE58B8B),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x15140F),
-        readerText: AttenThemeColor(0x23211D, 0xE8E4DC),
-        readerBackground: AttenThemeColor(0xFAF8F3, 0x121110),
-        readerInk: AttenThemeColor(0x241F17, 0xE9E3D6),
-        readerInkMuted: AttenThemeColor(0x6B6356, 0x958D7E),
-        readerAccent: AttenThemeColor(0x4A5A6B, 0xA8B8C8),
-        readerHighlight: AttenThemeColor(0xF0E2B8, 0x4A4227),
-        scrim: AttenThemeColor(0x1F1E1B, 0x000000)
-    )
-
-    // Neutral greyscale, and deliberately the lowest-contrast theme: text sits
-    // just above the 7:1 floor instead of the 13–16:1 the others run at, and
-    // the dark background is lifted off black rather than text being dimmed
-    // against a void. Meant for a dark room, where white-on-black glares.
-    private static let quietPalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF0F0F1, 0x1B1B1D),
-        sidebar: AttenThemeColor(0xE9E9EA, 0x171719),
-        surface: AttenThemeColor(0xF7F7F8, 0x202023),
-        surfaceElevated: AttenThemeColor(0xFBFBFC, 0x252528),
-        surfaceMuted: AttenThemeColor(0xE2E2E4, 0x2C2C30),
-        separator: AttenThemeColor(0xCACACE, 0x35353B),
-        textPrimary: AttenThemeColor(0x4C4C51, 0xB4B4B8),
-        textSecondary: AttenThemeColor(0x66666C, 0x8C8C93),
-        accent: AttenThemeColor(0x5A5A60, 0x9E9EA5),
-        accentHover: AttenThemeColor(0x48484D, 0xB4B4B8),
-        accentSecondary: AttenThemeColor(0x6E6E75, 0x83838A),
-        success: AttenThemeColor(0x437059, 0x6DA98B),
-        warning: AttenThemeColor(0x7C653A, 0xB59C6C),
-        destructive: AttenThemeColor(0x9B5757, 0xC58484),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x1B1B1D),
-        readerText: AttenThemeColor(0x4C4C51, 0xB0B0B4),
-        readerBackground: AttenThemeColor(0xF6F5F3, 0x000000),
-        readerInk: AttenThemeColor(0x33302B, 0xD2C8B8),
-        readerInkMuted: AttenThemeColor(0x6C675F, 0x908980),
-        readerAccent: AttenThemeColor(0x6F6657, 0xBFAE93),
-        readerHighlight: AttenThemeColor(0xE4E4E7, 0x34343A),
-        scrim: AttenThemeColor(0x1B1B1D, 0x000000)
-    )
-
-    // Warm parchment by day, lamp-lit paper by night.
-    private static let sepiaPalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF3E8D2, 0x1B1510),
-        sidebar: AttenThemeColor(0xEBDDC2, 0x15100C),
-        surface: AttenThemeColor(0xFBF3E3, 0x241C15),
-        surfaceElevated: AttenThemeColor(0xFFF9EC, 0x2C231A),
-        surfaceMuted: AttenThemeColor(0xE2D2B4, 0x362B20),
-        separator: AttenThemeColor(0xC6B393, 0x493B2C),
-        textPrimary: AttenThemeColor(0x32261A, 0xF0E2CB),
-        textSecondary: AttenThemeColor(0x6B5942, 0xB8A489),
-        accent: AttenThemeColor(0x8A4E14, 0xE0A05A),
-        accentHover: AttenThemeColor(0x7A4514, 0xF0BC7E),
-        accentSecondary: AttenThemeColor(0x5C5B22, 0xC7B36A),
-        success: AttenThemeColor(0x4A6B2A, 0x8DC97A),
-        warning: AttenThemeColor(0x76490A, 0xE3B268),
-        destructive: AttenThemeColor(0x9E3320, 0xEB9078),
-        onAccent: AttenThemeColor(0xFFF7E8, 0x1B1208),
-        readerText: AttenThemeColor(0x2B2015, 0xEDDFC7),
-        readerBackground: AttenThemeColor(0xF5EBD8, 0x17110C),
-        readerInk: AttenThemeColor(0x30251A, 0xEFE1C9),
-        readerInkMuted: AttenThemeColor(0x6E5D43, 0x9E8E74),
-        readerAccent: AttenThemeColor(0x8A4E14, 0xDFA05A),
-        readerHighlight: AttenThemeColor(0xEBD79B, 0x4E3C1F),
-        scrim: AttenThemeColor(0x32261A, 0x000000)
-    )
-
-    // Restrained steel blue: conservative enough for a shared screen.
-    private static let slatePalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF2F5F8, 0x121822),
-        sidebar: AttenThemeColor(0xE6EBF1, 0x0D121A),
-        surface: AttenThemeColor(0xFFFFFF, 0x1A2230),
-        surfaceElevated: AttenThemeColor(0xF9FBFD, 0x212B3B),
-        surfaceMuted: AttenThemeColor(0xDCE3EC, 0x293446),
-        separator: AttenThemeColor(0xBBC6D3, 0x3A4759),
-        textPrimary: AttenThemeColor(0x16202B, 0xE6ECF3),
-        textSecondary: AttenThemeColor(0x4E5C6C, 0xA3B1C2),
-        accent: AttenThemeColor(0x1F5A8C, 0x7FB3DC),
-        accentHover: AttenThemeColor(0x16456C, 0xA5CCEC),
-        accentSecondary: AttenThemeColor(0x6B5E8A, 0xA8A2D8),
-        success: AttenThemeColor(0x1E6B4A, 0x6FC79B),
-        warning: AttenThemeColor(0x8A5A12, 0xDDB36B),
-        destructive: AttenThemeColor(0xA32B36, 0xEE8C96),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x0B1420),
-        readerText: AttenThemeColor(0x16202B, 0xE4EAF1),
-        readerBackground: AttenThemeColor(0xF8FAFC, 0x0D1219),
-        readerInk: AttenThemeColor(0x141D28, 0xE2E9F1),
-        readerInkMuted: AttenThemeColor(0x596879, 0x8899AC),
-        readerAccent: AttenThemeColor(0x1F5A8C, 0x7FB3DC),
-        readerHighlight: AttenThemeColor(0xCFE0EF, 0x2C4055),
-        scrim: AttenThemeColor(0x16202B, 0x000000)
-    )
-
-    // Magenta and cyan over deep purple.
-    private static let vaporwavePalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF6ECF7, 0x140A24),
-        sidebar: AttenThemeColor(0xEFE0F3, 0x0F0719),
-        surface: AttenThemeColor(0xFFF6FD, 0x1E1033),
-        surfaceElevated: AttenThemeColor(0xFFFBFF, 0x27163F),
-        surfaceMuted: AttenThemeColor(0xEAD7F0, 0x331D4E),
-        separator: AttenThemeColor(0xCFAEDA, 0x4A2C6B),
-        textPrimary: AttenThemeColor(0x2A1233, 0xF3E6FF),
-        textSecondary: AttenThemeColor(0x6B4478, 0xBB9BD6),
-        accent: AttenThemeColor(0xA01E8E, 0xFF6EC7),
-        accentHover: AttenThemeColor(0x7C1270, 0xFF9BD9),
-        accentSecondary: AttenThemeColor(0x1A5F83, 0x6EE7F0),
-        success: AttenThemeColor(0x186049, 0x5FE3B0),
-        warning: AttenThemeColor(0x7E4A00, 0xFFC46B),
-        destructive: AttenThemeColor(0xB01D48, 0xFF8095),
-        onAccent: AttenThemeColor(0xFFF0FC, 0x1A0726),
-        readerText: AttenThemeColor(0x2A1233, 0xF0E4FC),
-        readerBackground: AttenThemeColor(0xFBF5FC, 0x0E0618),
-        readerInk: AttenThemeColor(0x2A1233, 0xEFE3FB),
-        readerInkMuted: AttenThemeColor(0x695276, 0x9F8CB4),
-        readerAccent: AttenThemeColor(0xA01E8E, 0xFF6EC7),
-        readerHighlight: AttenThemeColor(0xF4CDEC, 0x4A2360),
-        scrim: AttenThemeColor(0x2A1233, 0x000000)
-    )
-
-    // Green phosphor on black, and a daylight version of the same idea.
-    private static let matrixPalette = AttenPalette(
-        appBackground: AttenThemeColor(0xF1F6F1, 0x030703),
-        sidebar: AttenThemeColor(0xE5EEE5, 0x000400),
-        surface: AttenThemeColor(0xFFFFFF, 0x08120A),
-        surfaceElevated: AttenThemeColor(0xF8FCF8, 0x0C1A0E),
-        surfaceMuted: AttenThemeColor(0xD9E8D9, 0x122414),
-        separator: AttenThemeColor(0xB2C9B2, 0x1E3A22),
-        textPrimary: AttenThemeColor(0x0E1A0E, 0xCBF5CF),
-        textSecondary: AttenThemeColor(0x46604A, 0x7FBE8A),
-        accent: AttenThemeColor(0x156B2E, 0x3BF56A),
-        accentHover: AttenThemeColor(0x0D4E1F, 0x7DFF9E),
-        accentSecondary: AttenThemeColor(0x1F6B5E, 0x3BE5C0),
-        success: AttenThemeColor(0x156B2E, 0x3BF56A),
-        warning: AttenThemeColor(0x8A5A12, 0xE8D56B),
-        destructive: AttenThemeColor(0xA32424, 0xFF8A7A),
-        onAccent: AttenThemeColor(0xF2FFF4, 0x02160A),
-        readerText: AttenThemeColor(0x0E1A0E, 0xC8F2CC),
-        readerBackground: AttenThemeColor(0xF6FAF6, 0x010401),
-        readerInk: AttenThemeColor(0x0D1A0D, 0xC6F0CA),
-        readerInkMuted: AttenThemeColor(0x4C624E, 0x83AC88),
-        readerAccent: AttenThemeColor(0x156B2E, 0x3BF56A),
-        readerHighlight: AttenThemeColor(0xC6E8C9, 0x174A22),
-        scrim: AttenThemeColor(0x0E1A0E, 0x000000)
-    )
-}
-
-/// Holds the theme the interface is currently drawn in.
-///
-/// `AttenColor` reads its palette from here, so every view that already names a
-/// semantic colour repaints when the theme changes — no call site has to know a
-/// theme exists. It is a singleton because colours are read from deep inside
-/// button styles and view modifiers that are given no environment to thread.
-///
-/// Marked `@unchecked Sendable` rather than isolated to the main actor so those
-/// reads stay free of actor hops; `theme` is only ever written from the main
-/// actor, in response to a person picking one.
-@Observable
-final class ThemeStore: @unchecked Sendable {
-    static let shared = ThemeStore()
-
-    private(set) var palette: AttenPalette
-
-    var theme: AttenTheme {
-        didSet {
-            guard theme != oldValue else { return }
-            palette = theme.palette
-        }
-    }
-
-    init(theme: AttenTheme = .default) {
-        self.theme = theme
-        self.palette = theme.palette
-    }
+    /// The brand's colour, kept for light rather than for paint.
+    ///
+    /// Taken from the landing page verbatim — cyan through pale cyan to
+    /// violet. It belongs in effects: the glow behind a screen, a halo under
+    /// something active. It is deliberately not available as a fill, because
+    /// a gradient on a button is the fastest way to make an interface look
+    /// like a demo of itself.
+    static let brandGradient = [Color(hex: 0x5DDBFF), Color(hex: 0xB7F2FF), Color(hex: 0x9E70FF)]
 }

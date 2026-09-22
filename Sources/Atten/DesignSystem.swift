@@ -1,10 +1,12 @@
 import AVFoundation
 import SwiftUI
 
-/// The semantic colours every view draws with. Each one resolves through the
-/// current theme, so reading one inside a view body also subscribes that view
-/// to theme changes — picking a theme repaints the app without any view
-/// knowing that themes exist.
+/// The semantic colours every view draws with.
+///
+/// Each role carries a light and a dark value, and resolves against whichever
+/// appearance the window is drawn in. There is nothing to observe: appearance
+/// is handled underneath by AppKit's dynamic colours, so a view that names a
+/// role gets the right side of the pair for free.
 enum AttenColor {
     static var appBackground: Color { palette.appBackground.color }
     static var sidebar: Color { palette.sidebar.color }
@@ -23,6 +25,10 @@ enum AttenColor {
     static var destructive: Color { palette.destructive.color }
     static var focus: Color { palette.accentHover.color }
     static var onAccent: Color { palette.onAccent.color }
+    /// The filled part of any progress line — import, narration, download,
+    /// playback — and the groove it runs in.
+    static var progress: Color { palette.accent.color }
+    static var progressTrack: Color { palette.surfaceMuted.color }
 
     /// Long-form text in the chrome around the page — the snippets under a
     /// search result. The page itself is printed in the theme's reader
@@ -38,7 +44,7 @@ enum AttenColor {
     static var nsTextPrimary: NSColor { palette.textPrimary.nsColor }
     static var nsAccent: NSColor { palette.accent.nsColor }
 
-    static var palette: AttenPalette { ThemeStore.shared.palette }
+    static var palette: AttenPalette { .atten }
 }
 
 extension Color {
@@ -71,6 +77,131 @@ extension NSColor {
     }
 }
 
+/// Light, as a material rather than as decoration.
+///
+/// A dark interface that is only dark reads as flat, whatever its palette —
+/// which is the difference between this and every generic dark theme. What
+/// makes Cursor, Linear or a SpaceX console look machined is that surfaces
+/// catch light along their top edge and fall away below it, and that the one
+/// saturated thing on screen glows slightly.
+///
+/// The brand gradient is the landing page's, verbatim. Everything else here is
+/// achromatic: light is white, shadow is black, and the palette supplies the
+/// colour.
+enum AttenGradient {
+    /// Cyan → pale cyan → violet, on the diagonal.
+    ///
+    /// For light — a glow, a halo — not for a fill. A gradient poured into a
+    /// button makes an interface look like a demo of itself.
+    static var brand: LinearGradient {
+        LinearGradient(
+            colors: AttenPalette.brandGradient,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    /// The same, running left to right — for text and for long bars, where a
+    /// diagonal would band.
+    static var brandAcross: LinearGradient {
+        LinearGradient(
+            colors: AttenPalette.brandGradient,
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    /// The light that catches the top edge of a raised surface and dies a few
+    /// points down. This is the whole trick.
+    static func edge(_ scheme: ColorScheme) -> LinearGradient {
+        let top = scheme == .dark ? 0.16 : 0.9
+        let bottom = scheme == .dark ? 0.03 : 0.35
+        return LinearGradient(
+            colors: [
+                Color.white.opacity(top),
+                Color.white.opacity(bottom),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+/// How far off the page a surface sits.
+enum AttenElevation {
+    /// Flush with the ground — a list row, a field.
+    case flush
+    /// A card, a panel, the compact player.
+    case raised
+    /// A popover or a sheet, over everything.
+    case floating
+
+    var shadowRadius: CGFloat {
+        switch self {
+        case .flush: 0
+        case .raised: 18
+        case .floating: 34
+        }
+    }
+
+    var shadowY: CGFloat {
+        switch self {
+        case .flush: 0
+        case .raised: 6
+        case .floating: 14
+        }
+    }
+
+    var shadowOpacity: Double {
+        switch self {
+        case .flush: 0
+        case .raised: 0.34
+        case .floating: 0.48
+        }
+    }
+}
+
+/// A surface with a lit top edge and weight underneath it.
+struct AttenElevatedSurface: ViewModifier {
+    var elevation: AttenElevation = .raised
+    var radius: CGFloat = AttenRadius.card
+    var fill: Color?
+
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(fill ?? AttenColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            // The hairline is brighter along the top than the bottom, because
+            // that is where light would land. A uniform border is the thing
+            // that makes a panel read as a drawn box.
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(AttenGradient.edge(scheme), lineWidth: 1)
+                    .blendMode(scheme == .dark ? .plusLighter : .multiply)
+                    .opacity(scheme == .dark ? 1 : 0.5)
+            }
+            .shadow(
+                color: .black.opacity(elevation.shadowOpacity),
+                radius: elevation.shadowRadius,
+                y: elevation.shadowY
+            )
+    }
+}
+
+extension View {
+    /// Raise this off the page: lit along the top edge, weighted underneath.
+    func attenElevated(
+        _ elevation: AttenElevation = .raised,
+        radius: CGFloat = AttenRadius.card,
+        fill: Color? = nil
+    ) -> some View {
+        modifier(AttenElevatedSurface(elevation: elevation, radius: radius, fill: fill))
+    }
+
+}
+
 enum AttenSpacing {
     static let xxs: CGFloat = 4
     static let xs: CGFloat = 8
@@ -79,31 +210,151 @@ enum AttenSpacing {
     static let lg: CGFloat = 24
     static let xl: CGFloat = 32
     static let xxl: CGFloat = 40
+    /// The gutter a page of content keeps from the window edge when there is
+    /// room for it. The wireframe's calm comes mostly from this number.
+    static let page: CGFloat = 56
 }
 
 enum AttenRadius {
-    static let small: CGFloat = 4
-    static let control: CGFloat = 4
-    static let card: CGFloat = 6
+    static let small: CGFloat = 6
+    static let control: CGFloat = 8
+    static let card: CGFloat = 12
+    /// Book and project artwork. Softer than a control so a grid of covers
+    /// reads as objects rather than as buttons.
+    static let cover: CGFloat = 8
+    /// The compact player in the top chrome and its expanded panel.
+    static let player: CGFloat = 14
+    /// Fully rounded — segmented filters, chapter pills, the transport ring.
+    static let pill: CGFloat = 999
 }
 
+/// How long things take, and what they are allowed to do while they take it.
+///
+/// Every duration here is short enough to read as a response to input rather
+/// than as an effect. `accessibilityReduceMotion` is honoured at the call site
+/// through ``AttenMotion/animation(_:reduceMotion:)``, which is the only way a
+/// screen should be reaching for these.
 enum AttenMotion {
     static let fast = 0.14
     static let standard = 0.18
+    /// Player expand/collapse and panel disclosure — far enough to need an
+    /// arc, close enough that nobody waits for it.
+    static let panel = 0.24
+    /// Section changes and Zen enter/exit.
+    static let transition = 0.28
+
+    /// The animation for a state change, or `nil` when the reader has asked
+    /// the system for less motion. Returning `nil` makes `withAnimation` and
+    /// `.animation(_:value:)` apply the change instantly while keeping the
+    /// state cue itself, which is what Reduce Motion asks for.
+    static func animation(_ duration: Double, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: duration)
+    }
+
+    /// A crossfade for the cases where something has to replace something else
+    /// and a slide would be motion for its own sake.
+    static func fade(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: fast)
+    }
 }
 
+/// What a control looks like under the pointer, under the finger, and when it
+/// is the one selected.
+///
+/// Held as tokens rather than as literals in each button so that hover means
+/// one thing across the sidebar, a cover card and the transport.
+enum AttenState {
+    /// Lift applied to a surface under the pointer.
+    static let hoverFill = 0.08
+    /// …and while it is being pressed, where the control darkens instead.
+    static let pressedFill = 0.16
+    /// A pressed control shrinks by this much. Skipped under Reduce Motion.
+    static let pressedScale = 0.985
+    /// Everything disabled fades to here rather than greying its own colours.
+    static let disabledOpacity = 0.42
+    /// The ring drawn around whatever has keyboard focus.
+    static let focusRingWidth: CGFloat = 2.5
+}
+
+/// Sizes the player and the cover grid are built from, so the compact player
+/// in the top chrome and a cover on Home agree without either owning the
+/// other's file.
+enum AttenMetrics {
+    /// Height of the compact player's row in the top chrome.
+    static let compactPlayerHeight: CGFloat = 52
+    /// The artwork thumbnail inside it.
+    static let compactPlayerArtwork: CGFloat = 36
+    /// The expanded player panel's width when it opens as a popover.
+    static let expandedPlayerWidth: CGFloat = 380
+    /// A cover in a shelf grid, at its smallest. Grids size themselves in
+    /// multiples of this with `.adaptive`.
+    static let coverGridMinimum: CGFloat = 132
+    /// Books are taller than they are wide; this is the ratio covers are drawn
+    /// at when the artwork itself is missing or the wrong shape.
+    static let coverAspectRatio: CGFloat = 2.0 / 3.0
+}
+
+/// Atten's type.
+///
+/// The app used to be set entirely in monospace, which read as a terminal —
+/// the one thing a long-form reading app should not look like. UI text is the
+/// system face now, at deliberate weights; monospace is kept for the two
+/// places it carries meaning, a timecode that must not jitter as it counts and
+/// a numeric readout beside a slider.
 enum AttenTypography {
-    static let pageTitle = Font.system(size: 24, weight: .semibold, design: .monospaced)
-    static let sectionTitle = Font.system(size: 14, weight: .semibold, design: .monospaced)
-    static let body = Font.system(size: 13, design: .monospaced)
-    static let control = Font.system(size: 13, weight: .medium, design: .monospaced)
-    static let metadata = Font.system(size: 11, design: .monospaced)
-    static let caption = Font.system(size: 11, design: .monospaced)
+    static let displayTitle = Font.system(size: 30, weight: .semibold)
+    static let pageTitle = Font.system(size: 22, weight: .semibold)
+    static let sectionTitle = Font.system(size: 15, weight: .semibold)
+    static let body = Font.system(size: 13)
+    static let control = Font.system(size: 13, weight: .medium)
+    static let metadata = Font.system(size: 11)
+    static let caption = Font.system(size: 11)
+    /// Elapsed and remaining time. Monospaced digits so the line does not
+    /// twitch once a second.
+    static let timecode = Font.system(size: 11, weight: .medium).monospacedDigit()
+    /// A number that sits next to the control that changes it — 1.1×, 120%.
+    static let readout = Font.system(size: 12, weight: .medium).monospacedDigit()
 }
 
 struct AttenBackdrop: View {
     var body: some View {
         AttenColor.appBackground.ignoresSafeArea()
+    }
+}
+
+/// A soft brand glow, for the top of a screen that wants some depth behind it.
+///
+/// Lifted from the landing page, where the same cyan-into-violet ellipse sits
+/// behind the app preview. It is very low alpha on purpose: this is
+/// atmosphere, not decoration, and it must never compete with text sitting on
+/// top of it. Reduce Motion does not apply — nothing here moves — but it is
+/// skipped in the light appearance, where a wash over white reads as a stain
+/// rather than as depth.
+struct AttenAtmosphere: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if colorScheme == .dark {
+            ZStack(alignment: .top) {
+                EllipticalGradient(
+                    colors: [Color(hex: 0x5DDBFF).opacity(0.10), .clear],
+                    center: .init(x: 0.18, y: 0.0),
+                    startRadiusFraction: 0,
+                    endRadiusFraction: 0.62
+                )
+                EllipticalGradient(
+                    colors: [Color(hex: 0x7E3CFF).opacity(0.09), .clear],
+                    center: .init(x: 0.72, y: 0.06),
+                    startRadiusFraction: 0,
+                    endRadiusFraction: 0.58
+                )
+            }
+            .frame(height: 560)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .blur(radius: 70)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
     }
 }
 
@@ -114,12 +365,10 @@ struct AttenSurfaceModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(elevated ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.card)
-                    .stroke(AttenColor.separator, lineWidth: 1)
-            }
+            .attenElevated(
+                elevated ? .floating : .raised,
+                fill: elevated ? AttenColor.surfaceElevated : AttenColor.surface
+            )
     }
 }
 
@@ -154,17 +403,19 @@ private struct AttenPrimaryButtonBody: View {
             .font(AttenTypography.control.weight(.semibold))
             .foregroundStyle(AttenColor.onAccent.opacity(isEnabled ? 1 : 0.55))
             .padding(.horizontal, AttenSpacing.md)
-            .frame(minHeight: 40)
-            .background(fillColor.opacity(isEnabled ? 1 : 0.42))
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-            .scaleEffect(isPressed && !reduceMotion ? 0.99 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: AttenMotion.fast), value: isPressed)
+            .frame(minHeight: 38)
+            .background {
+                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
+                    .fill(isHovering ? AttenColor.accentHover : AttenColor.accent)
+                    .brightness(isPressed ? -0.05 : 0)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+            .shadow(color: .black.opacity(isEnabled ? 0.3 : 0), radius: 10, y: 3)
+            .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+            .scaleEffect(isPressed && !reduceMotion ? AttenState.pressedScale : 1)
+            .animation(AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion), value: isPressed)
+            .animation(AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion), value: isHovering)
             .onHover { isHovering = $0 }
-    }
-
-    private var fillColor: Color {
-        if isPressed { return AttenColor.accent.opacity(0.78) }
-        return isHovering ? AttenColor.accentHover : AttenColor.accent
     }
 }
 
@@ -189,12 +440,7 @@ private struct AttenSecondaryButtonBody: View {
             .foregroundStyle(AttenColor.textPrimary.opacity(isEnabled ? 1 : 0.45))
             .padding(.horizontal, AttenSpacing.sm)
             .frame(minHeight: 34)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control)
-                    .stroke(isHovering ? AttenColor.accent : AttenColor.separator, lineWidth: 1)
-            }
+            .attenElevated(.flush, radius: AttenRadius.control, fill: background)
             .onHover { isHovering = $0 }
     }
 
@@ -352,15 +598,16 @@ struct AttenLogo: View {
                             .stroke(AttenColor.accent, lineWidth: 1)
                     }
                 Image(systemName: "waveform")
-                    .font(.system(size: compact ? 12 : 15, weight: .semibold, design: .monospaced))
+                    .font(.system(size: compact ? 12 : 15, weight: .semibold))
                     .foregroundStyle(AttenColor.accent)
             }
             .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
             .accessibilityHidden(true)
 
             if !compact {
-                Text("ATTEN_")
-                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                Text("ATTEN")
+                    .font(.system(size: 17, weight: .semibold))
+                    .tracking(3.5)
                     .foregroundStyle(AttenColor.textPrimary)
             }
         }
@@ -376,9 +623,9 @@ struct PageHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-            Text("> \(eyebrow.uppercased())")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .tracking(0.8)
+            Text(eyebrow.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(1.4)
                 .foregroundStyle(AttenColor.accent)
             Text(title)
                 .font(AttenTypography.pageTitle)
@@ -402,9 +649,10 @@ struct InspectorSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-            Text("> \(title.uppercased())")
-                .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.accent)
+            Text(title.uppercased())
+                .font(AttenTypography.metadata.weight(.semibold))
+                .tracking(1.4)
+                .foregroundStyle(AttenColor.textSecondary)
             content
         }
     }
