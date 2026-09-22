@@ -35,6 +35,7 @@ struct GlobalPlayer: View {
     @Bindable var model: AppModel
 
     @State private var isExpanded = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let title = model.playerTitle {
@@ -78,6 +79,13 @@ struct GlobalPlayer: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Player: \(title), \(subtitle)")
+            .onChange(of: model.playerTitle) { _, title in
+                // Playback can stop while the popover is open. Its anchor then
+                // disappears; close the local state with it to avoid a stale
+                // overlay being restored when another track starts.
+                if title == nil { isExpanded = false }
+            }
+            .onDisappear { isExpanded = false }
         }
     }
 
@@ -97,6 +105,7 @@ struct GlobalPlayer: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
         .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
     }
@@ -129,6 +138,11 @@ struct GlobalPlayer: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
+        .animation(
+            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
+            value: isExpanded
+        )
         .help("Playback controls")
         .accessibilityLabel("Playback controls")
         .accessibilityHint("Opens seek, skip, speed and the queue")
@@ -233,6 +247,7 @@ struct ExpandedPlayerPanel: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
+            .buttonStyle(AttenFeedbackButtonStyle())
             .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
             .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
             TransportButton(
@@ -352,6 +367,7 @@ private struct QueueRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .onHover { isHovering = $0 }
         .accessibilityLabel("Chapter \(number), \(track.title)")
         .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
@@ -374,6 +390,7 @@ private struct TransportButton: View {
     let action: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -386,9 +403,14 @@ private struct TransportButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
         .onHover { isHovering = $0 }
+        .animation(
+            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
+            value: isHovering
+        )
         .help(help)
         .accessibilityLabel(label)
     }

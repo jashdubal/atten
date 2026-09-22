@@ -95,9 +95,20 @@ struct BookReaderView: View {
             persistLocation()
             searchTask?.cancel()
             isToolsPresented = false
+            isShowingAppearance = false
             // Idempotent, and the window is put back a run loop later, so
             // closing the book never fights the transition that closed it.
             model.setReaderFocus(false)
+        }
+        .onChange(of: model.section) { _, section in
+            // The reader can disappear because the sidebar or player route was
+            // chosen while a popover/scrim was open. Close local overlays with
+            // the route so no stale panel survives the destination transition.
+            guard section == .library else {
+                closeTools()
+                isShowingAppearance = false
+                return
+            }
         }
     }
 
@@ -154,10 +165,18 @@ struct BookReaderView: View {
             .frame(width: panelWidth)
             .padding(.leading, AttenSpacing.sm)
             .padding(.vertical, AttenSpacing.sm)
-            .transition(.move(edge: .leading).combined(with: .opacity))
+            .transition(
+                AttenMotion.transition(
+                    .overlay(edge: .leading),
+                    reduceMotion: reduceMotion
+                )
+            )
         }
         .animation(
-            AttenMotion.animation(AttenMotion.panel, reduceMotion: reduceMotion),
+            AttenMotion.transitionAnimation(
+                AttenMotion.panel,
+                reduceMotion: reduceMotion
+            ),
             value: isToolsPresented
         )
     }
@@ -791,46 +810,49 @@ struct BookReaderView: View {
     }
 
     @ViewBuilder private var narrationButton: some View {
-        if model.bookshelf.progress?.bookID == book.id {
-            Button("Stop", systemImage: "stop.fill") { model.bookshelf.cancelNarration() }
-                .buttonStyle(AttenSecondaryButtonStyle())
-        } else if playingChapterIndex == chapterIndex {
-            // The chapter on screen is the one playing. The reader used to put
-            // its own skip/play/time row here, which meant two sets of
-            // controls for one sound; the transport lives in the top chrome
-            // now, so this only says which chapter you are hearing.
-            playingIndicator
-        } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
-            Button {
-                // Playing from here continues into the rest of the book, the
-                // way turning a page would — and keeps what came before it in
-                // the queue, so the player can go back a chapter.
-                let tracks = book.narrationTracks
-                model.play(
-                    tracks: tracks,
-                    startingAt: tracks.firstIndex { $0.url == url } ?? 0
-                )
-                model.openNowPlaying()
-            } label: {
-                Label(
-                    model.isPlaying && model.activeAudioURL == url ? "Playing" : "Listen",
-                    systemImage: "play.fill"
-                )
+        Group {
+            if model.bookshelf.progress?.bookID == book.id {
+                Button("Stop", systemImage: "stop.fill") { model.bookshelf.cancelNarration() }
+                    .buttonStyle(AttenSecondaryButtonStyle())
+            } else if playingChapterIndex == chapterIndex {
+                // The chapter on screen is the one playing. The reader used to put
+                // its own skip/play/time row here, which meant two sets of
+                // controls for one sound; the transport lives in the top chrome
+                // now, so this only says which chapter you are hearing.
+                playingIndicator
+            } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
+                Button {
+                    // Playing from here continues into the rest of the book, the
+                    // way turning a page would — and keeps what came before it in
+                    // the queue, so the player can go back a chapter.
+                    let tracks = book.narrationTracks
+                    model.play(
+                        tracks: tracks,
+                        startingAt: tracks.firstIndex { $0.url == url } ?? 0
+                    )
+                    model.openNowPlaying()
+                } label: {
+                    Label(
+                        model.isPlaying && model.activeAudioURL == url ? "Playing" : "Listen",
+                        systemImage: "play.fill"
+                    )
+                }
+                .buttonStyle(AttenPrimaryButtonStyle())
+            } else {
+                Button {
+                    model.bookshelf.narrate(
+                        book.id,
+                        chapters: [chapterIndex],
+                        useMPS: model.settings.useMPS
+                    )
+                } label: {
+                    Label("Narrate this chapter", systemImage: "waveform")
+                }
+                .buttonStyle(AttenPrimaryButtonStyle())
+                .disabled(chapter == nil || model.bookshelf.isNarrating)
             }
-            .buttonStyle(AttenPrimaryButtonStyle())
-        } else {
-            Button {
-                model.bookshelf.narrate(
-                    book.id,
-                    chapters: [chapterIndex],
-                    useMPS: model.settings.useMPS
-                )
-            } label: {
-                Label("Narrate this chapter", systemImage: "waveform")
-            }
-            .buttonStyle(AttenPrimaryButtonStyle())
-            .disabled(chapter == nil || model.bookshelf.isNarrating)
         }
+        .frame(minHeight: 38, alignment: .leading)
     }
 
     /// Not a control. The chapter on screen is the one playing, and the

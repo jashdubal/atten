@@ -30,10 +30,18 @@ struct LibraryView: View {
     var body: some View {
         ZStack {
             page
-                .transition(slide(forward: model.libraryMovedForward))
+                .transition(
+                    AttenMotion.transition(
+                        .destination(forward: model.libraryMovedForward),
+                        reduceMotion: reduceMotion
+                    )
+                )
         }
         .animation(
-            reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+            AttenMotion.transitionAnimation(
+                AttenMotion.standard,
+                reduceMotion: reduceMotion
+            ),
             value: model.libraryPath
         )
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
@@ -76,16 +84,6 @@ struct LibraryView: View {
             )
             .task { model.returnToShelf() }
         }
-    }
-
-    /// A push, but a short one. Sliding a whole window-sized screen in from the
-    /// edge reads as the window itself moving; a small offset with a fade reads
-    /// as a page turning.
-    private func slide(forward: Bool) -> AnyTransition {
-        .asymmetric(
-            insertion: .offset(x: forward ? 26 : -26).combined(with: .opacity),
-            removal: .offset(x: forward ? -26 : 26).combined(with: .opacity)
-        )
     }
 
     private var shelfPage: some View {
@@ -351,6 +349,7 @@ private struct BookCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .onHover { isHovering = $0 }
         // The card is one thing to press, and it says what it is. The progress
         // meter inside it makes an element of its own, which was the only part
@@ -409,7 +408,7 @@ private struct BookCard: View {
         )
         .offset(y: isHovering ? -3 : 0)
         .animation(
-            reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+            AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion),
             value: isHovering
         )
     }

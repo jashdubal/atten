@@ -86,7 +86,7 @@ struct RootView: View {
             ZStack(alignment: .top) {
                 AttenBackdrop()
                 AttenAtmosphere()
-                detail
+                animatedDetail
             }
             .onAttenScreenTitle { screenTitle = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -115,7 +115,12 @@ struct RootView: View {
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
-        .onChange(of: model.section) { _, section in restoredSection = section.rawValue }
+        .onChange(of: model.section) { _, section in
+            restoredSection = section.rawValue
+            // A destination without a preference must not inherit the previous
+            // screen's title while SwiftUI rebuilds the detail column.
+            screenTitle = nil
+        }
         // A scene-storage write goes to disk, and this one carried up to
         // 100 KB. Running it on every keystroke made typing in Studio stutter,
         // so it waits for the typing to stop.
@@ -137,7 +142,12 @@ struct RootView: View {
             model.section = .playground
         }
         .onChange(of: model.isReaderFocused) { _, isFocused in
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
+            withAnimation(
+                AttenMotion.animation(
+                    AttenMotion.standard,
+                    reduceMotion: reduceMotion
+                )
+            ) {
                 columnVisibility = isFocused ? .detailOnly : .all
             }
         }
@@ -329,6 +339,27 @@ struct RootView: View {
         }
     }
 
+    /// Destination changes get one small orientation cue. The transition is
+    /// attached to the destination identity rather than the whole split view,
+    /// so the sidebar and top chrome never participate in the slide and the
+    /// long-form content itself is not animated as it changes.
+    private var animatedDetail: some View {
+        ZStack {
+            detail
+                .id(model.section)
+                .transition(
+                    AttenMotion.transition(
+                        .destination(forward: true),
+                        reduceMotion: reduceMotion
+                    )
+                )
+        }
+        .animation(
+            AttenMotion.transitionAnimation(AttenMotion.transition, reduceMotion: reduceMotion),
+            value: model.section
+        )
+    }
+
     private var preferredColorScheme: ColorScheme? {
         switch model.settings.appearance {
         case .system: nil
@@ -389,6 +420,7 @@ private struct SidebarNavigationRow: View {
     let action: () -> Void
 
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     var body: some View {
@@ -422,8 +454,13 @@ private struct SidebarNavigationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .focusEffectDisabled()
         .onHover { isHovering = $0 }
+        .animation(
+            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
+            value: isSelected
+        )
         .accessibilityLabel(item.label)
         .accessibilityHint("Open \(item.label)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

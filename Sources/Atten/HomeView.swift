@@ -169,32 +169,37 @@ private struct ContinueHero: View {
     /// share of the book read otherwise. Both are measured; neither is a
     /// decoration filled in to make the card look finished.
     @ViewBuilder private var timeline: some View {
-        if isLoaded {
-            VStack(spacing: 2) {
-                ScrubBar(
-                    position: model.playbackPosition,
-                    duration: model.playbackDuration,
-                    seek: model.seek(to:)
-                )
-                HStack {
-                    Text(PlaybackFormat.timeText(model.playbackPosition))
-                    Spacer()
-                    Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+        Group {
+            if isLoaded {
+                VStack(spacing: 2) {
+                    ScrubBar(
+                        position: model.playbackPosition,
+                        duration: model.playbackDuration,
+                        seek: model.seek(to:)
+                    )
+                    HStack {
+                        Text(PlaybackFormat.timeText(model.playbackPosition))
+                        Spacer()
+                        Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+                    }
+                    .font(AttenTypography.timecode)
+                    .foregroundStyle(AttenColor.textSecondary)
                 }
-                .font(AttenTypography.timecode)
-                .foregroundStyle(AttenColor.textSecondary)
+            } else if isNarrating, let progress = shelf.progress {
+                ProgressView(value: progress.fraction)
+                    .progressViewStyle(.linear)
+                    .tint(AttenColor.accent)
+            } else if !book.chapters.isEmpty {
+                NarrationMeter(
+                    narrated: narratedCount,
+                    total: book.chapters.count,
+                    isRunning: false
+                )
             }
-        } else if isNarrating, let progress = shelf.progress {
-            ProgressView(value: progress.fraction)
-                .progressViewStyle(.linear)
-                .tint(AttenColor.accent)
-        } else if !book.chapters.isEmpty {
-            NarrationMeter(
-                narrated: narratedCount,
-                total: book.chapters.count,
-                isRunning: false
-            )
         }
+        // Keep Read/Listen/Play controls anchored when a book starts or stops.
+        // The contents change; the card's geometry does not jump with it.
+        .frame(minHeight: 28, alignment: .top)
     }
 
     @ViewBuilder private var controls: some View {
@@ -349,18 +354,11 @@ private struct ShelfTile: View {
     let narrated: Int
     let open: () -> Void
 
-    @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
                 BookJacket(book: book, cover: cover, height: 132)
-                    .offset(y: isHovering ? -3 : 0)
-                    .animation(
-                        reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
-                        value: isHovering
-                    )
+                    .attenHoverLift()
                 Text(book.title)
                     .font(AttenTypography.metadata.weight(.medium))
                     .foregroundStyle(AttenColor.textPrimary)
@@ -372,7 +370,7 @@ private struct ShelfTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        .buttonStyle(AttenFeedbackButtonStyle())
         .accessibilityLabel(book.title)
         .accessibilityValue(narrated > 0
             ? "\(narrated) of \(book.chapters.count) narrated"
@@ -420,6 +418,7 @@ private struct AddBookTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(isImporting)
         .onHover { isHovering = $0 }
         .accessibilityLabel("Add a book")
