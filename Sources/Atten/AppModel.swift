@@ -822,18 +822,13 @@ final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([book.sourceURL])
     }
 
-    /// Opens the folder finished audio lands in. The export folder can be moved
-    /// anywhere, and the one it points at can be deleted or living on a volume
-    /// that is no longer mounted, so fall back to Atten's own data folder —
-    /// which holds the books, narrations, and history — rather than opening
-    /// nothing at all.
+    /// Opens Atten's own data folder — the base library holding the books,
+    /// narrations, exports, and history — rather than the export folder, which
+    /// the user can move elsewhere.
     func openSaveFolder() {
-        let exports = URL(fileURLWithPath: settings.outputDirectory, isDirectory: true)
-        try? FileManager.default.createDirectory(at: exports, withIntermediateDirectories: true)
-        let target = FileManager.default.fileExists(atPath: exports.path)
-            ? exports
-            : directories.applicationSupport
-        NSWorkspace.shared.open(target)
+        let base = directories.applicationSupport
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(base)
     }
 
     func rename(_ project: ProjectRecord, to name: String) {
