@@ -590,24 +590,18 @@ struct AttenLogo: View {
 
     var body: some View {
         HStack(spacing: AttenSpacing.xs) {
-            ZStack {
-                RoundedRectangle(cornerRadius: AttenRadius.small)
-                    .fill(AttenColor.appBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AttenRadius.small)
-                            .stroke(AttenColor.accent, lineWidth: 1)
-                    }
-                Image(systemName: "waveform")
-                    .font(.system(size: compact ? 12 : 15, weight: .semibold))
-                    .foregroundStyle(AttenColor.accent)
-            }
-            .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
-            .accessibilityHidden(true)
+            // Neutral, like the rest of the chrome. A boxed, outlined mark
+            // read as a button; the mark itself is enough.
+            Image(systemName: "waveform")
+                .font(.system(size: compact ? 15 : 19, weight: .semibold))
+                .foregroundStyle(AttenColor.textPrimary)
+                .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
+                .accessibilityHidden(true)
 
             if !compact {
                 Text("ATTEN")
-                    .font(.system(size: 17, weight: .semibold))
-                    .tracking(3.5)
+                    .font(.system(size: 15, weight: .semibold))
+                    .tracking(3.0)
                     .foregroundStyle(AttenColor.textPrimary)
             }
         }
@@ -715,7 +709,7 @@ struct StatusIndicator: View {
                 .fill(isAvailable ? AttenColor.success : AttenColor.destructive)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title.uppercased()).font(AttenTypography.metadata.weight(.semibold))
+                Text(title).font(AttenTypography.metadata.weight(.medium))
                 Text(detail)
                     .font(AttenTypography.caption)
                     .foregroundStyle(AttenColor.textSecondary)

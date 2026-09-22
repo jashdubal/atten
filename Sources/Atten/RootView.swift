@@ -3,9 +3,10 @@ import AttenCore
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
+    case home
+    case library
     case studio
     case playground
-    case library
     case voices
     case models
     case projects
@@ -16,13 +17,47 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .home: "house"
+        case .library: "books.vertical"
         case .studio: "waveform"
         case .playground: "flask"
-        case .library: "books.vertical"
         case .voices: "person.2"
         case .models: "shippingbox"
         case .projects: "doc.on.doc"
         case .exports: "waveform.badge.magnifyingglass"
+        }
+    }
+
+    /// Where a destination sits in the sidebar.
+    ///
+    /// The wireframe's calm comes partly from a short list. Every destination
+    /// Atten had is still here and still one click away — the ones you reach
+    /// for while listening are simply not mixed in with the ones you reach for
+    /// while managing voices and files.
+    enum Group: String, CaseIterable, Identifiable {
+        case read
+        case create
+        case manage
+
+        var id: String { rawValue }
+
+        /// The places you go while reading need no heading — they are the top
+        /// of the list and there are two of them. The rest are shelves, and a
+        /// shelf is easier to skip past when it is named.
+        var title: String? {
+            switch self {
+            case .read: nil
+            case .create: "Create"
+            case .manage: "Manage"
+            }
+        }
+
+        var items: [SidebarItem] {
+            switch self {
+            case .read: [.home, .library]
+            case .create: [.studio, .playground]
+            case .manage: [.voices, .models, .projects, .exports]
+            }
         }
     }
 }
@@ -34,25 +69,26 @@ extension Notification.Name {
 
 struct RootView: View {
     @Bindable var model: AppModel
-    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.studio.rawValue
+    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.home.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var screenTitle: AttenScreenTitle?
     @FocusState private var focusedSidebarItem: SidebarItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 228, max: 248)
+                .navigationSplitViewColumnWidth(min: 196, ideal: 208, max: 232)
         } detail: {
-            ZStack {
+            ZStack(alignment: .top) {
                 AttenBackdrop()
+                AttenAtmosphere()
                 detail
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if model.playerTitle != nil {
-                    PlayerBar(model: model)
-                }
+            .onAttenScreenTitle { screenTitle = $0 }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                TopChrome(model: model, title: screenTitle)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -73,7 +109,7 @@ struct RootView: View {
             }
         }
         .task {
-            model.section = SidebarItem(rawValue: restoredSection) ?? .studio
+            model.section = SidebarItem(rawValue: restoredSection) ?? .home
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
@@ -146,28 +182,41 @@ struct RootView: View {
                 .padding(.bottom, AttenSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(spacing: 2) {
-                ForEach(SidebarItem.allCases) { item in
-                    SidebarNavigationRow(
-                        item: item,
-                        isSelected: model.section == item
-                    ) {
-                        model.section = item
-                        focusedSidebarItem = item
+            VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                ForEach(SidebarItem.Group.allCases) { group in
+                    VStack(alignment: .leading, spacing: 1) {
+                        if let title = group.title {
+                            Text(title.uppercased())
+                                .font(AttenTypography.caption.weight(.semibold))
+                                .tracking(1.1)
+                                .foregroundStyle(AttenColor.textSecondary)
+                                .padding(.horizontal, AttenSpacing.sm)
+                                .padding(.bottom, AttenSpacing.xxs)
+                        }
+                        ForEach(group.items) { item in
+                            SidebarNavigationRow(
+                                item: item,
+                                isSelected: model.section == item
+                            ) {
+                                model.section = item
+                                focusedSidebarItem = item
+                            }
+                            .focused($focusedSidebarItem, equals: item)
+                        }
                     }
-                    .focused($focusedSidebarItem, equals: item)
                 }
             }
             .padding(.horizontal, AttenSpacing.xs)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onMoveCommand(perform: moveSidebarSelection)
+            .accessibilityLabel("Sections")
 
             Divider()
                 .overlay(AttenColor.separator)
 
             StatusIndicator(
-                title: "\(model.library.installed.count) MODELS",
-                detail: model.backendIsAvailable ? "STATUS: READY" : "STATUS: OFFLINE",
+                title: "\(model.library.installed.count) voices installed",
+                detail: model.backendIsAvailable ? "Ready" : "Offline",
                 isAvailable: model.backendIsAvailable
             )
             .padding([.horizontal, .top], AttenSpacing.md)
@@ -215,7 +264,8 @@ struct RootView: View {
             .padding(.horizontal, AttenSpacing.md)
             .padding(.vertical, AttenSpacing.sm)
         }
-        .background(AttenColor.sidebar)
+        .background(AttenColor.sidebar.opacity(0.6))
+        .background(.ultraThinMaterial)
     }
 
     /// How Atten looks, which is now one decision rather than two: there is a
@@ -256,6 +306,8 @@ struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch model.section {
+        case .home:
+            HomeView(model: model)
         case .studio:
             StudioView(model: model)
         case .playground:
@@ -339,25 +391,29 @@ private struct SidebarNavigationRow: View {
         Button(action: action) {
             HStack(spacing: AttenSpacing.sm) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(.system(size: 13, weight: .medium))
                     .frame(width: 18)
-                Text(item.label.uppercased())
+                Text(item.label)
                     .font(AttenTypography.control)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? AttenColor.accent : AttenColor.textPrimary)
+            .padding(.horizontal, AttenSpacing.sm)
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .background(background)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+            .overlay(alignment: .leading) {
                 if isSelected {
-                    Text(">")
-                        .font(AttenTypography.control.weight(.bold))
-                        .accessibilityHidden(true)
+                    Capsule()
+                        .fill(AttenColor.accent)
+                        .frame(width: 2.5, height: 16)
+                        .offset(x: -6)
                 }
             }
-            .foregroundStyle(isSelected ? AttenColor.accentHover : AttenColor.textPrimary)
-            .padding(.horizontal, AttenSpacing.sm)
-            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control)
-                    .stroke(borderColor, lineWidth: 1)
+                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
+                    .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
             }
             .contentShape(Rectangle())
         }
@@ -369,16 +425,20 @@ private struct SidebarNavigationRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// Selection is carried by the accent ink, not by a filled pill. A list
+    /// where the current row is a block of colour reads as a set of buttons;
+    /// Apple Music tints the label and leaves the row alone, and a sidebar
+    /// that sits beside a page of prose all day should do the same. Only the
+    /// pointer gets a fill, and barely.
     private var background: Color {
-        if isSelected { return AttenColor.accent.opacity(0.14) }
-        if isHovering { return AttenColor.surfaceMuted.opacity(0.72) }
-        return .clear
+        if isSelected { return AttenColor.accent.opacity(0.07) }
+        return isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
     }
 
+    /// Only focus draws an edge. Selection is carried by the fill and the
+    /// accent ink, so a list at rest has one mark on it rather than two.
     private var borderColor: Color {
-        if isFocused { return AttenColor.focus }
-        if isSelected { return AttenColor.accent.opacity(0.55) }
-        return .clear
+        isFocused ? AttenColor.focus : .clear
     }
 }
 
@@ -455,5 +515,65 @@ private struct MouseNavigationButtons: ViewModifier {
 extension View {
     func mouseNavigationButtons(back: @escaping () -> Void) -> some View {
         modifier(MouseNavigationButtons(back: back))
+    }
+}
+
+/// The shell's top chrome.
+///
+/// One region, owned here, holding the screen's name and — once #26 lands —
+/// the global compact player. It exists now so that the player has somewhere
+/// to go that is not the bottom of the reader, and so screens can start
+/// handing their titles up one at a time.
+///
+/// A screen that has not migrated says nothing, and this collapses to nothing
+/// rather than drawing an empty bar above its own header.
+private struct TopChrome: View {
+    @Bindable var model: AppModel
+    let title: AttenScreenTitle?
+
+    /// Either a screen that named itself or something playing is enough to
+    /// draw the row. Neither, and there is no bar at all — a reader with no
+    /// narration loses no page to chrome it is not using.
+    private var isPresent: Bool { title != nil || model.playerTitle != nil }
+
+    var body: some View {
+        if isPresent {
+            HStack(alignment: .center, spacing: AttenSpacing.sm) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let title {
+                    Text(title.title)
+                        .font(title.isProminent
+                            ? AttenTypography.displayTitle
+                            : AttenTypography.pageTitle)
+                        .foregroundStyle(AttenColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let subtitle = title.subtitle {
+                        Text(subtitle)
+                            .font(title.isProminent
+                                ? AttenTypography.body
+                                : AttenTypography.metadata)
+                            .foregroundStyle(AttenColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                    }
+                }
+
+                Spacer(minLength: AttenSpacing.md)
+
+                GlobalPlayer(model: model)
+            }
+            .padding(.horizontal, AttenSpacing.page)
+            .padding(.top, AttenSpacing.lg)
+            .padding(.bottom, AttenSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AttenColor.separator.opacity(0.5))
+                    .frame(height: 0.5)
+            }
+            .accessibilityElement(children: .contain)
+        }
     }
 }

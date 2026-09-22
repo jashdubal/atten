@@ -264,7 +264,7 @@ final class AppModel {
     /// Held here so that "back" can tell whether there is anything behind the
     /// current screen. The window remembers it across launches by way of scene
     /// storage, which is a place to write it down rather than a second owner.
-    var section = SidebarItem.studio
+    var section = SidebarItem.home
 
     private(set) var libraryPath: [LibraryRoute] = []
 
