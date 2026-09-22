@@ -86,7 +86,7 @@ struct StudioView: View {
     private var editorPane: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             HStack {
-                Label("> SCRIPT", systemImage: "text.alignleft")
+                Label("Script", systemImage: "text.alignleft")
                     .font(AttenTypography.sectionTitle)
                     .foregroundStyle(AttenColor.textPrimary)
                 Spacer()
