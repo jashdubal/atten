@@ -145,6 +145,15 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     /// Where the reader left off, so opening the book comes back to the page
     /// they stopped on rather than to the beginning.
     public var lastLocation: ReadingLocation?
+    /// When the book was last opened.
+    ///
+    /// `lastLocation` says *where* someone stopped but not *when*, so ordering
+    /// by it was impossible and Home had to fall back on import order — which
+    /// puts a book imported this morning and never opened above the one being
+    /// read all week. Nil for every book on a shelf written before this
+    /// existed, and for a book that has been imported and not yet opened;
+    /// both are honestly "never opened".
+    public var lastOpenedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -158,7 +167,8 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         audioFormat: AudioFormat,
         addedAt: Date = Date(),
         bookmarks: [Bookmark] = [],
-        lastLocation: ReadingLocation? = nil
+        lastLocation: ReadingLocation? = nil,
+        lastOpenedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -172,6 +182,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         self.addedAt = addedAt
         self.bookmarks = bookmarks
         self.lastLocation = lastLocation
+        self.lastOpenedAt = lastOpenedAt
     }
 
     public var sourceURL: URL { URL(fileURLWithPath: sourcePath) }
@@ -214,6 +225,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
             .flatMap { $0 } ?? []
         lastLocation = (try? container.decodeIfPresent(ReadingLocation.self, forKey: .lastLocation))
             .flatMap { $0 }
+        lastOpenedAt = try container.decodeIfPresent(Date.self, forKey: .lastOpenedAt)
     }
 }
 

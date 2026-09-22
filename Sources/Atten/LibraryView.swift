@@ -9,11 +9,13 @@ enum LibraryRoute: Hashable {
 
 struct LibraryView: View {
     @Bindable var model: AppModel
-    @State private var query = ""
     @State private var isTargeted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
+
+    /// The search term lives on the model so Home can set it on the way here.
+    private var query: String { model.libraryQuery }
 
     /// The Library is three screens deep — shelf, book, reader — and shows one
     /// at a time.
@@ -134,7 +136,7 @@ struct LibraryView: View {
     }
 
     private var searchField: some View {
-        AttenSearchField(prompt: "Search library", text: $query)
+        AttenSearchField(prompt: "Search library", text: $model.libraryQuery)
             .frame(maxWidth: 280)
     }
 
