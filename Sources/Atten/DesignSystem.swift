@@ -587,7 +587,7 @@ struct StatusIndicator: View {
                 .fill(isAvailable ? AttenColor.success : AttenColor.destructive)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title.uppercased()).font(AttenTypography.metadata.weight(.semibold))
+                Text(title).font(AttenTypography.metadata.weight(.medium))
                 Text(detail)
                     .font(AttenTypography.caption)
                     .foregroundStyle(AttenColor.textSecondary)

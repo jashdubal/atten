@@ -81,8 +81,9 @@ struct RootView: View {
             sidebar
                 .navigationSplitViewColumnWidth(min: 196, ideal: 208, max: 232)
         } detail: {
-            ZStack {
+            ZStack(alignment: .top) {
                 AttenBackdrop()
+                AttenAtmosphere()
                 detail
             }
             .onAttenScreenTitle { screenTitle = $0 }
@@ -219,8 +220,8 @@ struct RootView: View {
                 .overlay(AttenColor.separator)
 
             StatusIndicator(
-                title: "\(model.library.installed.count) MODELS",
-                detail: model.backendIsAvailable ? "STATUS: READY" : "STATUS: OFFLINE",
+                title: "\(model.library.installed.count) voices installed",
+                detail: model.backendIsAvailable ? "Ready" : "Offline",
                 isAvailable: model.backendIsAvailable
             )
             .padding([.horizontal, .top], AttenSpacing.md)
