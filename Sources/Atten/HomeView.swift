@@ -105,7 +105,7 @@ private struct ContinueReadingCard: View {
                 VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
                     Text("CONTINUE READING")
                         .font(AttenTypography.metadata.weight(.semibold))
-                        .tracking(1.2)
+                        .tracking(2.0)
                         .foregroundStyle(AttenColor.accent)
                     Text(book.title)
                         .font(AttenTypography.sectionTitle)
@@ -126,8 +126,10 @@ private struct ContinueReadingCard: View {
                     .foregroundStyle(AttenColor.textSecondary)
             }
             .padding(AttenSpacing.md)
-            .background(isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+            .attenElevated(
+                isHovering ? .floating : .raised,
+                fill: isHovering ? AttenColor.surfaceElevated : AttenColor.surface
+            )
             .contentShape(Rectangle())
             // Without this the focus ring hugs the label's intrinsic width and
             // stops short of the card it is supposed to be outlining.
@@ -175,8 +177,8 @@ private struct HomeRouteCard: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(AttenColor.accent)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(AttenGradient.brand)
                 Text(title)
                     .font(AttenTypography.sectionTitle)
                     .foregroundStyle(AttenColor.textPrimary)
@@ -188,8 +190,10 @@ private struct HomeRouteCard: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(AttenSpacing.md)
-            .background(isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+            .attenElevated(
+                isHovering ? .floating : .raised,
+                fill: isHovering ? AttenColor.surfaceElevated : AttenColor.surface
+            )
             .contentShape(Rectangle())
             // Without this the focus ring hugs the label's intrinsic width and
             // stops short of the card it is supposed to be outlining.
