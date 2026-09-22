@@ -77,6 +77,134 @@ extension NSColor {
     }
 }
 
+/// Light, as a material rather than as decoration.
+///
+/// A dark interface that is only dark reads as flat, whatever its palette —
+/// which is the difference between this and every generic dark theme. What
+/// makes Cursor, Linear or a SpaceX console look machined is that surfaces
+/// catch light along their top edge and fall away below it, and that the one
+/// saturated thing on screen glows slightly.
+///
+/// The brand gradient is the landing page's, verbatim. Everything else here is
+/// achromatic: light is white, shadow is black, and the palette supplies the
+/// colour.
+enum AttenGradient {
+    /// Cyan → pale cyan → violet, on the diagonal. For a mark or a fill.
+    static var brand: LinearGradient {
+        LinearGradient(
+            colors: AttenPalette.brandGradient,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    /// The same, running left to right — for text and for long bars, where a
+    /// diagonal would band.
+    static var brandAcross: LinearGradient {
+        LinearGradient(
+            colors: AttenPalette.brandGradient,
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    /// The light that catches the top edge of a raised surface and dies a few
+    /// points down. This is the whole trick.
+    static func edge(_ scheme: ColorScheme) -> LinearGradient {
+        let top = scheme == .dark ? 0.16 : 0.9
+        let bottom = scheme == .dark ? 0.03 : 0.35
+        return LinearGradient(
+            colors: [
+                Color.white.opacity(top),
+                Color.white.opacity(bottom),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+/// How far off the page a surface sits.
+enum AttenElevation {
+    /// Flush with the ground — a list row, a field.
+    case flush
+    /// A card, a panel, the compact player.
+    case raised
+    /// A popover or a sheet, over everything.
+    case floating
+
+    var shadowRadius: CGFloat {
+        switch self {
+        case .flush: 0
+        case .raised: 18
+        case .floating: 34
+        }
+    }
+
+    var shadowY: CGFloat {
+        switch self {
+        case .flush: 0
+        case .raised: 6
+        case .floating: 14
+        }
+    }
+
+    var shadowOpacity: Double {
+        switch self {
+        case .flush: 0
+        case .raised: 0.34
+        case .floating: 0.48
+        }
+    }
+}
+
+/// A surface with a lit top edge and weight underneath it.
+struct AttenElevatedSurface: ViewModifier {
+    var elevation: AttenElevation = .raised
+    var radius: CGFloat = AttenRadius.card
+    var fill: Color?
+
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        content
+            .background(fill ?? AttenColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            // The hairline is brighter along the top than the bottom, because
+            // that is where light would land. A uniform border is the thing
+            // that makes a panel read as a drawn box.
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(AttenGradient.edge(scheme), lineWidth: 1)
+                    .blendMode(scheme == .dark ? .plusLighter : .multiply)
+                    .opacity(scheme == .dark ? 1 : 0.5)
+            }
+            .shadow(
+                color: .black.opacity(elevation.shadowOpacity),
+                radius: elevation.shadowRadius,
+                y: elevation.shadowY
+            )
+    }
+}
+
+extension View {
+    /// Raise this off the page: lit along the top edge, weighted underneath.
+    func attenElevated(
+        _ elevation: AttenElevation = .raised,
+        radius: CGFloat = AttenRadius.card,
+        fill: Color? = nil
+    ) -> some View {
+        modifier(AttenElevatedSurface(elevation: elevation, radius: radius, fill: fill))
+    }
+
+    /// Put the brand gradient through this view's own shape — a title, a
+    /// glyph, a filled bar.
+    func attenBrandFilled() -> some View {
+        overlay { AttenGradient.brandAcross }
+            .mask(self)
+    }
+}
+
 enum AttenSpacing {
     static let xxs: CGFloat = 4
     static let xs: CGFloat = 8
@@ -210,19 +338,23 @@ struct AttenAtmosphere: View {
 
     var body: some View {
         if colorScheme == .dark {
-            EllipticalGradient(
-                colors: [
-                    Color(hex: 0x5DDBFF).opacity(0.10),
-                    Color(hex: 0x7E3CFF).opacity(0.07),
-                    .clear,
-                ],
-                center: .topLeading,
-                startRadiusFraction: 0,
-                endRadiusFraction: 0.75
-            )
-            .frame(height: 420)
+            ZStack(alignment: .top) {
+                EllipticalGradient(
+                    colors: [Color(hex: 0x5DDBFF).opacity(0.22), .clear],
+                    center: .init(x: 0.18, y: 0.0),
+                    startRadiusFraction: 0,
+                    endRadiusFraction: 0.62
+                )
+                EllipticalGradient(
+                    colors: [Color(hex: 0x7E3CFF).opacity(0.20), .clear],
+                    center: .init(x: 0.72, y: 0.06),
+                    startRadiusFraction: 0,
+                    endRadiusFraction: 0.58
+                )
+            }
+            .frame(height: 560)
             .frame(maxWidth: .infinity, alignment: .top)
-            .blur(radius: 40)
+            .blur(radius: 70)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
@@ -236,8 +368,10 @@ struct AttenSurfaceModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(elevated ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+            .attenElevated(
+                elevated ? .floating : .raised,
+                fill: elevated ? AttenColor.surfaceElevated : AttenColor.surface
+            )
     }
 }
 
@@ -272,17 +406,29 @@ private struct AttenPrimaryButtonBody: View {
             .font(AttenTypography.control.weight(.semibold))
             .foregroundStyle(AttenColor.onAccent.opacity(isEnabled ? 1 : 0.55))
             .padding(.horizontal, AttenSpacing.md)
-            .frame(minHeight: 40)
-            .background(fillColor.opacity(isEnabled ? 1 : 0.42))
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-            .scaleEffect(isPressed && !reduceMotion ? 0.99 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: AttenMotion.fast), value: isPressed)
+            .frame(minHeight: 38)
+            .background {
+                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
+                    .fill(AttenGradient.brand)
+                    .brightness(isPressed ? -0.06 : (isHovering ? 0.05 : 0))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+            // The one glow in the app. A primary action that emits a little
+            // light is the difference between a button and a painted rectangle.
+            .shadow(
+                color: Color(hex: 0x5DDBFF).opacity(isEnabled ? (isHovering ? 0.38 : 0.24) : 0),
+                radius: isHovering ? 18 : 12,
+                y: 4
+            )
+            .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+            .scaleEffect(isPressed && !reduceMotion ? AttenState.pressedScale : 1)
+            .animation(AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion), value: isPressed)
+            .animation(AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion), value: isHovering)
             .onHover { isHovering = $0 }
-    }
-
-    private var fillColor: Color {
-        if isPressed { return AttenColor.accent.opacity(0.78) }
-        return isHovering ? AttenColor.accentHover : AttenColor.accent
     }
 }
 
@@ -307,12 +453,7 @@ private struct AttenSecondaryButtonBody: View {
             .foregroundStyle(AttenColor.textPrimary.opacity(isEnabled ? 1 : 0.45))
             .padding(.horizontal, AttenSpacing.sm)
             .frame(minHeight: 34)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control)
-                    .stroke(isHovering ? AttenColor.accent : AttenColor.separator, lineWidth: 1)
-            }
+            .attenElevated(.flush, radius: AttenRadius.control, fill: background)
             .onHover { isHovering = $0 }
     }
 
