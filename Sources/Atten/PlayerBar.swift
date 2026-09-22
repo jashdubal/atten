@@ -1,177 +1,7 @@
 import SwiftUI
 
-/// Playback controls for whatever Atten is playing.
-///
-/// A book is narrated one file per chapter, so the thing being listened to is
-/// usually a queue rather than a file: the bar names the chapter and the book
-/// it belongs to, says where in the book it is, and can move either way through
-/// it. Ten seconds back is the control people actually reach for — a sentence
-/// missed while looking away — so it sits next to play rather than in a menu.
-struct PlayerBar: View {
-    @Bindable var model: AppModel
-
-    var body: some View {
-        HStack(spacing: AttenSpacing.sm) {
-            transport
-            Divider().frame(height: 22).overlay(AttenColor.separator)
-            nowPlaying
-            scrubber
-            rateMenu
-
-            Button(action: model.closePlayer) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(AttenColor.textSecondary)
-            .help("Stop and close the player")
-            .accessibilityLabel("Close player")
-        }
-        .padding(.horizontal, AttenSpacing.md)
-        .frame(height: 56)
-        .background(AttenColor.surfaceElevated)
-        .overlay(alignment: .top) {
-            Divider().overlay(AttenColor.separator)
-        }
-    }
-
-    // MARK: - Transport
-
-    private var transport: some View {
-        HStack(spacing: AttenSpacing.xxs) {
-            TransportButton(
-                systemImage: "backward.end.fill",
-                size: 12,
-                help: "Previous",
-                label: "Previous",
-                isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
-                action: model.playPrevious
-            )
-
-            TransportButton(
-                systemImage: "gobackward.10",
-                size: 15,
-                help: "Back 10 seconds",
-                label: "Back ten seconds"
-            ) {
-                model.skip(by: -NowPlayingCenter.skipInterval)
-            }
-
-            Button(action: model.toggleActivePlayback) {
-                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(AttenColor.onAccent)
-                    .frame(width: 32, height: 32)
-                    .background(AttenColor.accent)
-                    .clipShape(Circle())
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .buttonStyle(.plain)
-            .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
-            .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
-
-            TransportButton(
-                systemImage: "goforward.10",
-                size: 15,
-                help: "Forward 10 seconds",
-                label: "Forward ten seconds"
-            ) {
-                model.skip(by: NowPlayingCenter.skipInterval)
-            }
-
-            TransportButton(
-                systemImage: "forward.end.fill",
-                size: 12,
-                help: "Next",
-                label: "Next",
-                isEnabled: model.queue.hasNext,
-                action: model.playNext
-            )
-        }
-    }
-
-    // MARK: - What is playing
-
-    private var nowPlaying: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(model.playerTitle ?? "")
-                .font(AttenTypography.control)
-                .foregroundStyle(AttenColor.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text(subtitle)
-                .font(AttenTypography.caption)
-                .foregroundStyle(AttenColor.textSecondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .frame(width: 190, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Now playing: \(model.playerTitle ?? ""), \(subtitle)")
-    }
-
-    private var subtitle: String {
-        [model.playerSubtitle, model.queue.position]
-            .compactMap { $0 }
-            .joined(separator: " · ")
-    }
-
-    // MARK: - Where in it
-
-    private var scrubber: some View {
-        HStack(spacing: AttenSpacing.xs) {
-            Text(Self.timeText(model.playbackPosition))
-                .font(AttenTypography.caption)
-                .monospacedDigit()
-                .foregroundStyle(AttenColor.textSecondary)
-                .frame(width: 44, alignment: .trailing)
-
-            ScrubBar(
-                position: model.playbackPosition,
-                duration: model.playbackDuration,
-                seek: model.seek(to:)
-            )
-            .frame(minWidth: 120)
-
-            Text("-" + Self.timeText(model.playbackRemaining))
-                .font(AttenTypography.caption)
-                .monospacedDigit()
-                .foregroundStyle(AttenColor.textSecondary)
-                .frame(width: 48, alignment: .leading)
-        }
-    }
-
-    // MARK: - How fast
-
-    private var rateMenu: some View {
-        Menu {
-            Picker("Speed", selection: rateBinding) {
-                ForEach(Self.rates, id: \.self) { rate in
-                    Text(Self.rateText(rate)).tag(rate)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Text(Self.rateText(model.playbackRate))
-                .font(AttenTypography.caption.weight(.semibold))
-                .monospacedDigit()
-                .frame(width: 38, height: 22)
-                .background(AttenColor.surfaceMuted)
-                .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Listening speed")
-        .accessibilityLabel("Listening speed")
-        .accessibilityValue(Self.rateText(model.playbackRate))
-    }
-
-    private var rateBinding: Binding<Double> {
-        Binding(get: { model.playbackRate }, set: { model.setPlaybackRate($0) })
-    }
-
+/// How playback times and rates are written, wherever they are written.
+enum PlaybackFormat {
     static let rates: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
     /// %g rather than %.2g: two significant digits turn 1.25 into "1.2" and
@@ -187,6 +17,340 @@ struct PlayerBar: View {
             return String(format: "%d:%02d:%02d", total / 3_600, (total / 60) % 60, total % 60)
         }
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+/// The one player, in the top chrome.
+///
+/// Playback used to live in a 56 pt bar pinned under every screen, which cost
+/// the reader a strip of page on every book and still left the reader drawing
+/// its own transport — two sets of controls for one sound. This is the only
+/// one now: compact enough to sit beside a page title, and holding the rest
+/// behind a single expand affordance rather than putting nine controls in the
+/// chrome of a reading app.
+///
+/// It draws nothing when nothing is playing, so a screen with no audio has no
+/// player and loses no room to it.
+struct GlobalPlayer: View {
+    @Bindable var model: AppModel
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        if let title = model.playerTitle {
+            HStack(spacing: AttenSpacing.xs) {
+                playPause
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: AttenSpacing.xs) {
+                        Text(title)
+                            .font(AttenTypography.control)
+                            .foregroundStyle(AttenColor.textPrimary)
+                            .lineLimit(1)
+                            // A chapter's title is distinguished by both ends
+                            // of it — "CHAPTER 9: …Ongoing Success" — so the
+                            // middle is what goes.
+                            .truncationMode(.middle)
+                        Spacer(minLength: AttenSpacing.xxs)
+                        Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+                            .font(AttenTypography.timecode)
+                            .foregroundStyle(AttenColor.textSecondary)
+                    }
+                    progressLine
+                }
+                .frame(minWidth: 120, idealWidth: 210, maxWidth: 260)
+
+                expandButton
+            }
+            .padding(.horizontal, AttenSpacing.sm)
+            .frame(height: AttenMetrics.compactPlayerHeight)
+            .background(AttenColor.surfaceElevated)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.player))
+            .overlay {
+                RoundedRectangle(cornerRadius: AttenRadius.player)
+                    .stroke(AttenColor.separator, lineWidth: 1)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Player: \(title), \(subtitle)")
+        }
+    }
+
+    private var subtitle: String {
+        [model.playerSubtitle, model.queue.position]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+    }
+
+    private var playPause: some View {
+        Button(action: model.toggleActivePlayback) {
+            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AttenColor.onAccent)
+                .frame(width: 28, height: 28)
+                .background(AttenColor.accent)
+                .clipShape(Circle())
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
+        .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+    }
+
+    /// A status line, not a control. Seeking is in the expanded panel, where
+    /// there is room to hit it.
+    private var progressLine: some View {
+        GeometryReader { geometry in
+            let fraction = model.playbackDuration > 0
+                ? min(1, max(0, model.playbackPosition / model.playbackDuration))
+                : 0
+            ZStack(alignment: .leading) {
+                Capsule().fill(AttenColor.progressTrack)
+                Capsule()
+                    .fill(AttenColor.progress)
+                    .frame(width: geometry.size.width * fraction)
+            }
+        }
+        .frame(height: 3)
+        .accessibilityHidden(true)
+    }
+
+    private var expandButton: some View {
+        Button { isExpanded.toggle() } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .frame(width: 26, height: 26)
+                .foregroundStyle(AttenColor.textSecondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Playback controls")
+        .accessibilityLabel("Playback controls")
+        .accessibilityHint("Opens seek, skip, speed and the queue")
+        .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
+            ExpandedPlayerPanel(model: model, close: { isExpanded = false })
+        }
+    }
+}
+
+/// Everything the compact player does not show.
+///
+/// A popover rather than a sheet: it is dismissed by Escape and by clicking
+/// away without either being wired up here, and it does not take the window
+/// hostage while a chapter is playing.
+struct ExpandedPlayerPanel: View {
+    @Bindable var model: AppModel
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.md) {
+            heading
+            scrubber
+            transport
+            Divider().overlay(AttenColor.separator)
+            speed
+            if model.queue.tracks.count > 1 { queue }
+            stop
+        }
+        .padding(AttenSpacing.md)
+        .frame(width: AttenMetrics.expandedPlayerWidth)
+        .background(AttenColor.surface)
+    }
+
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(model.playerTitle ?? "Nothing playing")
+                .font(AttenTypography.sectionTitle)
+                .foregroundStyle(AttenColor.textPrimary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if let source = model.playerSubtitle {
+                Text(source)
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
+                    .lineLimit(1)
+            }
+            if let position = model.queue.position {
+                Text(position)
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var scrubber: some View {
+        VStack(spacing: 2) {
+            ScrubBar(
+                position: model.playbackPosition,
+                duration: model.playbackDuration,
+                seek: model.seek(to:)
+            )
+            HStack {
+                Text(PlaybackFormat.timeText(model.playbackPosition))
+                Spacer()
+                Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+            }
+            .font(AttenTypography.timecode)
+            .foregroundStyle(AttenColor.textSecondary)
+        }
+    }
+
+    private var transport: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Spacer(minLength: 0)
+            TransportButton(
+                systemImage: "backward.end.fill",
+                size: 12,
+                help: "Previous chapter",
+                label: "Previous chapter",
+                isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
+                action: model.playPrevious
+            )
+            TransportButton(
+                systemImage: "gobackward.10",
+                size: 16,
+                help: "Back 10 seconds",
+                label: "Back ten seconds"
+            ) {
+                model.skip(by: -NowPlayingCenter.skipInterval)
+            }
+            Button(action: model.toggleActivePlayback) {
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(AttenColor.onAccent)
+                    .frame(width: 40, height: 40)
+                    .background(AttenColor.accent)
+                    .clipShape(Circle())
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+            .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
+            .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+            TransportButton(
+                systemImage: "goforward.10",
+                size: 16,
+                help: "Forward 10 seconds",
+                label: "Forward ten seconds"
+            ) {
+                model.skip(by: NowPlayingCenter.skipInterval)
+            }
+            TransportButton(
+                systemImage: "forward.end.fill",
+                size: 12,
+                help: "Next chapter",
+                label: "Next chapter",
+                isEnabled: model.queue.hasNext,
+                action: model.playNext
+            )
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var speed: some View {
+        HStack {
+            Text("Speed")
+                .font(AttenTypography.control)
+                .foregroundStyle(AttenColor.textPrimary)
+            Spacer()
+            Picker("Speed", selection: rateBinding) {
+                ForEach(PlaybackFormat.rates, id: \.self) { rate in
+                    Text(PlaybackFormat.rateText(rate)).tag(rate)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Listening speed")
+            .accessibilityValue(PlaybackFormat.rateText(model.playbackRate))
+        }
+    }
+
+    /// The rest of the book, when there is a rest of the book. A one-off
+    /// Studio render has a queue of one and gets no list.
+    private var queue: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+            Text("UP NEXT")
+                .font(AttenTypography.metadata.weight(.semibold))
+                .tracking(1.2)
+                .foregroundStyle(AttenColor.textSecondary)
+
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(Array(model.queue.tracks.enumerated()), id: \.element.id) { index, track in
+                        QueueRow(
+                            track: track,
+                            number: index + 1,
+                            isCurrent: index == model.queue.index
+                        ) {
+                            model.play(tracks: model.queue.tracks, startingAt: index)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 168)
+        }
+    }
+
+    private var stop: some View {
+        Button {
+            model.closePlayer()
+            close()
+        } label: {
+            Label("Stop and close", systemImage: "stop.fill")
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(AttenSecondaryButtonStyle())
+        .accessibilityLabel("Stop and close the player")
+    }
+
+    private var rateBinding: Binding<Double> {
+        Binding(get: { model.playbackRate }, set: { model.setPlaybackRate($0) })
+    }
+}
+
+private struct QueueRow: View {
+    let track: PlaybackTrack
+    let number: Int
+    let isCurrent: Bool
+    let play: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: play) {
+            HStack(spacing: AttenSpacing.xs) {
+                Text("\(number)")
+                    .font(AttenTypography.timecode)
+                    .foregroundStyle(AttenColor.textSecondary)
+                    .frame(width: 20, alignment: .trailing)
+                Text(track.title)
+                    .font(AttenTypography.metadata)
+                    .foregroundStyle(isCurrent ? AttenColor.accent : AttenColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                if isCurrent {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(AttenColor.accent)
+                }
+            }
+            .padding(.horizontal, AttenSpacing.xs)
+            .frame(height: 26)
+            .background(rowBackground)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel("Chapter \(number), \(track.title)")
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+    }
+
+    private var rowBackground: Color {
+        if isCurrent { return AttenColor.accent.opacity(0.12) }
+        return isHovering ? AttenColor.surfaceMuted : .clear
     }
 }
 
@@ -206,7 +370,7 @@ private struct TransportButton: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: size, weight: .medium))
-                .frame(width: 28, height: 28)
+                .frame(width: 32, height: 32)
                 .foregroundStyle(isHovering ? AttenColor.accentHover : AttenColor.textPrimary)
                 .background(isHovering ? AttenColor.surfaceMuted : .clear)
                 .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
@@ -214,7 +378,7 @@ private struct TransportButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.35)
+        .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
         .onHover { isHovering = $0 }
         .help(help)
         .accessibilityLabel(label)
@@ -224,9 +388,7 @@ private struct TransportButton: View {
 /// The track, and where in it.
 ///
 /// A stock `Slider` is a control for choosing a number; this is a picture of a
-/// recording that happens to be draggable. It stays a thin line until the
-/// pointer is over it, so a player sitting at the bottom of every screen reads
-/// as a status line rather than as a row of knobs.
+/// recording that happens to be draggable.
 struct ScrubBar: View {
     let position: TimeInterval
     let duration: TimeInterval
@@ -252,14 +414,14 @@ struct ScrubBar: View {
             let width = max(1, geometry.size.width)
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(AttenColor.separator.opacity(0.7))
+                    .fill(AttenColor.progressTrack)
                     .frame(height: thickness)
                 Capsule()
-                    .fill(AttenColor.accent)
+                    .fill(AttenColor.progress)
                     .frame(width: width * fraction, height: thickness)
                 if isActive {
                     Circle()
-                        .fill(AttenColor.accent)
+                        .fill(AttenColor.progress)
                         .frame(width: 11, height: 11)
                         .offset(x: width * fraction - 5.5)
                         .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
@@ -267,10 +429,7 @@ struct ScrubBar: View {
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: AttenMotion.fast),
-                value: isActive
-            )
+            .animation(AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion), value: isActive)
             // A click anywhere on the track goes there, which is why the
             // gesture starts at zero distance rather than waiting for a drag.
             .gesture(
@@ -288,7 +447,7 @@ struct ScrubBar: View {
         .onHover { isHovering = $0 }
         .accessibilityElement()
         .accessibilityLabel("Playback position")
-        .accessibilityValue(PlayerBar.timeText(shown))
+        .accessibilityValue(PlaybackFormat.timeText(shown))
         .accessibilityAdjustableAction { direction in
             seek(shown + (direction == .increment ? 10 : -10))
         }
