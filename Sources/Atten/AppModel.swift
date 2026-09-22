@@ -280,10 +280,33 @@ final class AppModel {
     /// left a hidden sidebar and a full-screen window with nothing in it.
     private(set) var isReaderFocused = false
 
+    /// What the Library's search field holds.
+    ///
+    /// Here rather than in `LibraryView` so Home's search can put something in
+    /// it and send the user to the shelf, and so the term survives a trip into
+    /// a book and back.
+    var libraryQuery = ""
+
     func openInLibrary(_ route: LibraryRoute) {
+        // Opening a book counts however deep it is opened, and the mark is set
+        // before the early return: reopening the reader on the book already
+        // open is still the user telling us this is the book they are reading.
+        switch route {
+        case let .book(id), let .reader(id):
+            bookshelf.markOpened(id)
+        }
         guard libraryPath.last != route else { return }
         libraryMovedForward = true
         libraryPath.append(route)
+    }
+
+    /// Show the shelf, filtered. Home's search has nowhere of its own to put
+    /// results, and a second set of them would be a second place to keep the
+    /// filtering rules in step.
+    func searchLibrary(for query: String) {
+        libraryQuery = query
+        returnToShelf()
+        section = .library
     }
 
     /// Back to the shelf in one step, for a book that has just been removed
@@ -351,6 +374,16 @@ final class AppModel {
     var playerTitle: String? { queue.current?.title }
 
     var playerSubtitle: String? { queue.current?.subtitle }
+
+    /// The book the current track came from, when it came from one.
+    ///
+    /// A narration track carries its chapter's identifier, so the shelf can be
+    /// asked rather than the title matched — two books can share a title, and
+    /// a Studio render has no book behind it at all.
+    var playingBook: BookRecord? {
+        guard let track = queue.current else { return nil }
+        return bookshelf.books.first { $0.chapters.contains { $0.id == track.id } }
+    }
 
     /// How much of the chapter is left. Measured the same way as the elapsed
     /// time beside it: adjusting one for the listening rate and not the other

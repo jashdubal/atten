@@ -321,6 +321,25 @@ final class BookshelfModel {
         persist()
     }
 
+    /// Notes that the book was just opened, which is the only recency signal
+    /// Atten has. Written on open rather than on close, because a reader who
+    /// quits mid-chapter never gets to close anything.
+    func markOpened(_ bookID: UUID, at date: Date = Date()) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        books[index].lastOpenedAt = date
+        persist()
+    }
+
+    /// The books someone has actually opened, most recent first. A book that
+    /// has never been opened is not "recent" at any age, so it is left out
+    /// rather than sorted to the bottom.
+    var recentlyOpened: [BookRecord] {
+        books
+            .compactMap { book in book.lastOpenedAt.map { (book, $0) } }
+            .sorted { $0.1 > $1.1 }
+            .map(\.0)
+    }
+
     /// Remembers where the reader stopped. Written when they change chapter or
     /// close the book rather than on every line they scroll past, so following
     /// a long chapter does not mean rewriting the shelf hundreds of times.

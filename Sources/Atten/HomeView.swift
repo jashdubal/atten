@@ -2,46 +2,33 @@ import AppKit
 import AttenCore
 import SwiftUI
 
-/// The shell's Home destination.
+/// The shell's Home destination: what you were in the middle of, and the
+/// shelf it came from.
 ///
-/// Deliberately small. This issue owns the route, the title and the fact that
-/// Home exists at all; the Continue Listening hero and the cover-led library
-/// row from the wireframe are #27's, and land here. What is here now is real:
-/// the greeting, the book you were last reading if there is one, and the two
-/// places you would otherwise go looking for.
+/// The wireframe puts one thing at the top of this screen and it is not a
+/// menu — it is the book you are already listening to, large enough to press
+/// without aiming. Everything here is drawn from the real shelf and the real
+/// player: Home has no library of its own and no second playback engine, so
+/// the hero's play button and the compact player in the top chrome are the
+/// same button wearing different clothes.
 struct HomeView: View {
     @Bindable var model: AppModel
+
+    private var shelf: BookshelfModel { model.bookshelf }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AttenSpacing.xl) {
-                if let book = continueReading {
-                    ContinueReadingCard(
-                        book: book,
-                        cover: model.bookshelf.covers.cover(for: book.id)
-                    ) {
-                        model.section = .library
-                        model.openInLibrary(.reader(book.id))
-                    }
-                    .task(id: book.id) { await model.bookshelf.covers.load(book) }
+                if !shelf.books.isEmpty { search }
+
+                if let book = heroBook {
+                    ContinueHero(model: model, book: book)
+                        .task(id: book.id) { await shelf.covers.load(book) }
+                } else {
+                    FirstBookInvitation { model.openBookImportPanel() }
                 }
 
-                HStack(spacing: AttenSpacing.md) {
-                    HomeRouteCard(
-                        title: "Library",
-                        detail: libraryDetail,
-                        systemImage: "books.vertical"
-                    ) {
-                        model.section = .library
-                    }
-                    HomeRouteCard(
-                        title: "Studio",
-                        detail: "Turn any text into a natural-sounding voice.",
-                        systemImage: "waveform"
-                    ) {
-                        model.section = .studio
-                    }
-                }
+                LibraryRow(model: model)
             }
             // Padding goes on before the width cap, not after it. The other
             // way round, the capped frame is handed the column's full width
@@ -49,12 +36,21 @@ struct HomeView: View {
             // the minimum window size overlapped the two route cards.
             .padding(.horizontal, AttenSpacing.page)
             .padding(.bottom, AttenSpacing.xl)
-            .frame(maxWidth: 940, alignment: .leading)
+            .frame(maxWidth: 980, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         // Home's greeting *is* its title, so it goes up into the shared top
         // chrome rather than being drawn again underneath it.
-        .attenScreenTitle(greeting, subtitle: "Pick up where you left off.", prominent: true)
+        .attenScreenTitle(greeting, subtitle: shelfSummary, prominent: true)
+    }
+
+    private var search: some View {
+        AttenSearchField(prompt: "Search your library", text: $model.libraryQuery)
+            .frame(maxWidth: 320)
+            // Home has nowhere to show results, and inventing a second list
+            // of them would be a second copy of the shelf's filtering rules.
+            // Typing here goes to the shelf, which already knows how.
+            .onSubmit { model.searchLibrary(for: model.libraryQuery) }
     }
 
     private var greeting: String {
@@ -68,81 +64,374 @@ struct HomeView: View {
         return name.map { "\(time), \($0)." } ?? "\(time)."
     }
 
-    /// The book with a stored reading location, most recently added first.
-    ///
-    /// Atten records *where* you stopped but not *when*, so this cannot claim
-    /// to be the last book you opened. Added-order is the honest stand-in
-    /// until there is a timestamp to sort on — noted for #27, which needs a
-    /// real recency signal for the Continue Listening hero.
-    private var continueReading: BookRecord? {
-        model.bookshelf.books
-            .filter { $0.lastLocation != nil }
-            .max { $0.addedAt < $1.addedAt }
+    private var shelfSummary: String {
+        switch shelf.books.count {
+        case 0: "Add your first book to get started."
+        case 1: "One book on your shelf."
+        default: "\(shelf.books.count) books on your shelf."
+        }
     }
 
-    private var libraryDetail: String {
-        let count = model.bookshelf.books.count
-        return switch count {
-        case 0: "Add a book, a paper, or a report."
-        case 1: "1 book."
-        default: "\(count) books."
+    /// What the hero is about, in the order the user would answer it
+    /// themselves: whatever is playing, then whatever they last opened, then
+    /// — for a shelf that has been imported and never read — the newest book.
+    /// Nothing at all only when there is nothing at all.
+    private var heroBook: BookRecord? {
+        model.playingBook ?? shelf.recentlyOpened.first ?? shelf.books.first
+    }
+}
+
+// MARK: - Continue
+
+/// The one large card: cover, where you are, and the controls to carry on.
+private struct ContinueHero: View {
+    @Bindable var model: AppModel
+    let book: BookRecord
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var shelf: BookshelfModel { model.bookshelf }
+
+    /// Whether the player is on *this* book, which is what decides between
+    /// showing the live timeline and showing where reading stopped.
+    private var isLoaded: Bool { model.playingBook?.id == book.id }
+
+    private var narratedCount: Int { shelf.narratedCount(of: book) }
+
+    private var isNarrating: Bool { shelf.progress?.bookID == book.id }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AttenSpacing.lg) {
+            BookJacket(book: book, cover: shelf.covers.cover(for: book.id), height: 168)
+
+            VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+                Text(eyebrow)
+                    .font(AttenTypography.metadata.weight(.semibold))
+                    .tracking(2.0)
+                    .foregroundStyle(AttenColor.accent)
+
+                VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
+                    Text(book.title)
+                        .font(AttenTypography.pageTitle)
+                        .foregroundStyle(AttenColor.textPrimary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(positionLine)
+                        .font(AttenTypography.metadata)
+                        .foregroundStyle(AttenColor.textSecondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: AttenSpacing.xs)
+
+                timeline
+                controls
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(AttenSpacing.lg)
+        .attenElevated(.raised, fill: AttenColor.surface)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(eyebrow.capitalized): \(book.title). \(positionLine)")
+    }
+
+    private var eyebrow: String {
+        if isNarrating { return "PREPARING NARRATION" }
+        if isLoaded { return model.isPlaying ? "NOW PLAYING" : "CONTINUE LISTENING" }
+        if narratedCount > 0 { return "CONTINUE LISTENING" }
+        return "CONTINUE READING"
+    }
+
+    /// Where the user is, said in whichever terms Atten actually knows. A book
+    /// in the player has a chapter and a clock; a book only ever read has a
+    /// chapter and nothing more; a book never opened has neither, and says so
+    /// rather than claiming chapter one.
+    private var positionLine: String {
+        if isNarrating, let progress = shelf.progress {
+            return "Narrating \(progress.chapterTitle) — \(progress.completed) of \(progress.total) \(noun.lowercased())s ready"
+        }
+        if isLoaded, let title = model.playerTitle {
+            return [title, model.queue.position].compactMap { $0 }.joined(separator: " · ")
+        }
+        if let location = book.lastLocation,
+           book.chapters.indices.contains(location.chapterIndex) {
+            let chapter = book.chapters[location.chapterIndex]
+            return "\(noun) \(location.chapterIndex + 1) of \(book.chapters.count) · \(chapter.title)"
+        }
+        if book.chapters.isEmpty { return book.author ?? "No sections yet" }
+        return "Not started · \(book.chapters.count) \(noun.lowercased())s"
+    }
+
+    private var noun: String { book.format.sectionNoun }
+
+    /// The live timeline when this book is the one in the player, and the
+    /// share of the book read otherwise. Both are measured; neither is a
+    /// decoration filled in to make the card look finished.
+    @ViewBuilder private var timeline: some View {
+        if isLoaded {
+            VStack(spacing: 2) {
+                ScrubBar(
+                    position: model.playbackPosition,
+                    duration: model.playbackDuration,
+                    seek: model.seek(to:)
+                )
+                HStack {
+                    Text(PlaybackFormat.timeText(model.playbackPosition))
+                    Spacer()
+                    Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+                }
+                .font(AttenTypography.timecode)
+                .foregroundStyle(AttenColor.textSecondary)
+            }
+        } else if isNarrating, let progress = shelf.progress {
+            ProgressView(value: progress.fraction)
+                .progressViewStyle(.linear)
+                .tint(AttenColor.accent)
+        } else if !book.chapters.isEmpty {
+            NarrationMeter(
+                narrated: narratedCount,
+                total: book.chapters.count,
+                isRunning: false
+            )
+        }
+    }
+
+    @ViewBuilder private var controls: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            if isLoaded {
+                Button(action: model.toggleActivePlayback) {
+                    Label(
+                        model.isPlaying ? "Pause" : "Play",
+                        systemImage: model.isPlaying ? "pause.fill" : "play.fill"
+                    )
+                }
+                .buttonStyle(AttenPrimaryButtonStyle())
+                .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+            } else if narratedCount > 0 {
+                Button {
+                    model.play(tracks: book.narrationTracks)
+                } label: {
+                    Label("Listen", systemImage: "play.fill")
+                }
+                .buttonStyle(AttenPrimaryButtonStyle())
+                .accessibilityHint("Play the narrated \(noun.lowercased())s of this book")
+            }
+
+            Button {
+                model.section = .library
+                model.openInLibrary(.reader(book.id))
+            } label: {
+                Label("Read", systemImage: "text.alignleft")
+            }
+            .buttonStyle(narratedCount > 0 || isLoaded
+                ? AnyButtonStyle(AttenSecondaryButtonStyle())
+                : AnyButtonStyle(AttenPrimaryButtonStyle()))
+
+            Button {
+                model.section = .library
+                model.openInLibrary(.book(book.id))
+            } label: {
+                Label("Details", systemImage: "info.circle")
+            }
+            .buttonStyle(AttenSecondaryButtonStyle())
+
+            Spacer(minLength: 0)
+        }
+        .animation(AttenMotion.fade(reduceMotion: reduceMotion), value: isLoaded)
+    }
+}
+
+/// A shelf with nothing on it says what to do about it, rather than showing an
+/// empty hero-shaped hole where a book is supposed to be.
+private struct FirstBookInvitation: View {
+    let add: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+            Text("NOTHING ON THE SHELF YET")
+                .font(AttenTypography.metadata.weight(.semibold))
+                .tracking(2.0)
+                .foregroundStyle(AttenColor.accent)
+            Text("Add your first book")
+                .font(AttenTypography.pageTitle)
+                .foregroundStyle(AttenColor.textPrimary)
+            Text("A PDF, an EPUB, a Kindle book, a paper, a report. Atten reads it into sections, and narrates them in a voice you pick — all on this machine.")
+                .font(AttenTypography.body)
+                .foregroundStyle(AttenColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Add a Book", systemImage: "plus", action: add)
+                .buttonStyle(AttenPrimaryButtonStyle())
+                .fixedSize()
+                .padding(.top, AttenSpacing.xxs)
+        }
+        .frame(maxWidth: 520, alignment: .leading)
+        .padding(AttenSpacing.lg)
+        .attenElevated(.raised, fill: AttenColor.surface)
+    }
+}
+
+// MARK: - The shelf, in one row
+
+/// Covers, in the order they were last opened, and somewhere to add another.
+///
+/// The wireframe's lower band is the shelf seen edge-on: enough of it to
+/// recognise a book by its jacket, and a way through to the rest. It is a row
+/// rather than a grid because Home is about resuming, and the grid already
+/// exists one click away.
+private struct LibraryRow: View {
+    @Bindable var model: AppModel
+
+    private var shelf: BookshelfModel { model.bookshelf }
+
+    /// Recently opened first, then the rest by import date, so the row starts
+    /// with the books in play and still reaches everything. Capped, because a
+    /// shelf of four hundred books is a scroll view nobody uses horizontally.
+    private var books: [BookRecord] {
+        let recent = shelf.recentlyOpened
+        let seen = Set(recent.map(\.id))
+        return Array((recent + shelf.books.filter { !seen.contains($0.id) }).prefix(18))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Your library")
+                    .font(AttenTypography.sectionTitle)
+                    .foregroundStyle(AttenColor.textPrimary)
+                Spacer()
+                if !shelf.books.isEmpty {
+                    Button("See all") {
+                        model.libraryQuery = ""
+                        model.section = .library
+                    }
+                    .buttonStyle(.plain)
+                    .font(AttenTypography.control)
+                    .foregroundStyle(AttenColor.accent)
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: AttenSpacing.md) {
+                    ForEach(books) { book in
+                        ShelfTile(
+                            book: book,
+                            cover: shelf.covers.cover(for: book.id),
+                            narrated: shelf.narratedCount(of: book)
+                        ) {
+                            model.section = .library
+                            model.openInLibrary(.book(book.id))
+                        }
+                        .task(id: book.id) { await shelf.covers.load(book) }
+                    }
+                    AddBookTile(isImporting: shelf.isImporting) {
+                        model.openBookImportPanel()
+                    }
+                }
+                // A scroll view clips its contents to its bounds, and the
+                // jackets' shadows live outside theirs. Without the room they
+                // were sliced off square along the bottom of the row.
+                .padding(.vertical, AttenSpacing.xs)
+                .padding(.horizontal, 2)
+            }
         }
     }
 }
 
-private struct ContinueReadingCard: View {
+private struct ShelfTile: View {
     let book: BookRecord
     let cover: NSImage?
+    let narrated: Int
     let open: () -> Void
+
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+                BookJacket(book: book, cover: cover, height: 132)
+                    .offset(y: isHovering ? -3 : 0)
+                    .animation(
+                        reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+                        value: isHovering
+                    )
+                Text(book.title)
+                    .font(AttenTypography.metadata.weight(.medium))
+                    .foregroundStyle(AttenColor.textPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(width: 132 * AttenMetrics.coverAspectRatio, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityLabel(book.title)
+        .accessibilityValue(narrated > 0
+            ? "\(narrated) of \(book.chapters.count) narrated"
+            : "not narrated")
+        .accessibilityHint("Open this book")
+    }
+}
+
+/// The wireframe's Add Book tile: the same size and shape as a book, at the
+/// end of the row where the next one would go.
+private struct AddBookTile: View {
+    let isImporting: Bool
+    let add: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: AttenSpacing.md) {
-                jacket
-
-                VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-                    Text("CONTINUE READING")
-                        .font(AttenTypography.metadata.weight(.semibold))
-                        .tracking(2.0)
-                        .foregroundStyle(AttenColor.accent)
-                    Text(book.title)
-                        .font(AttenTypography.sectionTitle)
-                        .foregroundStyle(AttenColor.textPrimary)
-                        .lineLimit(2)
-                    if let author = book.author, !author.isEmpty {
-                        Text(author)
-                            .font(AttenTypography.metadata)
-                            .foregroundStyle(AttenColor.textSecondary)
-                            .lineLimit(1)
-                    }
+        Button(action: add) {
+            VStack(spacing: AttenSpacing.xs) {
+                if isImporting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 20, weight: .light))
                 }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AttenColor.textSecondary)
+                Text(isImporting ? "Reading…" : "Add book")
+                    .font(AttenTypography.metadata)
             }
-            .padding(AttenSpacing.md)
-            .attenElevated(
-                isHovering ? .floating : .raised,
-                fill: isHovering ? AttenColor.surfaceElevated : AttenColor.surface
+            .foregroundStyle(isHovering ? AttenColor.accent : AttenColor.textSecondary)
+            .frame(
+                width: 132 * AttenMetrics.coverAspectRatio,
+                height: 132
             )
+            .background {
+                RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
+                    .fill(AttenColor.surfaceMuted.opacity(isHovering ? 0.9 : 0.5))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
+                    .strokeBorder(
+                        isHovering ? AttenColor.accent : AttenColor.separator,
+                        style: StrokeStyle(lineWidth: 1, dash: [5, 4])
+                    )
+            }
             .contentShape(Rectangle())
-            // Without this the focus ring hugs the label's intrinsic width and
-            // stops short of the card it is supposed to be outlining.
-            .contentShape(.focusEffect, RoundedRectangle(cornerRadius: AttenRadius.card))
         }
         .buttonStyle(.plain)
+        .disabled(isImporting)
         .onHover { isHovering = $0 }
-        .accessibilityLabel("Continue reading \(book.title)")
+        .accessibilityLabel("Add a book")
     }
+}
 
-    /// The same 2:3 board the shelf draws, at the size a row wants. A book
-    /// with no artwork gets its format's glyph rather than a blank rectangle.
-    private var jacket: some View {
+// MARK: - Pieces
+
+/// The 2:3 board a book is recognised by, at whatever size the caller wants.
+/// A book with no artwork gets its format's glyph rather than a blank
+/// rectangle, which is what an unjacketed book looks like on a real shelf.
+struct BookJacket: View {
+    let book: BookRecord
+    let cover: NSImage?
+    let height: CGFloat
+
+    var body: some View {
         ZStack {
             if let cover {
                 Image(nsImage: cover)
@@ -151,11 +440,11 @@ private struct ContinueReadingCard: View {
             } else {
                 AttenColor.surfaceMuted
                 Image(systemName: book.format.icon)
-                    .font(.system(size: 20, weight: .light))
+                    .font(.system(size: height / 5, weight: .light))
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
-        .frame(width: 96 * AttenMetrics.coverAspectRatio, height: 96)
+        .frame(width: height * AttenMetrics.coverAspectRatio, height: height)
         .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
@@ -166,42 +455,16 @@ private struct ContinueReadingCard: View {
     }
 }
 
-private struct HomeRouteCard: View {
-    let title: String
-    let detail: String
-    let systemImage: String
-    let open: () -> Void
+/// Lets one button pick between two styles without the two branches of an
+/// `if` each rebuilding the button and losing its press.
+struct AnyButtonStyle: ButtonStyle {
+    private let make: (Configuration) -> AnyView
 
-    @State private var isHovering = false
+    init<S: ButtonStyle>(_ style: S) {
+        make = { AnyView(style.makeBody(configuration: $0)) }
+    }
 
-    var body: some View {
-        Button(action: open) {
-            VStack(alignment: .leading, spacing: AttenSpacing.xs) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(AttenColor.textSecondary)
-                Text(title)
-                    .font(AttenTypography.sectionTitle)
-                    .foregroundStyle(AttenColor.textPrimary)
-                Text(detail)
-                    .font(AttenTypography.metadata)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(AttenSpacing.md)
-            .attenElevated(
-                isHovering ? .floating : .raised,
-                fill: isHovering ? AttenColor.surfaceElevated : AttenColor.surface
-            )
-            .contentShape(Rectangle())
-            // Without this the focus ring hugs the label's intrinsic width and
-            // stops short of the card it is supposed to be outlining.
-            .contentShape(.focusEffect, RoundedRectangle(cornerRadius: AttenRadius.card))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .accessibilityHint(detail)
+    func makeBody(configuration: Configuration) -> some View {
+        make(configuration)
     }
 }
