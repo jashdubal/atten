@@ -104,9 +104,6 @@ final class AppModel {
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }
-        // The interface reads its colours from the store, so the saved theme
-        // has to be in place before the first view body runs.
-        ThemeStore.shared.theme = loadedSettings.theme
     }
 
     var selectedVoice: Voice {
@@ -722,20 +719,12 @@ final class AppModel {
         settings.selectedVoiceID = selectedVoiceID
         settings.defaultSpeed = speed
         settings.defaultFormat = format
-        ThemeStore.shared.theme = settings.theme
         saveSettings()
     }
 
     func selectAppearance(_ appearance: AppearancePreference) {
         guard settings.appearance != appearance else { return }
         settings.appearance = appearance
-        saveSettings()
-    }
-
-    func selectTheme(_ theme: AttenTheme) {
-        guard settings.theme != theme else { return }
-        settings.theme = theme
-        ThemeStore.shared.theme = theme
         saveSettings()
     }
 

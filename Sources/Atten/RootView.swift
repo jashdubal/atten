@@ -218,11 +218,10 @@ struct RootView: View {
         .background(AttenColor.sidebar)
     }
 
-    /// Both halves of how Atten looks, in one menu and in the order they are
-    /// decided: light or dark first, then which palette. Every theme has both
-    /// variants, so the two choices combine rather than overriding each other.
-    /// Here rather than only in Settings because these are choices people make
-    /// by trying every option in turn.
+    /// How Atten looks, which is now one decision rather than two: there is a
+    /// single palette, and this picks which side of it the window is drawn in.
+    /// Here rather than only in Settings because it is a choice people make by
+    /// trying it.
     private var appearanceMenu: some View {
         Menu {
             Picker("Appearance", selection: appearanceSelection) {
@@ -232,40 +231,26 @@ struct RootView: View {
                 }
             }
             .pickerStyle(.inline)
-
-            Picker("Theme", selection: themeSelection) {
-                ForEach(AttenTheme.allCases) { theme in
-                    Label(theme.displayName, systemImage: theme.icon).tag(theme)
-                }
-            }
-            .pickerStyle(.inline)
         } label: {
-            Image(systemName: "paintpalette")
+            Image(systemName: model.settings.appearance.icon)
                 .font(.system(size: 12, weight: .medium))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Appearance: \(appearanceSummary)")
-        .accessibilityLabel("Appearance and theme")
+        .accessibilityLabel("Appearance")
         .accessibilityValue(appearanceSummary)
     }
 
     private var appearanceSummary: String {
-        "\(model.settings.theme.displayName), \(model.settings.appearance.displayName.lowercased())"
+        model.settings.appearance.displayName
     }
 
     private var appearanceSelection: Binding<AppearancePreference> {
         Binding(
             get: { model.settings.appearance },
             set: { model.selectAppearance($0) }
-        )
-    }
-
-    private var themeSelection: Binding<AttenTheme> {
-        Binding(
-            get: { model.settings.theme },
-            set: { model.selectTheme($0) }
         )
     }
 

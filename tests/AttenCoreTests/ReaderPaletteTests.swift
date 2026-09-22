@@ -3,149 +3,125 @@ import XCTest
 @testable import Atten
 @testable import AttenCore
 
-/// The page follows the theme, and the themes have to actually differ.
+/// The page, in each of the two appearances it is printed in.
 final class ReaderPaletteTests: XCTestCase {
-    /// The complaint: every page looked the same, because warmth had been
-    /// applied to all of them at once. A theme's page has to be that theme's.
-    func testNoTwoThemesReadTheSame() {
-        for dark in [false, true] {
-            let pages = AttenTheme.allCases.map { ReaderPagePalette.of($0, dark: dark) }
-            for (index, page) in pages.enumerated() {
-                for other in pages[pages.index(after: index)...] {
-                    XCTAssertNotEqual(page, other, "two themes read identically in \(dark ? "dark" : "light")")
-                }
-            }
-        }
-    }
+    /// Warm ink on a cool near-black ground is the reading comfort the old
+    /// Quiet theme was kept for, and the one part of it the new palette keeps
+    /// verbatim. Warmth belongs in the ink; warming the ground as well is what
+    /// made every old theme look alike.
+    func testTheDarkPageIsWarmInkOnACoolGround() {
+        let page = ReaderPagePalette.of(dark: true)
 
-    /// Quiet is the one the reader named: warm text on a neutral black ground,
-    /// not the warm-on-warm every page had become. Warmth belongs in the ink.
-    func testQuietIsWarmInkOnNeutralBlack() {
-        let page = ReaderPagePalette.of(.quiet, dark: true)
-
-        let (red, green, blue) = channels(page.background)
-        XCTAssertEqual(red, green, "Quiet's ground is tinted, and it must be neutral")
-        XCTAssertEqual(green, blue, "Quiet's ground is tinted, and it must be neutral")
-        XCTAssertLessThanOrEqual(luminance(page.background), luminance(0x0A0A0A), "Quiet's ground is grey, not black")
+        let ground = channels(page.background)
+        XCTAssertGreaterThan(ground.blue, ground.red, "the dark page's ground has lost its cool cast")
+        XCTAssertLessThanOrEqual(
+            luminance(page.background), luminance(0x0A0A0A),
+            "the dark page is no longer near-black"
+        )
 
         let ink = channels(page.ink)
-        XCTAssertGreaterThan(ink.red, ink.blue, "Quiet's ink is not warm")
+        XCTAssertGreaterThan(ink.red, ink.blue, "the dark page's ink is not warm")
         XCTAssertGreaterThanOrEqual(ink.green, ink.blue)
     }
 
-    /// Warmth is a property of the ink. A theme whose ink is warm may have a
-    /// neutral or a warm ground, but a theme with warm ground and cold ink
-    /// reads as a screen showing a picture of paper.
-    func testNoThemeSetsWarmPaperUnderColdInk() {
-        for theme in AttenTheme.allCases {
-            for dark in [false, true] {
-                let page = ReaderPagePalette.of(theme, dark: dark)
-                let ground = channels(page.background)
-                let ink = channels(page.ink)
-                guard ground.red > ground.blue else { continue }
-                XCTAssertGreaterThanOrEqual(
-                    ink.red, ink.blue,
-                    "\(theme.rawValue) \(dark ? "dark" : "light") puts cold ink on warm ground"
-                )
-            }
+    /// A page with a warm ground and cold ink reads as a screen showing a
+    /// picture of paper rather than as paper.
+    func testNoPageSetsWarmPaperUnderColdInk() {
+        for dark in [false, true] {
+            let page = ReaderPagePalette.of(dark: dark)
+            let ground = channels(page.background)
+            let ink = channels(page.ink)
+            guard ground.red > ground.blue else { continue }
+            XCTAssertGreaterThanOrEqual(
+                ink.red, ink.blue,
+                "\(dark ? "dark" : "light") puts cold ink on warm ground"
+            )
         }
     }
 
     /// Body text clears AAA on its own page; the folio and the chapter line
     /// clear AA; and a search match never hides the word it found.
     func testEveryPageIsReadable() {
-        for theme in AttenTheme.allCases {
-            for dark in [false, true] {
-                let page = ReaderPagePalette.of(theme, dark: dark)
-                let where_ = "\(theme.rawValue) \(dark ? "dark" : "light")"
-                XCTAssertGreaterThanOrEqual(contrast(page.ink, page.background), 7.0, "\(where_): body text is under AAA")
-                XCTAssertGreaterThanOrEqual(contrast(page.inkMuted, page.background), 4.5, "\(where_): the folio is under AA")
-                XCTAssertGreaterThanOrEqual(contrast(page.accent, page.background), 4.5, "\(where_): the chapter line is under AA")
-                XCTAssertGreaterThanOrEqual(contrast(page.ink, page.highlight), 4.5, "\(where_): a search match hides its word")
-            }
+        for dark in [false, true] {
+            let page = ReaderPagePalette.of(dark: dark)
+            let where_ = dark ? "dark" : "light"
+            XCTAssertGreaterThanOrEqual(contrast(page.ink, page.background), 7.0, "\(where_): body text is under AAA")
+            XCTAssertGreaterThanOrEqual(contrast(page.inkMuted, page.background), 4.5, "\(where_): the folio is under AA")
+            XCTAssertGreaterThanOrEqual(contrast(page.accent, page.background), 4.5, "\(where_): the chapter line is under AA")
+            XCTAssertGreaterThanOrEqual(contrast(page.ink, page.highlight), 4.5, "\(where_): a search match hides its word")
         }
     }
 
-    /// A dark page has to be the darker of the pair, or the theme's two
-    /// appearances are the wrong way round.
+    /// A dark page has to be the darker of the pair, or the two appearances
+    /// are the wrong way round.
     func testADarkPageIsTheDarkerOne() {
-        for theme in AttenTheme.allCases {
-            XCTAssertGreaterThan(
-                luminance(ReaderPagePalette.of(theme, dark: false).background),
-                luminance(ReaderPagePalette.of(theme, dark: true).background),
-                "\(theme.rawValue) has a dark page lighter than its light one"
-            )
-        }
+        XCTAssertGreaterThan(
+            luminance(ReaderPagePalette.of(dark: false).background),
+            luminance(ReaderPagePalette.of(dark: true).background),
+            "the dark page is lighter than the light one"
+        )
     }
 
     // MARK: - Dimmed ink
 
-    /// Full brightness is the theme's own page, untouched.
+    /// Full brightness is the page itself, untouched.
     func testFullBrightnessChangesNothing() {
-        for theme in AttenTheme.allCases {
-            for dark in [false, true] {
-                let page = ReaderPagePalette.of(theme, dark: dark)
-                XCTAssertEqual(page.dimmingInk(to: 1.0), page)
-            }
+        for dark in [false, true] {
+            let page = ReaderPagePalette.of(dark: dark)
+            XCTAssertEqual(page.dimmingInk(to: 1.0), page)
         }
     }
 
     /// The point of the control: less contrast between the words and the page.
     func testDimmingQuietensTheInkAndLeavesThePageAlone() {
-        for theme in AttenTheme.allCases {
-            for dark in [false, true] {
-                let page = ReaderPagePalette.of(theme, dark: dark)
-                let dim = page.dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
-                let where_ = "\(theme.rawValue) \(dark ? "dark" : "light")"
-                XCTAssertLessThan(
-                    contrast(dim.ink, dim.background),
-                    contrast(page.ink, page.background),
-                    "\(where_): dimming did not quieten the ink"
-                )
-                XCTAssertEqual(dim.background, page.background, "\(where_): dimming moved the page")
-                XCTAssertEqual(dim.highlight, page.highlight, "\(where_): dimming moved a search match")
-                XCTAssertEqual(dim.accent, page.accent, "\(where_): dimming moved the accent")
-            }
+        for dark in [false, true] {
+            let page = ReaderPagePalette.of(dark: dark)
+            let dim = page.dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
+            let where_ = dark ? "dark" : "light"
+            XCTAssertLessThan(
+                contrast(dim.ink, dim.background),
+                contrast(page.ink, page.background),
+                "\(where_): dimming did not quieten the ink"
+            )
+            XCTAssertEqual(dim.background, page.background, "\(where_): dimming moved the page")
+            XCTAssertEqual(dim.highlight, page.highlight, "\(where_): dimming moved a search match")
+            XCTAssertEqual(dim.accent, page.accent, "\(where_): dimming moved the accent")
         }
     }
 
     /// The dimmest setting goes under AA on purpose — that is what a reader
     /// asking for dimmer text at night is asking for. What it must not do is
-    /// let the words vanish into the page, so every theme is held above 2:1
-    /// at the bottom of the range: soft, not gone.
+    /// let the words vanish into the page, so it is held above 2:1 at the
+    /// bottom of the range: soft, not gone.
     func testTheDimmestPageStillHasWordsOnIt() {
-        for theme in AttenTheme.allCases {
-            for dark in [false, true] {
-                let dim = ReaderPagePalette.of(theme, dark: dark)
-                    .dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
-                XCTAssertGreaterThanOrEqual(
-                    contrast(dim.ink, dim.background), 2.0,
-                    "\(theme.rawValue) \(dark ? "dark" : "light"): the dimmest body text is lost in the page"
-                )
-            }
+        for dark in [false, true] {
+            let dim = ReaderPagePalette.of(dark: dark)
+                .dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
+            XCTAssertGreaterThanOrEqual(
+                contrast(dim.ink, dim.background), 2.0,
+                "\(dark ? "dark" : "light"): the dimmest body text is lost in the page"
+            )
         }
     }
 
     /// The range has to be worth having: the dimmest page is a long way from
     /// the brightest, or the slider is a control that does nothing.
     func testTheRangeIsWorthHaving() {
-        for theme in AttenTheme.allCases {
-            for dark in [false, true] {
-                let page = ReaderPagePalette.of(theme, dark: dark)
-                let dim = page.dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
-                XCTAssertLessThan(
-                    contrast(dim.ink, dim.background),
-                    contrast(page.ink, page.background) / 1.5,
-                    "\(theme.rawValue) \(dark ? "dark" : "light"): the dimmest setting is barely dimmer"
-                )
-            }
+        for dark in [false, true] {
+            let page = ReaderPagePalette.of(dark: dark)
+            let dim = page.dimmingInk(to: ReaderPagePalette.inkBrightnessRange.lowerBound)
+            XCTAssertLessThan(
+                contrast(dim.ink, dim.background),
+                contrast(page.ink, page.background) / 1.5,
+                "\(dark ? "dark" : "light"): the dimmest setting is barely dimmer"
+            )
         }
     }
 
     /// Asking for more than the range allows is held at its ends rather than
     /// taken literally — a level arriving from stored settings is not trusted.
     func testBrightnessIsHeldInsideItsRange() {
-        let page = ReaderPagePalette.of(.quiet, dark: true)
+        let page = ReaderPagePalette.of(dark: true)
         let range = ReaderPagePalette.inkBrightnessRange
         XCTAssertEqual(page.dimmingInk(to: 0), page.dimmingInk(to: range.lowerBound))
         XCTAssertEqual(page.dimmingInk(to: 5), page)

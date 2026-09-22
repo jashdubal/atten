@@ -1,10 +1,12 @@
 import AVFoundation
 import SwiftUI
 
-/// The semantic colours every view draws with. Each one resolves through the
-/// current theme, so reading one inside a view body also subscribes that view
-/// to theme changes — picking a theme repaints the app without any view
-/// knowing that themes exist.
+/// The semantic colours every view draws with.
+///
+/// Each role carries a light and a dark value, and resolves against whichever
+/// appearance the window is drawn in. There is nothing to observe: appearance
+/// is handled underneath by AppKit's dynamic colours, so a view that names a
+/// role gets the right side of the pair for free.
 enum AttenColor {
     static var appBackground: Color { palette.appBackground.color }
     static var sidebar: Color { palette.sidebar.color }
@@ -23,6 +25,10 @@ enum AttenColor {
     static var destructive: Color { palette.destructive.color }
     static var focus: Color { palette.accentHover.color }
     static var onAccent: Color { palette.onAccent.color }
+    /// The filled part of any progress line — import, narration, download,
+    /// playback — and the groove it runs in.
+    static var progress: Color { palette.accent.color }
+    static var progressTrack: Color { palette.surfaceMuted.color }
 
     /// Long-form text in the chrome around the page — the snippets under a
     /// search result. The page itself is printed in the theme's reader
@@ -38,7 +44,7 @@ enum AttenColor {
     static var nsTextPrimary: NSColor { palette.textPrimary.nsColor }
     static var nsAccent: NSColor { palette.accent.nsColor }
 
-    static var palette: AttenPalette { ThemeStore.shared.palette }
+    static var palette: AttenPalette { .atten }
 }
 
 extension Color {
@@ -79,26 +85,110 @@ enum AttenSpacing {
     static let lg: CGFloat = 24
     static let xl: CGFloat = 32
     static let xxl: CGFloat = 40
+    /// The gutter a page of content keeps from the window edge when there is
+    /// room for it. The wireframe's calm comes mostly from this number.
+    static let page: CGFloat = 56
 }
 
 enum AttenRadius {
-    static let small: CGFloat = 4
-    static let control: CGFloat = 4
-    static let card: CGFloat = 6
+    static let small: CGFloat = 6
+    static let control: CGFloat = 8
+    static let card: CGFloat = 12
+    /// Book and project artwork. Softer than a control so a grid of covers
+    /// reads as objects rather than as buttons.
+    static let cover: CGFloat = 8
+    /// The compact player in the top chrome and its expanded panel.
+    static let player: CGFloat = 14
+    /// Fully rounded — segmented filters, chapter pills, the transport ring.
+    static let pill: CGFloat = 999
 }
 
+/// How long things take, and what they are allowed to do while they take it.
+///
+/// Every duration here is short enough to read as a response to input rather
+/// than as an effect. `accessibilityReduceMotion` is honoured at the call site
+/// through ``AttenMotion/animation(_:reduceMotion:)``, which is the only way a
+/// screen should be reaching for these.
 enum AttenMotion {
     static let fast = 0.14
     static let standard = 0.18
+    /// Player expand/collapse and panel disclosure — far enough to need an
+    /// arc, close enough that nobody waits for it.
+    static let panel = 0.24
+    /// Section changes and Zen enter/exit.
+    static let transition = 0.28
+
+    /// The animation for a state change, or `nil` when the reader has asked
+    /// the system for less motion. Returning `nil` makes `withAnimation` and
+    /// `.animation(_:value:)` apply the change instantly while keeping the
+    /// state cue itself, which is what Reduce Motion asks for.
+    static func animation(_ duration: Double, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeOut(duration: duration)
+    }
+
+    /// A crossfade for the cases where something has to replace something else
+    /// and a slide would be motion for its own sake.
+    static func fade(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: fast)
+    }
 }
 
+/// What a control looks like under the pointer, under the finger, and when it
+/// is the one selected.
+///
+/// Held as tokens rather than as literals in each button so that hover means
+/// one thing across the sidebar, a cover card and the transport.
+enum AttenState {
+    /// Lift applied to a surface under the pointer.
+    static let hoverFill = 0.08
+    /// …and while it is being pressed, where the control darkens instead.
+    static let pressedFill = 0.16
+    /// A pressed control shrinks by this much. Skipped under Reduce Motion.
+    static let pressedScale = 0.985
+    /// Everything disabled fades to here rather than greying its own colours.
+    static let disabledOpacity = 0.42
+    /// The ring drawn around whatever has keyboard focus.
+    static let focusRingWidth: CGFloat = 2.5
+}
+
+/// Sizes the player and the cover grid are built from, so the compact player
+/// in the top chrome and a cover on Home agree without either owning the
+/// other's file.
+enum AttenMetrics {
+    /// Height of the compact player's row in the top chrome.
+    static let compactPlayerHeight: CGFloat = 52
+    /// The artwork thumbnail inside it.
+    static let compactPlayerArtwork: CGFloat = 36
+    /// The expanded player panel's width when it opens as a popover.
+    static let expandedPlayerWidth: CGFloat = 380
+    /// A cover in a shelf grid, at its smallest. Grids size themselves in
+    /// multiples of this with `.adaptive`.
+    static let coverGridMinimum: CGFloat = 132
+    /// Books are taller than they are wide; this is the ratio covers are drawn
+    /// at when the artwork itself is missing or the wrong shape.
+    static let coverAspectRatio: CGFloat = 2.0 / 3.0
+}
+
+/// Atten's type.
+///
+/// The app used to be set entirely in monospace, which read as a terminal —
+/// the one thing a long-form reading app should not look like. UI text is the
+/// system face now, at deliberate weights; monospace is kept for the two
+/// places it carries meaning, a timecode that must not jitter as it counts and
+/// a numeric readout beside a slider.
 enum AttenTypography {
-    static let pageTitle = Font.system(size: 24, weight: .semibold, design: .monospaced)
-    static let sectionTitle = Font.system(size: 14, weight: .semibold, design: .monospaced)
-    static let body = Font.system(size: 13, design: .monospaced)
-    static let control = Font.system(size: 13, weight: .medium, design: .monospaced)
-    static let metadata = Font.system(size: 11, design: .monospaced)
-    static let caption = Font.system(size: 11, design: .monospaced)
+    static let displayTitle = Font.system(size: 30, weight: .semibold)
+    static let pageTitle = Font.system(size: 22, weight: .semibold)
+    static let sectionTitle = Font.system(size: 15, weight: .semibold)
+    static let body = Font.system(size: 13)
+    static let control = Font.system(size: 13, weight: .medium)
+    static let metadata = Font.system(size: 11)
+    static let caption = Font.system(size: 11)
+    /// Elapsed and remaining time. Monospaced digits so the line does not
+    /// twitch once a second.
+    static let timecode = Font.system(size: 11, weight: .medium).monospacedDigit()
+    /// A number that sits next to the control that changes it — 1.1×, 120%.
+    static let readout = Font.system(size: 12, weight: .medium).monospacedDigit()
 }
 
 struct AttenBackdrop: View {
@@ -352,15 +442,16 @@ struct AttenLogo: View {
                             .stroke(AttenColor.accent, lineWidth: 1)
                     }
                 Image(systemName: "waveform")
-                    .font(.system(size: compact ? 12 : 15, weight: .semibold, design: .monospaced))
+                    .font(.system(size: compact ? 12 : 15, weight: .semibold))
                     .foregroundStyle(AttenColor.accent)
             }
             .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
             .accessibilityHidden(true)
 
             if !compact {
-                Text("ATTEN_")
-                    .font(.system(size: 18, weight: .semibold, design: .monospaced))
+                Text("ATTEN")
+                    .font(.system(size: 17, weight: .semibold))
+                    .tracking(3.5)
                     .foregroundStyle(AttenColor.textPrimary)
             }
         }
@@ -376,9 +467,9 @@ struct PageHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-            Text("> \(eyebrow.uppercased())")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .tracking(0.8)
+            Text(eyebrow.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(1.4)
                 .foregroundStyle(AttenColor.accent)
             Text(title)
                 .font(AttenTypography.pageTitle)

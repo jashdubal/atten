@@ -4,127 +4,143 @@ import XCTest
 @testable import Atten
 @testable import AttenCore
 
+/// Atten had seven named themes and now has one palette drawn light or dark.
+/// These cover the two things that has to leave behind: settings files written
+/// by the seven-theme versions, and a single palette that still has to be
+/// readable in both appearances.
 final class ThemeTests: XCTestCase {
-    func testThemeSurvivesASettingsRoundTrip() throws {
-        let settings = AppSettings(theme: .sepia, outputDirectory: "/tmp/atten")
+
+    // MARK: - Migrating off the seven themes
+
+    /// The migration, in full: a settings file naming any of the old themes
+    /// loads, the name is ignored, and nothing else in the file is lost.
+    func testLegacyThemeNamesLoadWithoutLosingOtherPreferences() throws {
+        for legacy in ["terminal", "paper", "quiet", "sepia", "slate", "vaporwave", "matrix"] {
+            let json = """
+            {
+                "theme": "\(legacy)",
+                "appearance": "dark",
+                "outputDirectory": "/tmp/atten",
+                "defaultFormat": "wav",
+                "defaultSpeed": 1.25,
+                "selectedVoiceID": "bf_emma",
+                "favoriteVoiceIDs": ["bf_emma"],
+                "useMPS": false,
+                "pendingDownloadModelIDs": [],
+                "checksForUpdates": false,
+                "playbackRate": 1.5,
+                "readerViewMode": "scroll",
+                "readerJustifiesText": false,
+                "readerTextBrightness": 0.7
+            }
+            """
+
+            let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+            XCTAssertEqual(settings.appearance, .dark, "\(legacy): appearance lost")
+            XCTAssertEqual(settings.defaultFormat, .wav, "\(legacy): format lost")
+            XCTAssertEqual(settings.defaultSpeed, 1.25, "\(legacy): speed lost")
+            XCTAssertEqual(settings.selectedVoiceID, "bf_emma", "\(legacy): voice lost")
+            XCTAssertEqual(settings.favoriteVoiceIDs, ["bf_emma"], "\(legacy): favourites lost")
+            XCTAssertFalse(settings.useMPS, "\(legacy): MPS lost")
+            XCTAssertFalse(settings.checksForUpdates, "\(legacy): update preference lost")
+            XCTAssertEqual(settings.playbackRate, 1.5, "\(legacy): playback rate lost")
+            XCTAssertEqual(settings.readerViewMode, .scroll, "\(legacy): reader mode lost")
+            XCTAssertFalse(settings.readerJustifiesText, "\(legacy): justification lost")
+            XCTAssertEqual(settings.readerTextBrightness, 0.7, accuracy: 0.0001, "\(legacy): brightness lost")
+        }
+    }
+
+    /// A theme name from some later Atten is no more fatal than one of the old
+    /// ones, for the same reason: nothing reads the key.
+    func testUnknownThemeNameIsHarmless() throws {
+        let json = """
+        { "theme": "holographic", "appearance": "light", "outputDirectory": "/tmp/atten" }
+        """
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(settings.appearance, .light)
+        XCTAssertEqual(settings.outputDirectory, "/tmp/atten")
+    }
+
+    /// Settings written before themes existed at all still open.
+    func testSettingsWrittenBeforeThemesExistedStillLoad() throws {
+        let json = #"{ "outputDirectory": "/tmp/atten" }"#
+
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(settings.outputDirectory, "/tmp/atten")
+        XCTAssertEqual(settings.appearance, .system)
+    }
+
+    /// The migration is one-way: once Atten saves, the dead key is gone rather
+    /// than being carried forward forever.
+    func testSavingDropsTheLegacyThemeKey() throws {
+        let json = #"{ "theme": "matrix", "appearance": "dark", "outputDirectory": "/tmp/atten" }"#
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        let rewritten = try JSONEncoder().encode(settings)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
+        )
+
+        XCTAssertNil(object["theme"], "the dead theme key was written back out")
+        XCTAssertEqual(object["appearance"] as? String, "dark")
+    }
+
+    func testSettingsSurviveARoundTrip() throws {
+        let settings = AppSettings(appearance: .dark, outputDirectory: "/tmp/atten")
 
         let decoded = try JSONDecoder().decode(
             AppSettings.self,
             from: try JSONEncoder().encode(settings)
         )
 
-        XCTAssertEqual(decoded.theme, .sepia)
         XCTAssertEqual(decoded, settings)
     }
 
-    /// A theme added by a later Atten must not cost this one the rest of its
-    /// preferences, the way an unknown appearance or format already does not.
-    func testUnknownThemeFallsBackWithoutLosingOtherPreferences() throws {
-        let json = """
-        {
-            "theme": "holographic",
-            "appearance": "dark",
-            "outputDirectory": "/tmp/atten",
-            "defaultFormat": "wav",
-            "defaultSpeed": 1.25,
-            "selectedVoiceID": "bf_emma",
-            "favoriteVoiceIDs": ["bf_emma"],
-            "useMPS": false,
-            "pendingDownloadModelIDs": [],
-            "checksForUpdates": false
-        }
-        """
+    // MARK: - One palette, two appearances
 
-        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
-
-        XCTAssertEqual(settings.theme, .terminal)
-        XCTAssertEqual(settings.appearance, .dark)
-        XCTAssertEqual(settings.defaultFormat, .wav)
-        XCTAssertEqual(settings.selectedVoiceID, "bf_emma")
-        XCTAssertFalse(settings.checksForUpdates)
-    }
-
-    func testSettingsWrittenBeforeThemesExistedOpenInTheOriginalTheme() throws {
-        let json = """
-        { "outputDirectory": "/tmp/atten" }
-        """
-
-        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
-
-        XCTAssertEqual(settings.theme, .terminal)
-    }
-
-    func testStoreSwapsPaletteWhenTheThemeChanges() {
-        let store = ThemeStore(theme: .terminal)
-        XCTAssertEqual(store.palette, AttenTheme.terminal.palette)
-
-        store.theme = .matrix
-
-        XCTAssertEqual(store.palette, AttenTheme.matrix.palette)
-        XCTAssertNotEqual(store.palette, AttenTheme.terminal.palette)
-    }
-
-    /// Appearance and theme are meant to combine, not override each other, so
-    /// every theme has to be a real pair rather than one palette reused in both
-    /// appearances — and the dark side has to actually be the darker one.
-    func testEveryThemeIsADistinctLightAndDarkPair() {
-        let surfaces: [KeyPath<AttenPalette, AttenThemeColor>] = [
-            \.appBackground, \.sidebar, \.surface, \.surfaceElevated,
+    /// Appearance is the only axis left, so every role has to be a real pair
+    /// rather than one colour reused — and the dark side has to be the darker.
+    func testEveryRoleIsADistinctLightAndDarkPair() {
+        let surfaces: [(String, KeyPath<AttenPalette, AttenThemeColor>)] = [
+            ("appBackground", \.appBackground),
+            ("sidebar", \.sidebar),
+            ("surface", \.surface),
+            ("surfaceElevated", \.surfaceElevated),
         ]
 
-        for theme in AttenTheme.allCases {
-            let palette = theme.palette
-            for surface in surfaces {
-                let color = palette[keyPath: surface]
-                XCTAssertNotEqual(
-                    color.light,
-                    color.dark,
-                    "\(theme.rawValue) uses one colour for both appearances"
-                )
-                XCTAssertGreaterThan(
-                    relativeLuminance(color.light),
-                    relativeLuminance(color.dark),
-                    "\(theme.rawValue) has a dark variant that is lighter than its light one"
-                )
-            }
+        for (name, surface) in surfaces {
+            let color = AttenPalette.atten[keyPath: surface]
+            XCTAssertNotEqual(color.light, color.dark, "\(name) uses one colour for both appearances")
+            XCTAssertGreaterThan(
+                relativeLuminance(color.light),
+                relativeLuminance(color.dark),
+                "\(name) has a dark variant lighter than its light one"
+            )
         }
     }
 
-    /// Views never mention `ThemeStore`; they read `AttenColor`. SwiftUI only
-    /// repaints them on a theme change if reading through that static accessor
-    /// registers as an observed access, so assert exactly that.
-    func testReadingASemanticColourObservesTheTheme() {
-        let original = ThemeStore.shared.theme
-        defer { ThemeStore.shared.theme = original }
-        ThemeStore.shared.theme = .terminal
-
-        let notified = expectation(description: "theme change reaches AttenColor readers")
-        withObservationTracking {
-            _ = AttenColor.accent
-        } onChange: {
-            notified.fulfill()
-        }
-
-        ThemeStore.shared.theme = .vaporwave
-
-        wait(for: [notified], timeout: 1)
+    /// The whole point of the foundation: a view that names a semantic role
+    /// gets the palette, with no store to go through.
+    func testSemanticColoursResolveFromTheOnePalette() {
+        XCTAssertEqual(AttenColor.palette, .atten)
     }
 
-    func testEveryThemeHasItsOwnPalette() {
-        let palettes = AttenTheme.allCases.map(\.palette)
-
-        for (index, palette) in palettes.enumerated() {
-            for other in palettes[palettes.index(after: index)...] {
-                XCTAssertNotEqual(palette, other, "Two themes resolve to the same palette")
-            }
-        }
+    /// Progress and focus are roles rather than call sites reaching for the
+    /// accent, so the screens built on this contract stay consistent.
+    func testProgressAndFocusHaveRolesOfTheirOwn() {
+        XCTAssertEqual(AttenColor.progress, AttenPalette.atten.accent.color)
+        XCTAssertEqual(AttenColor.progressTrack, AttenPalette.atten.surfaceMuted.color)
+        XCTAssertEqual(AttenColor.focus, AttenPalette.atten.accentHover.color)
     }
 
-    /// Every theme has to stay readable in both appearances. Text is held to
-    /// WCAG AAA (7:1) and secondary text to AA (4.5:1); accent and status
-    /// colours, which carry chrome rather than prose, are held to the 3:1 bar
-    /// WCAG sets for interface components.
-    func testEveryThemeIsReadableInBothAppearances() {
+    /// Text is held to WCAG AAA (7:1) and secondary text to AA (4.5:1); accent
+    /// and status colours, which carry chrome rather than prose, are held to
+    /// the 3:1 bar WCAG sets for interface components.
+    func testThePaletteIsReadableInBothAppearances() {
         let surfaces: [(String, KeyPath<AttenPalette, AttenThemeColor>)] = [
             ("appBackground", \.appBackground),
             ("sidebar", \.sidebar),
@@ -146,24 +162,32 @@ final class ThemeTests: XCTestCase {
             }
         }
 
-        for theme in AttenTheme.allCases {
-            let palette = theme.palette
-            for (description, foreground, background, minimum) in requirements {
-                for appearance in Appearance.allCases {
-                    let ratio = contrastRatio(
-                        appearance.value(palette[keyPath: foreground]),
-                        appearance.value(palette[keyPath: background])
-                    )
-                    XCTAssertGreaterThanOrEqual(
-                        ratio,
-                        minimum,
-                        """
-                        \(theme.rawValue) \(appearance.rawValue): \(description) \
-                        is \(String(format: "%.2f", ratio)):1, under \(minimum):1
-                        """
-                    )
-                }
+        let palette = AttenPalette.atten
+        for (description, foreground, background, minimum) in requirements {
+            for appearance in Appearance.allCases {
+                let ratio = contrastRatio(
+                    appearance.value(palette[keyPath: foreground]),
+                    appearance.value(palette[keyPath: background])
+                )
+                XCTAssertGreaterThanOrEqual(
+                    ratio,
+                    minimum,
+                    """
+                    \(appearance.rawValue): \(description) \
+                    is \(String(format: "%.2f", ratio)):1, under \(minimum):1
+                    """
+                )
             }
+        }
+    }
+
+    /// Dark is a cool near-black rather than the neutral grey it replaced —
+    /// that is the brief, and it is the one thing about the new palette that a
+    /// later well-meaning tidy could undo without noticing.
+    func testTheDarkAppearanceIsCoolRatherThanNeutral() {
+        for surface in [AttenPalette.atten.appBackground, AttenPalette.atten.sidebar] {
+            let (red, _, blue) = channels(surface.dark)
+            XCTAssertGreaterThan(blue, red, "the dark chrome has lost its cool cast")
         }
     }
 
@@ -188,6 +212,10 @@ final class ThemeTests: XCTestCase {
         }
     }
 
+    private func channels(_ hex: UInt) -> (red: UInt, green: UInt, blue: UInt) {
+        ((hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff)
+    }
+
     /// WCAG 2.1 relative luminance and contrast ratio.
     private func contrastRatio(_ first: UInt, _ second: UInt) -> Double {
         let (high, low) = {
@@ -209,10 +237,10 @@ final class ThemeTests: XCTestCase {
     }
 }
 
-/// A page built from a theme, for tests that need one.
+/// The page as it is printed in one appearance, for tests that need one.
 extension ReaderPagePalette {
-    static func of(_ theme: AttenTheme, dark: Bool = false) -> ReaderPagePalette {
-        let palette = theme.palette
+    static func of(dark: Bool = false) -> ReaderPagePalette {
+        let palette = AttenPalette.atten
         func value(_ color: AttenThemeColor) -> UInt { dark ? color.dark : color.light }
         return ReaderPagePalette(
             background: value(palette.readerBackground),
