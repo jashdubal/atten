@@ -4,6 +4,7 @@ import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
     case home
+    case nowPlaying
     case library
     case studio
     case playground
@@ -18,6 +19,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: "house"
+        case .nowPlaying: "waveform.circle"
         case .library: "books.vertical"
         case .studio: "waveform"
         case .playground: "flask"
@@ -54,7 +56,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
         var items: [SidebarItem] {
             switch self {
-            case .read: [.home, .library]
+            case .read: [.home, .nowPlaying, .library]
             case .create: [.studio, .playground]
             case .manage: [.voices, .models, .projects, .exports]
             }
@@ -308,6 +310,8 @@ struct RootView: View {
         switch model.section {
         case .home:
             HomeView(model: model)
+        case .nowPlaying:
+            NowPlayingView(model: model)
         case .studio:
             StudioView(model: model)
         case .playground:

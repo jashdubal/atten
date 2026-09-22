@@ -595,6 +595,7 @@ struct BookReaderView: View {
                     tracks: tracks,
                     startingAt: tracks.firstIndex { $0.url == url } ?? 0
                 )
+                model.openNowPlaying()
             } label: {
                 Label(
                     model.isPlaying && model.activeAudioURL == url ? "Playing" : "Listen",
@@ -618,22 +619,28 @@ struct BookReaderView: View {
     }
 
     /// Not a control. The chapter on screen is the one playing, and the
-    /// transport that acts on it is in the top chrome.
+    /// transport that acts on it is in the top chrome. It is also a compact
+    /// route into the full Now Playing screen, so a reader does not have to
+    /// aim for the small player in the window chrome.
     private var playingIndicator: some View {
-        HStack(spacing: AttenSpacing.xxs) {
-            Image(systemName: "waveform")
-                .font(.system(size: 11, weight: .semibold))
-            Text("Playing")
-                .font(AttenTypography.control)
+        Button {
+            model.openNowPlaying()
+        } label: {
+            HStack(spacing: AttenSpacing.xxs) {
+                Image(systemName: "waveform")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Playing")
+                    .font(AttenTypography.control)
+            }
+            .foregroundStyle(AttenColor.accent)
+            .padding(.horizontal, AttenSpacing.sm)
+            .frame(height: 30)
+            .background(AttenColor.accent.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
         }
-        .foregroundStyle(AttenColor.accent)
-        .padding(.horizontal, AttenSpacing.sm)
-        .frame(height: 30)
-        .background(AttenColor.accent.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-        .accessibilityElement(children: .ignore)
+        .buttonStyle(.plain)
         .accessibilityLabel("This chapter is playing")
-        .accessibilityHint("Pause or seek from the player in the top chrome")
+        .accessibilityHint("Open Now Playing")
     }
 
     // MARK: - Where the reader is

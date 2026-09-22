@@ -43,14 +43,20 @@ struct GlobalPlayer: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: AttenSpacing.xs) {
-                        Text(title)
-                            .font(AttenTypography.control)
-                            .foregroundStyle(AttenColor.textPrimary)
-                            .lineLimit(1)
-                            // A chapter's title is distinguished by both ends
-                            // of it — "CHAPTER 9: …Ongoing Success" — so the
-                            // middle is what goes.
-                            .truncationMode(.middle)
+                        Button { model.openNowPlaying() } label: {
+                            Text(title)
+                                .font(AttenTypography.control)
+                                .foregroundStyle(AttenColor.textPrimary)
+                                .lineLimit(1)
+                                // A chapter's title is distinguished by both ends
+                                // of it — "CHAPTER 9: …Ongoing Success" — so the
+                                // middle is what goes.
+                                .truncationMode(.middle)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Open Now Playing")
+                        .accessibilityLabel("Open Now Playing for \(title)")
                         Spacer(minLength: AttenSpacing.xxs)
                         Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
                             .font(AttenTypography.timecode)
@@ -199,14 +205,16 @@ struct ExpandedPlayerPanel: View {
     private var transport: some View {
         HStack(spacing: AttenSpacing.xs) {
             Spacer(minLength: 0)
-            TransportButton(
-                systemImage: "backward.end.fill",
-                size: 12,
-                help: "Previous chapter",
-                label: "Previous chapter",
-                isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
-                action: model.playPrevious
-            )
+            if model.queue.tracks.count > 1 {
+                TransportButton(
+                    systemImage: "backward.end.fill",
+                    size: 12,
+                    help: "Previous chapter",
+                    label: "Previous chapter",
+                    isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
+                    action: model.playPrevious
+                )
+            }
             TransportButton(
                 systemImage: "gobackward.10",
                 size: 16,
@@ -235,14 +243,16 @@ struct ExpandedPlayerPanel: View {
             ) {
                 model.skip(by: NowPlayingCenter.skipInterval)
             }
-            TransportButton(
-                systemImage: "forward.end.fill",
-                size: 12,
-                help: "Next chapter",
-                label: "Next chapter",
-                isEnabled: model.queue.hasNext,
-                action: model.playNext
-            )
+            if model.queue.tracks.count > 1 {
+                TransportButton(
+                    systemImage: "forward.end.fill",
+                    size: 12,
+                    help: "Next chapter",
+                    label: "Next chapter",
+                    isEnabled: model.queue.hasNext,
+                    action: model.playNext
+                )
+            }
             Spacer(minLength: 0)
         }
     }

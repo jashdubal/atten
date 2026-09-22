@@ -66,6 +66,30 @@ final class PlayerTests: XCTestCase {
         XCTAssertFalse(model.queue.hasPrevious)
     }
 
+    /// A Studio file carries its project record into the shared player, so
+    /// Now Playing does not fall back to a generated filename or pretend it is
+    /// a book chapter.
+    func testStudioAudioKeepsProjectMetadata() async throws {
+        let model = try makeModel()
+        let tracks = try await makeTracks(count: 1)
+        let url = tracks[0].url
+        let project = ProjectRecord(
+            title: "A studio take",
+            text: "A short script",
+            voiceID: "af_heart",
+            speed: 1,
+            format: .wav,
+            audioPath: url.path
+        )
+        model.projects = [project]
+
+        model.togglePlayback(url: url)
+
+        XCTAssertEqual(model.playerTitle, "A studio take")
+        XCTAssertEqual(model.playingProject?.id, project.id)
+        XCTAssertNil(model.playingBook)
+    }
+
     /// A book being listened to straight through does say where it is.
     func testABookSaysWhichChapterOfHowMany() async throws {
         let model = try makeModel()

@@ -208,9 +208,14 @@ private struct ContinueHero: View {
                 }
                 .buttonStyle(AttenPrimaryButtonStyle())
                 .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
+                Button("Now Playing", systemImage: "waveform") {
+                    model.openNowPlaying()
+                }
+                .buttonStyle(AttenSecondaryButtonStyle())
             } else if narratedCount > 0 {
                 Button {
                     model.play(tracks: book.narrationTracks)
+                    model.openNowPlaying()
                 } label: {
                     Label("Listen", systemImage: "play.fill")
                 }

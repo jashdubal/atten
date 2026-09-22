@@ -184,6 +184,7 @@ struct BookDetailView: View {
             HStack(spacing: AttenSpacing.sm) {
                 Button {
                     model.play(tracks: book.narrationTracks)
+                    model.openNowPlaying()
                 } label: {
                     Label("Play all", systemImage: "play.fill")
                 }

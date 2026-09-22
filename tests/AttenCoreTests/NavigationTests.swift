@@ -88,6 +88,18 @@ final class NavigationTests: XCTestCase {
         XCTAssertEqual(model.libraryPath, [.book(book)])
     }
 
+    func testNowPlayingIsAReachableRouteWithoutChangingTheLibraryPath() throws {
+        let model = try makeModel()
+        let book = UUID()
+        model.section = .library
+        model.openInLibrary(.reader(book))
+
+        model.openNowPlaying()
+
+        XCTAssertEqual(model.section, .nowPlaying)
+        XCTAssertEqual(model.libraryPath, [.reader(book)])
+    }
+
     private func makeModel() throws -> AppModel {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AttenNavTests-\(UUID().uuidString)")
