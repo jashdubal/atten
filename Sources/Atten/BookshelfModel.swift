@@ -2,6 +2,34 @@ import AttenCore
 import Foundation
 import Observation
 
+/// The views available in the Library shelf. These are intentionally derived
+/// from the records Atten already owns: an audiobook is a book with at least
+/// one narration on disk, and Recently Added is the import date, not a made-up
+/// folder or category.
+enum LibraryFilter: String, CaseIterable, Identifiable, Sendable {
+    case books
+    case audiobooks
+    case recentlyAdded
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .books: "Books"
+        case .audiobooks: "Audiobooks"
+        case .recentlyAdded: "Recently Added"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .books: "books.vertical"
+        case .audiobooks: "headphones"
+        case .recentlyAdded: "clock"
+        }
+    }
+}
+
 /// The Library: books Atten has imported, and the narration it generates from
 /// them one chapter at a time.
 ///
@@ -60,6 +88,38 @@ final class BookshelfModel {
 
     func narratedCount(of book: BookRecord) -> Int {
         narratedCounts[book.id] ?? 0
+    }
+
+    /// Applies the shelf filter and the Library search in one place so their
+    /// combinations remain truthful. In particular, Audiobooks is based on
+    /// narration files that still exist, rather than a book's file format.
+    func filteredBooks(for filter: LibraryFilter, query: String = "") -> [BookRecord] {
+        let candidates: [BookRecord]
+        switch filter {
+        case .books:
+            candidates = books
+        case .audiobooks:
+            candidates = books.filter { narratedCount(of: $0) > 0 }
+        case .recentlyAdded:
+            candidates = books.sorted { lhs, rhs in
+                if lhs.addedAt == rhs.addedAt { return lhs.id.uuidString < rhs.id.uuidString }
+                return lhs.addedAt > rhs.addedAt
+            }
+        }
+
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return candidates }
+        return candidates.filter { book in
+            let searchableText = ([
+                book.title,
+                book.author,
+                book.format.displayName,
+                book.format.rawValue,
+            ] + book.chapters.map(\.title))
+                .compactMap { $0 }
+                .joined(separator: " ")
+            return searchableText.localizedCaseInsensitiveContains(term)
+        }
     }
 
     func isFullyNarrated(_ book: BookRecord) -> Bool {
