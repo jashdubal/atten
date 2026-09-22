@@ -2,8 +2,10 @@ using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Windows.Media.Core;
 using Windows.Media.Playback;
+using Windows.UI.ViewManagement;
 
 namespace Atten.Windows;
 
@@ -16,6 +18,8 @@ public sealed partial class MainWindow : Window
     // where it would take the whole app down before anything is shown.
     private MediaPlayer? player;
     private readonly DispatcherTimer playbackTimer = new();
+    private readonly AccessibilitySettings accessibilitySettings = new();
+    private readonly UISettings uiSettings = new();
     private bool isUserSeeking;
 
     /// The player, made on first use. Everything the window listens to it for
@@ -41,6 +45,17 @@ public sealed partial class MainWindow : Window
         Root.DataContext = model;
 
         Title = "Atten";
+        Root.ActualThemeChanged += OnActualThemeChanged;
+        accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
+
+        // A minimum effective size keeps the two supported Studio panes
+        // usable when Windows is scaled to 150% or 200%. The app remains
+        // resizable above this floor and all long pages scroll vertically.
+        if (AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        {
+            presenter.PreferredMinimumWidth = 920;
+            presenter.PreferredMinimumHeight = 640;
+        }
 
         var iconPath = Path.Combine(AppContext.BaseDirectory, "AttenIcon.ico");
         if (File.Exists(iconPath))
@@ -48,22 +63,12 @@ public sealed partial class MainWindow : Window
             AppWindow.SetIcon(iconPath);
         }
 
-        if (Microsoft.UI.Windowing.AppWindowTitleBar.IsCustomizationSupported())
-        {
-            var titleBar = AppWindow.TitleBar;
-            titleBar.BackgroundColor = global::Windows.UI.Color.FromArgb(255, 15, 17, 23);
-            titleBar.ForegroundColor = global::Windows.UI.Color.FromArgb(255, 231, 238, 248);
-            titleBar.InactiveBackgroundColor = global::Windows.UI.Color.FromArgb(255, 12, 14, 18);
-            titleBar.InactiveForegroundColor = global::Windows.UI.Color.FromArgb(255, 120, 130, 145);
-            titleBar.ButtonBackgroundColor = global::Windows.UI.Color.FromArgb(0, 0, 0, 0);
-            titleBar.ButtonForegroundColor = global::Windows.UI.Color.FromArgb(255, 231, 238, 248);
-            titleBar.ButtonHoverBackgroundColor = global::Windows.UI.Color.FromArgb(255, 30, 36, 48);
-            titleBar.ButtonHoverForegroundColor = global::Windows.UI.Color.FromArgb(255, 255, 255, 255);
-            titleBar.ButtonPressedBackgroundColor = global::Windows.UI.Color.FromArgb(255, 45, 55, 75);
-            titleBar.ButtonPressedForegroundColor = global::Windows.UI.Color.FromArgb(255, 255, 255, 255);
-            titleBar.ButtonInactiveBackgroundColor = global::Windows.UI.Color.FromArgb(0, 0, 0, 0);
-            titleBar.ButtonInactiveForegroundColor = global::Windows.UI.Color.FromArgb(255, 120, 130, 145);
-        }
+        ApplyTitleBarAppearance();
+
+        // WinUI controls already follow the system's animation preference.
+        // The app-owned indeterminate indicator is the one continuous motion
+        // we control, so make it static when Reduce Motion is enabled.
+        GeneratingProgress.IsIndeterminate = uiSettings.AnimationsEnabled;
 
         playbackTimer.Interval = TimeSpan.FromMilliseconds(200);
         playbackTimer.Tick += OnPlaybackTimerTick;
@@ -105,6 +110,102 @@ public sealed partial class MainWindow : Window
         ProjectsPanel.Visibility = tag == "Projects" ? Visibility.Visible : Visibility.Collapsed;
         ExportsPanel.Visibility = tag == "Exports" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = tag == "Settings" ? Visibility.Visible : Visibility.Collapsed;
+        UpdateScreenHeader(tag);
+    }
+
+    private void UpdateScreenHeader(string tag)
+    {
+        (ScreenTitle.Text, ScreenSubtitle.Text) = tag switch
+        {
+            "Studio" => ("Studio", "Create speech locally"),
+            "Playground" => ("Playground", "Experiment with installed voices"),
+            "Voices" => ("Voices", "Browse supported local voices and languages"),
+            "Projects" => ("Projects", "Previously generated speech"),
+            "Exports" => ("Exports", "Find generated audio in the export folder"),
+            "Settings" => ("Settings & Models", "Local storage and speech engines"),
+            _ => ("Atten", "Offline text to speech")
+        };
+    }
+
+    private void OnActualThemeChanged(FrameworkElement sender, object args) => ApplyTitleBarAppearance();
+
+    private void OnHighContrastChanged(AccessibilitySettings sender, object args) => ApplyTitleBarAppearance();
+
+    private void ApplyTitleBarAppearance()
+    {
+        if (!Microsoft.UI.Windowing.AppWindowTitleBar.IsCustomizationSupported())
+        {
+            return;
+        }
+
+        var titleBar = AppWindow.TitleBar;
+        if (accessibilitySettings.HighContrast)
+        {
+            // System caption colours are part of a user's high-contrast
+            // contract. Returning control to Windows is safer than painting
+            // an app palette over those settings.
+            titleBar.BackgroundColor = null;
+            titleBar.ForegroundColor = null;
+            titleBar.InactiveBackgroundColor = null;
+            titleBar.InactiveForegroundColor = null;
+            titleBar.ButtonBackgroundColor = null;
+            titleBar.ButtonForegroundColor = null;
+            titleBar.ButtonHoverBackgroundColor = null;
+            titleBar.ButtonHoverForegroundColor = null;
+            titleBar.ButtonPressedBackgroundColor = null;
+            titleBar.ButtonPressedForegroundColor = null;
+            titleBar.ButtonInactiveBackgroundColor = null;
+            titleBar.ButtonInactiveForegroundColor = null;
+            return;
+        }
+
+        var dark = Root.ActualTheme == ElementTheme.Dark;
+        var background = dark
+            ? global::Windows.UI.Color.FromArgb(255, 6, 8, 12)
+            : global::Windows.UI.Color.FromArgb(255, 247, 248, 250);
+        var inactiveBackground = dark
+            ? global::Windows.UI.Color.FromArgb(255, 11, 15, 22)
+            : global::Windows.UI.Color.FromArgb(255, 237, 240, 245);
+        var foreground = dark
+            ? global::Windows.UI.Color.FromArgb(255, 231, 238, 248)
+            : global::Windows.UI.Color.FromArgb(255, 11, 18, 28);
+        var inactiveForeground = dark
+            ? global::Windows.UI.Color.FromArgb(255, 143, 162, 186)
+            : global::Windows.UI.Color.FromArgb(255, 85, 99, 122);
+        var hover = dark
+            ? global::Windows.UI.Color.FromArgb(255, 31, 39, 52)
+            : global::Windows.UI.Color.FromArgb(255, 208, 216, 227);
+
+        titleBar.BackgroundColor = background;
+        titleBar.ForegroundColor = foreground;
+        titleBar.InactiveBackgroundColor = inactiveBackground;
+        titleBar.InactiveForegroundColor = inactiveForeground;
+        titleBar.ButtonBackgroundColor = global::Windows.UI.Color.FromArgb(0, 0, 0, 0);
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonHoverBackgroundColor = hover;
+        titleBar.ButtonHoverForegroundColor = foreground;
+        titleBar.ButtonPressedBackgroundColor = hover;
+        titleBar.ButtonPressedForegroundColor = foreground;
+        titleBar.ButtonInactiveBackgroundColor = global::Windows.UI.Color.FromArgb(0, 0, 0, 0);
+        titleBar.ButtonInactiveForegroundColor = inactiveForeground;
+    }
+
+    private void OnGenerateKeyboardAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (GenerateButton.IsEnabled)
+        {
+            OnGenerateClicked(GenerateButton, new RoutedEventArgs());
+            args.Handled = true;
+        }
+    }
+
+    private void OnCancelKeyboardAccelerator(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (model.IsGenerating)
+        {
+            OnCancelClicked(sender, new RoutedEventArgs());
+            args.Handled = true;
+        }
     }
 
     private async void OnGenerateClicked(object sender, RoutedEventArgs args)
