@@ -47,6 +47,63 @@ final class NavigationTests: XCTestCase {
         XCTAssertFalse(model.isReaderFocused)
     }
 
+    func testRepeatedFocusEntryAndExitAlwaysRestoresReaderState() throws {
+        let model = try makeModel()
+        model.section = .library
+        let book = UUID()
+        model.openInLibrary(.reader(book))
+
+        for _ in 0..<3 {
+            model.setReaderFocus(true)
+            XCTAssertTrue(model.isReaderFocused)
+            model.setReaderFocus(false)
+            XCTAssertFalse(model.isReaderFocused)
+        }
+
+        // Focus is window chrome, not navigation. The reader route remains
+        // exactly where it was after every enter/exit cycle.
+        XCTAssertEqual(model.libraryPath, [.reader(book)])
+    }
+
+    func testSystemFullscreenExitRestoresFocusWithoutClosingTheBook() throws {
+        let model = try makeModel()
+        model.section = .library
+        let book = UUID()
+        model.openInLibrary(.reader(book))
+        model.setReaderFocus(true)
+
+        model.readerWindowDidExitFullScreen()
+
+        XCTAssertFalse(model.isReaderFocused)
+        XCTAssertEqual(model.libraryPath, [.reader(book)])
+    }
+
+    func testLeavingTheReaderSectionRestoresTheWindowBeforeShowingAnotherScreen() throws {
+        let model = try makeModel()
+        model.section = .library
+        let book = UUID()
+        model.openInLibrary(.reader(book))
+        model.setReaderFocus(true)
+
+        model.section = .studio
+
+        XCTAssertFalse(model.isReaderFocused)
+        XCTAssertEqual(model.section, .studio)
+        XCTAssertEqual(model.libraryPath, [.reader(book)])
+    }
+
+    func testOpeningNowPlayingFromFocusRestoresTheShell() throws {
+        let model = try makeModel()
+        model.section = .library
+        model.openInLibrary(.reader(UUID()))
+        model.setReaderFocus(true)
+
+        model.openNowPlaying()
+
+        XCTAssertFalse(model.isReaderFocused)
+        XCTAssertEqual(model.section, .nowPlaying)
+    }
+
     func testOpeningTheScreenAlreadyOpenDoesNotStackIt() throws {
         let model = try makeModel()
         model.section = .library
@@ -66,11 +123,13 @@ final class NavigationTests: XCTestCase {
         let book = UUID()
         model.openInLibrary(.book(book))
         model.openInLibrary(.reader(book))
+        model.setReaderFocus(true)
 
         model.returnToShelf()
 
         XCTAssertTrue(model.libraryPath.isEmpty)
         XCTAssertFalse(model.canGoBack)
+        XCTAssertFalse(model.isReaderFocused)
     }
 
     /// Only the Library stacks screens. Pressing back anywhere else must not

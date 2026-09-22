@@ -101,12 +101,14 @@ struct RootView: View {
         .background(WindowTitleHider())
         .toolbarBackground(AttenColor.appBackground, for: .windowToolbar)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                ToolbarIconButton(
-                    title: "New Studio draft (⌘N)",
-                    systemImage: "square.and.pencil"
-                ) {
-                    openNewDraft()
+            if !model.isReaderFocused {
+                ToolbarItem(placement: .primaryAction) {
+                    ToolbarIconButton(
+                        title: "New Studio draft (⌘N)",
+                        systemImage: "square.and.pencil"
+                    ) {
+                        openNewDraft()
+                    }
                 }
             }
         }
@@ -137,7 +139,7 @@ struct RootView: View {
             model.section = .playground
         }
         .onChange(of: model.isReaderFocused) { _, isFocused in
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
+            withAnimation(AttenMotion.animation(AttenMotion.transition, reduceMotion: reduceMotion)) {
                 columnVisibility = isFocused ? .detailOnly : .all
             }
         }
@@ -146,8 +148,12 @@ struct RootView: View {
         // this the sidebar stayed hidden with no way left to bring it back.
         .onReceive(
             NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)
-        ) { _ in
-            model.setReaderFocus(false)
+        ) { note in
+            // Full-screen notifications are process-wide. A sheet or another
+            // window leaving full screen must not alter the reader's state.
+            guard let window = note.object as? NSWindow,
+                  window == NSApp?.keyWindow || window == NSApp?.mainWindow else { return }
+            model.readerWindowDidExitFullScreen()
         }
         .mouseNavigationButtons(back: model.goBack)
         .alert("Atten could not finish starting", isPresented: startupAlert) {
@@ -541,7 +547,10 @@ private struct TopChrome: View {
     private var isPresent: Bool { title != nil || model.playerTitle != nil }
 
     var body: some View {
-        if isPresent {
+        // Zen removes the shell chrome along with its sidebar. Playback stays
+        // reachable from the reader controls, so hiding this region does not
+        // hide the user's audio state or strand the queue.
+        if isPresent && !model.isReaderFocused {
             HStack(alignment: .center, spacing: AttenSpacing.sm) {
                 VStack(alignment: .leading, spacing: 0) {
                     if let title {
