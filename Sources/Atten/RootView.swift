@@ -36,16 +36,27 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     /// while managing voices and files.
     enum Group: String, CaseIterable, Identifiable {
         case read
-        case make
+        case create
+        case manage
 
         var id: String { rawValue }
 
-        /// Groups are separated by space rather than by a heading; a label on
-        /// a five-item list is noise.
+        /// The places you go while reading need no heading — they are the top
+        /// of the list and there are two of them. The rest are shelves, and a
+        /// shelf is easier to skip past when it is named.
+        var title: String? {
+            switch self {
+            case .read: nil
+            case .create: "Create"
+            case .manage: "Manage"
+            }
+        }
+
         var items: [SidebarItem] {
             switch self {
             case .read: [.home, .library]
-            case .make: [.studio, .playground, .voices, .models, .projects, .exports]
+            case .create: [.studio, .playground]
+            case .manage: [.voices, .models, .projects, .exports]
             }
         }
     }
@@ -177,7 +188,15 @@ struct RootView: View {
 
             VStack(alignment: .leading, spacing: AttenSpacing.md) {
                 ForEach(SidebarItem.Group.allCases) { group in
-                    VStack(spacing: 1) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        if let title = group.title {
+                            Text(title.uppercased())
+                                .font(AttenTypography.caption.weight(.semibold))
+                                .tracking(1.1)
+                                .foregroundStyle(AttenColor.textSecondary)
+                                .padding(.horizontal, AttenSpacing.sm)
+                                .padding(.bottom, AttenSpacing.xxs)
+                        }
                         ForEach(group.items) { item in
                             SidebarNavigationRow(
                                 item: item,
@@ -401,10 +420,13 @@ private struct SidebarNavigationRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// Selection is carried by the accent ink, not by a filled pill. A list
+    /// where the current row is a block of colour reads as a set of buttons;
+    /// Apple Music tints the label and leaves the row alone, and a sidebar
+    /// that sits beside a page of prose all day should do the same. Only the
+    /// pointer gets a fill, and barely.
     private var background: Color {
-        if isSelected { return AttenColor.accent.opacity(0.12) }
-        if isHovering { return AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) }
-        return .clear
+        isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
     }
 
     /// Only focus draws an edge. Selection is carried by the fill and the
