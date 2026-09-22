@@ -46,6 +46,7 @@ struct ReaderSidePanel: View {
     let removeBookmark: (Bookmark) -> Void
     let onClose: (() -> Void)?
     @FocusState.Binding var isSearchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isSearchingBook: Bool {
         query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2
@@ -204,7 +205,11 @@ struct ReaderSidePanel: View {
                 // Following the reader is the whole point of a contents list;
                 // one that has to be scrolled to find your place is not one.
                 .onChange(of: chapterIndex) { _, index in
-                    withAnimation { proxy.scrollTo(index, anchor: .center) }
+                    withAnimation(
+                        AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion)
+                    ) {
+                        proxy.scrollTo(index, anchor: .center)
+                    }
                 }
             }
         case .bookmarks:

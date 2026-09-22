@@ -78,12 +78,26 @@ struct BookReaderView: View {
         .onExitCommand {
             if isToolsPresented {
                 closeTools()
-            } else {
+            } else if isFocusMode {
                 model.setReaderFocus(false)
+            } else {
+                // Escape remains a useful, explicit close action when the
+                // reader is already in its normal shell. In focus mode it
+                // only exits focus, so a single accidental press cannot close
+                // the book.
+                model.goBack()
             }
         }
         .task(id: book.id) { restore() }
         .onChange(of: query) { _, value in search(value) }
+        .onChange(of: isFocusMode) { _, focused in
+            guard focused else { return }
+            // Tools are a deliberate reading aid, not part of Zen. Closing
+            // them here also handles focus entered by a menu or command,
+            // rather than only the visible button.
+            closeTools()
+            isChromeHovered = false
+        }
         // Scrolling reports where it is through the position binding rather
         // than through the paged reader, so switching to pages afterwards
         // opens where the scrolling left off.
@@ -328,6 +342,13 @@ struct BookReaderView: View {
 
             narrationButton
 
+            if isFocusMode, model.playerTitle != nil {
+                // Root chrome folds away in Zen; the compact player remains
+                // discoverable here and inherits the reader's reveal-on-hover
+                // transport treatment.
+                GlobalPlayer(model: model)
+            }
+
             Spacer(minLength: 0)
 
             Text(readout)
@@ -364,9 +385,15 @@ struct BookReaderView: View {
                 .monospacedDigit()
                 .foregroundStyle(AttenColor.textSecondary)
                 .lineLimit(1)
-                .accessibilityLabel(spokenReadout)
+            .accessibilityLabel(spokenReadout)
             Spacer(minLength: AttenSpacing.xs)
             readerToolsButton
+            if isFocusMode, model.playerTitle != nil {
+                // Keep the same transport in both responsive layouts. It is
+                // faded with the rest of the Zen chrome until the pointer or
+                // keyboard reaches it, but never removed from accessibility.
+                GlobalPlayer(model: model)
+            }
             compactMoreMenu
         }
     }
@@ -490,6 +517,7 @@ struct BookReaderView: View {
     }
 
     private func toggleTools() {
+        if isFocusMode { model.setReaderFocus(false) }
         isToolsPresented.toggle()
         if !isToolsPresented { isSearchFocused = false }
     }
@@ -522,6 +550,12 @@ struct BookReaderView: View {
         ) {
             model.setReaderFocus(!isFocusMode)
         }
+        .accessibilityLabel(isFocusMode ? "Leave focus mode" : "Enter focus mode")
+        .accessibilityHint(
+            isFocusMode
+                ? "Restores the sidebar and reader tools"
+                : "Hides the sidebar and reader tools"
+        )
     }
 
     /// Keep shortcuts independent from the responsive toolbar. A shortcut
@@ -564,8 +598,7 @@ struct BookReaderView: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
         Button("Find in book") {
-            isToolsPresented = true
-            isSearchFocused = true
+            openSearch()
         }
         .keyboardShortcut("f", modifiers: .command)
         .hidden()
@@ -576,6 +609,15 @@ struct BookReaderView: View {
             .hidden()
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
+    }
+
+    private func openSearch() {
+        // Search needs the reader tools surface. Leaving Zen first keeps the
+        // sidebar/tools/chrome relationship coherent and makes the search
+        // field reachable to keyboard and assistive technology.
+        model.setReaderFocus(false)
+        isToolsPresented = true
+        isSearchFocused = true
     }
 
     private var playingChapterIndex: Int? {
@@ -1054,6 +1096,7 @@ struct BookReaderView: View {
             jumpRequest = ReaderJumpRequest(paragraph: paragraph)
             loadChapter(startingAt: paragraph)
         }
+        persistLocation()
     }
 
     /// Splitting a chapter into paragraphs is work, and doing it while the
@@ -1091,6 +1134,7 @@ struct BookReaderView: View {
     }
 
     private func toggleBookmark() {
+        persistLocation()
         model.bookshelf.toggleBookmark(
             at: currentLocation,
             excerpt: currentExcerpt,

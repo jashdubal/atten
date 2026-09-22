@@ -264,7 +264,17 @@ final class AppModel {
     /// Held here so that "back" can tell whether there is anything behind the
     /// current screen. The window remembers it across launches by way of scene
     /// storage, which is a place to write it down rather than a second owner.
-    var section = SidebarItem.home
+    var section = SidebarItem.home {
+        didSet {
+            // Focus belongs to the reader, not to the window. A sidebar
+            // selection can replace the reader without giving its view an
+            // opportunity to run `onDisappear`, so unwind the window here as
+            // the single navigation owner.
+            if section != .library, isReaderFocused {
+                setReaderFocus(false)
+            }
+        }
+    }
 
     private(set) var libraryPath: [LibraryRoute] = []
 
@@ -288,6 +298,10 @@ final class AppModel {
     var libraryQuery = ""
 
     func openInLibrary(_ route: LibraryRoute) {
+        // Opening another Library route is also a safe boundary for focus.
+        // This matters when a command or an automation opens a book while the
+        // old reader is still disappearing.
+        if isReaderFocused { setReaderFocus(false) }
         // Opening a book counts however deep it is opened, and the mark is set
         // before the early return: reopening the reader on the book already
         // open is still the user telling us this is the book they are reading.
@@ -304,6 +318,7 @@ final class AppModel {
     /// results, and a second set of them would be a second place to keep the
     /// filtering rules in step.
     func searchLibrary(for query: String) {
+        setReaderFocus(false)
         libraryQuery = query
         returnToShelf()
         section = .library
@@ -312,6 +327,7 @@ final class AppModel {
     /// Back to the shelf in one step, for a book that has just been removed
     /// from under whoever was reading it.
     func returnToShelf() {
+        setReaderFocus(false)
         guard !libraryPath.isEmpty else { return }
         libraryMovedForward = false
         libraryPath.removeAll()
@@ -351,6 +367,16 @@ final class AppModel {
         ReaderFocusWindow.setFullScreen(on)
     }
 
+    /// Called when macOS exits full screen through its own controls or a
+    /// system shortcut. This is deliberately separate from `setReaderFocus`:
+    /// the window has already changed, so asking it to toggle would race the
+    /// notification and could put the app straight back into full screen.
+    func readerWindowDidExitFullScreen() {
+        guard isReaderFocused else { return }
+        isReaderFocused = false
+        ReaderFocusWindow.didExitFullScreen()
+    }
+
     /// One step back. Focus mode counts as a step, so the first press gives the
     /// reader back its surroundings rather than closing the book outright.
     func goBack() {
@@ -387,6 +413,7 @@ final class AppModel {
     /// Home, the reader, and every detail screen without creating a second
     /// playback owner.
     func openNowPlaying() {
+        setReaderFocus(false)
         section = .nowPlaying
     }
 
@@ -1147,14 +1174,29 @@ private final class AudioPlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unc
 /// way it is being asked to be.
 @MainActor
 enum ReaderFocusWindow {
+    // A generation token prevents stale enter/exit tasks from toggling the
+    // window after a newer request. The reader's one source of truth remains
+    // `AppModel.isReaderFocused`; this is only scheduling bookkeeping.
+    private static var requestGeneration = 0
+
     static func setFullScreen(_ on: Bool) {
+        requestGeneration += 1
+        let generation = requestGeneration
         // NSApp is nil until the application object exists, which is also the
         // case in tests.
         guard let app = NSApp, let window = app.keyWindow ?? app.mainWindow else { return }
         Task { @MainActor in
+            // Entering and leaving can happen before AppKit has completed the
+            // first transition. Only the latest intent may toggle the window.
+            await Task.yield()
+            guard requestGeneration == generation else { return }
             guard window.isVisible,
                   window.styleMask.contains(.fullScreen) != on else { return }
             window.toggleFullScreen(nil)
         }
+    }
+
+    static func didExitFullScreen() {
+        requestGeneration += 1
     }
 }
