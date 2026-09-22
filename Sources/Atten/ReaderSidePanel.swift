@@ -81,7 +81,7 @@ struct ReaderSidePanel: View {
     @ViewBuilder private var results: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: AttenSpacing.xs) {
-                Text("> RESULTS")
+                Text("RESULTS")
                     .font(AttenTypography.sectionTitle)
                     .foregroundStyle(AttenColor.accent)
                 Spacer(minLength: 0)
@@ -282,7 +282,7 @@ private struct ContentsRow: View {
                                 .foregroundStyle(AttenColor.accentSecondary)
                         }
                     }
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(AttenColor.textSecondary)
                 }
                 Spacer(minLength: 0)
@@ -323,7 +323,7 @@ private struct BookmarkRow: View {
                         .lineLimit(3)
                         .multilineTextAlignment(.leading)
                     Text("\(chapterTitle) · p. \(page)")
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: 10).monospacedDigit())
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
                 }
@@ -364,7 +364,7 @@ private struct SearchResultRow: View {
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                 Text("\(chapterTitle) · p. \(page)")
-                    .font(.system(size: 9, design: .monospaced))
+                    .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
             }

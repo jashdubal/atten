@@ -206,9 +206,12 @@ struct AttenSurfaceModifier: ViewModifier {
             .padding(padding)
             .background(elevated ? AttenColor.surfaceElevated : AttenColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
+            // A hairline at a fraction of its weight rather than a drawn box.
+            // The surface is already a step off the ground; an opaque border
+            // on top of that reads as a panel pasted onto the window.
             .overlay {
                 RoundedRectangle(cornerRadius: AttenRadius.card)
-                    .stroke(AttenColor.separator, lineWidth: 1)
+                    .strokeBorder(AttenColor.separator.opacity(0.6), lineWidth: 0.5)
             }
     }
 }
@@ -434,24 +437,24 @@ struct AttenLogo: View {
 
     var body: some View {
         HStack(spacing: AttenSpacing.xs) {
-            ZStack {
-                RoundedRectangle(cornerRadius: AttenRadius.small)
-                    .fill(AttenColor.appBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AttenRadius.small)
-                            .stroke(AttenColor.accent, lineWidth: 1)
-                    }
-                Image(systemName: "waveform")
-                    .font(.system(size: compact ? 12 : 15, weight: .semibold))
-                    .foregroundStyle(AttenColor.accent)
-            }
-            .frame(width: compact ? 28 : 34, height: compact ? 28 : 34)
-            .accessibilityHidden(true)
+            // The one place the brand gradient is spent. A boxed, outlined
+            // mark read as a button; the mark itself is enough.
+            Image(systemName: "waveform")
+                .font(.system(size: compact ? 15 : 19, weight: .semibold))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: AttenPalette.brandGradient,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
+                .accessibilityHidden(true)
 
             if !compact {
                 Text("ATTEN")
-                    .font(.system(size: 17, weight: .semibold))
-                    .tracking(3.5)
+                    .font(.system(size: 15, weight: .semibold))
+                    .tracking(3.0)
                     .foregroundStyle(AttenColor.textPrimary)
             }
         }
@@ -493,9 +496,10 @@ struct InspectorSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-            Text("> \(title.uppercased())")
-                .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.accent)
+            Text(title.uppercased())
+                .font(AttenTypography.metadata.weight(.semibold))
+                .tracking(1.4)
+                .foregroundStyle(AttenColor.textSecondary)
             content
         }
     }
