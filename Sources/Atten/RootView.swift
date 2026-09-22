@@ -411,10 +411,9 @@ private struct SidebarNavigationRow: View {
             .overlay(alignment: .leading) {
                 if isSelected {
                     Capsule()
-                        .fill(AttenGradient.brand)
+                        .fill(AttenColor.accent)
                         .frame(width: 2.5, height: 16)
                         .offset(x: -6)
-                        .shadow(color: Color(hex: 0x5DDBFF).opacity(0.7), radius: 5)
                 }
             }
             .overlay {

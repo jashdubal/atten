@@ -590,17 +590,11 @@ struct AttenLogo: View {
 
     var body: some View {
         HStack(spacing: AttenSpacing.xs) {
-            // The one place the brand gradient is spent. A boxed, outlined
-            // mark read as a button; the mark itself is enough.
+            // Neutral, like the rest of the chrome. A boxed, outlined mark
+            // read as a button; the mark itself is enough.
             Image(systemName: "waveform")
                 .font(.system(size: compact ? 15 : 19, weight: .semibold))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: AttenPalette.brandGradient,
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .foregroundStyle(AttenColor.textPrimary)
                 .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
                 .accessibilityHidden(true)
 

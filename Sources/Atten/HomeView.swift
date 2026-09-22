@@ -178,7 +178,7 @@ private struct HomeRouteCard: View {
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
                 Image(systemName: systemImage)
                     .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(AttenGradient.brand)
+                    .foregroundStyle(AttenColor.textSecondary)
                 Text(title)
                     .font(AttenTypography.sectionTitle)
                     .foregroundStyle(AttenColor.textPrimary)
