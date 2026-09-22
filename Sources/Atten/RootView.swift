@@ -3,9 +3,10 @@ import AttenCore
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
+    case home
+    case library
     case studio
     case playground
-    case library
     case voices
     case models
     case projects
@@ -16,13 +17,36 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .home: "house"
+        case .library: "books.vertical"
         case .studio: "waveform"
         case .playground: "flask"
-        case .library: "books.vertical"
         case .voices: "person.2"
         case .models: "shippingbox"
         case .projects: "doc.on.doc"
         case .exports: "waveform.badge.magnifyingglass"
+        }
+    }
+
+    /// Where a destination sits in the sidebar.
+    ///
+    /// The wireframe's calm comes partly from a short list. Every destination
+    /// Atten had is still here and still one click away — the ones you reach
+    /// for while listening are simply not mixed in with the ones you reach for
+    /// while managing voices and files.
+    enum Group: String, CaseIterable, Identifiable {
+        case read
+        case make
+
+        var id: String { rawValue }
+
+        /// Groups are separated by space rather than by a heading; a label on
+        /// a five-item list is noise.
+        var items: [SidebarItem] {
+            switch self {
+            case .read: [.home, .library]
+            case .make: [.studio, .playground, .voices, .models, .projects, .exports]
+            }
         }
     }
 }
@@ -34,20 +58,25 @@ extension Notification.Name {
 
 struct RootView: View {
     @Bindable var model: AppModel
-    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.studio.rawValue
+    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.home.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var screenTitle: AttenScreenTitle?
     @FocusState private var focusedSidebarItem: SidebarItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 228, max: 248)
+                .navigationSplitViewColumnWidth(min: 196, ideal: 208, max: 232)
         } detail: {
             ZStack {
                 AttenBackdrop()
                 detail
+            }
+            .onAttenScreenTitle { screenTitle = $0 }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                TopChrome(title: screenTitle)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if model.playerTitle != nil {
@@ -73,7 +102,7 @@ struct RootView: View {
             }
         }
         .task {
-            model.section = SidebarItem(rawValue: restoredSection) ?? .studio
+            model.section = SidebarItem(rawValue: restoredSection) ?? .home
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
@@ -146,21 +175,26 @@ struct RootView: View {
                 .padding(.bottom, AttenSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(spacing: 2) {
-                ForEach(SidebarItem.allCases) { item in
-                    SidebarNavigationRow(
-                        item: item,
-                        isSelected: model.section == item
-                    ) {
-                        model.section = item
-                        focusedSidebarItem = item
+            VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                ForEach(SidebarItem.Group.allCases) { group in
+                    VStack(spacing: 1) {
+                        ForEach(group.items) { item in
+                            SidebarNavigationRow(
+                                item: item,
+                                isSelected: model.section == item
+                            ) {
+                                model.section = item
+                                focusedSidebarItem = item
+                            }
+                            .focused($focusedSidebarItem, equals: item)
+                        }
                     }
-                    .focused($focusedSidebarItem, equals: item)
                 }
             }
             .padding(.horizontal, AttenSpacing.xs)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onMoveCommand(perform: moveSidebarSelection)
+            .accessibilityLabel("Sections")
 
             Divider()
                 .overlay(AttenColor.separator)
@@ -256,6 +290,8 @@ struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch model.section {
+        case .home:
+            HomeView(model: model)
         case .studio:
             StudioView(model: model)
         case .playground:
@@ -339,25 +375,21 @@ private struct SidebarNavigationRow: View {
         Button(action: action) {
             HStack(spacing: AttenSpacing.sm) {
                 Image(systemName: item.icon)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(.system(size: 13, weight: .medium))
                     .frame(width: 18)
-                Text(item.label.uppercased())
+                Text(item.label)
                     .font(AttenTypography.control)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
-                if isSelected {
-                    Text(">")
-                        .font(AttenTypography.control.weight(.bold))
-                        .accessibilityHidden(true)
-                }
             }
-            .foregroundStyle(isSelected ? AttenColor.accentHover : AttenColor.textPrimary)
+            .foregroundStyle(isSelected ? AttenColor.accent : AttenColor.textPrimary)
             .padding(.horizontal, AttenSpacing.sm)
-            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             .overlay {
                 RoundedRectangle(cornerRadius: AttenRadius.control)
-                    .stroke(borderColor, lineWidth: 1)
+                    .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
             }
             .contentShape(Rectangle())
         }
@@ -370,15 +402,15 @@ private struct SidebarNavigationRow: View {
     }
 
     private var background: Color {
-        if isSelected { return AttenColor.accent.opacity(0.14) }
-        if isHovering { return AttenColor.surfaceMuted.opacity(0.72) }
+        if isSelected { return AttenColor.accent.opacity(0.12) }
+        if isHovering { return AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) }
         return .clear
     }
 
+    /// Only focus draws an edge. Selection is carried by the fill and the
+    /// accent ink, so a list at rest has one mark on it rather than two.
     private var borderColor: Color {
-        if isFocused { return AttenColor.focus }
-        if isSelected { return AttenColor.accent.opacity(0.55) }
-        return .clear
+        isFocused ? AttenColor.focus : .clear
     }
 }
 
@@ -455,5 +487,67 @@ private struct MouseNavigationButtons: ViewModifier {
 extension View {
     func mouseNavigationButtons(back: @escaping () -> Void) -> some View {
         modifier(MouseNavigationButtons(back: back))
+    }
+}
+
+/// The shell's top chrome.
+///
+/// One region, owned here, holding the screen's name and — once #26 lands —
+/// the global compact player. It exists now so that the player has somewhere
+/// to go that is not the bottom of the reader, and so screens can start
+/// handing their titles up one at a time.
+///
+/// A screen that has not migrated says nothing, and this collapses to nothing
+/// rather than drawing an empty bar above its own header.
+private struct TopChrome: View {
+    let title: AttenScreenTitle?
+
+    var body: some View {
+        if let title {
+            HStack(alignment: .firstTextBaseline, spacing: AttenSpacing.sm) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title.title)
+                        .font(title.isProminent
+                            ? AttenTypography.displayTitle
+                            : AttenTypography.pageTitle)
+                        .foregroundStyle(AttenColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let subtitle = title.subtitle {
+                        Text(subtitle)
+                            .font(title.isProminent
+                                ? AttenTypography.body
+                                : AttenTypography.metadata)
+                            .foregroundStyle(AttenColor.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: AttenSpacing.md)
+
+                // Reserved for the global compact player (#26). The slot is
+                // held open here rather than in the player's own file so that
+                // adding it is one edit in one place.
+                PlayerChromeSlot()
+            }
+            .padding(.horizontal, AttenSpacing.page)
+            .padding(.top, AttenSpacing.lg)
+            .padding(.bottom, AttenSpacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AttenColor.appBackground)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("\(title.title) header")
+        }
+    }
+}
+
+/// Where the global compact player goes.
+///
+/// Empty until #26 moves playback out of the bottom `safeAreaInset`. Keeping
+/// the seam here means that change is an edit to this one view rather than a
+/// second team reopening `RootView`'s layout.
+private struct PlayerChromeSlot: View {
+    var body: some View {
+        EmptyView()
     }
 }
