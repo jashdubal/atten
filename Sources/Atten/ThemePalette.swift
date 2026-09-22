@@ -89,7 +89,7 @@ extension AttenPalette {
     /// brightness control still takes the ink down for a dark room.
     static let atten = AttenPalette(
         appBackground: AttenThemeColor(0xF7F8FA, 0x06080C),
-        sidebar: AttenThemeColor(0xF3F5F8, 0x080B10),
+        sidebar: AttenThemeColor(0xF4F6F9, 0x07090E),
         surface: AttenThemeColor(0xFFFFFF, 0x0B0F16),
         surfaceElevated: AttenThemeColor(0xFCFDFF, 0x0E131B),
         surfaceMuted: AttenThemeColor(0xEDF0F5, 0x141A24),
