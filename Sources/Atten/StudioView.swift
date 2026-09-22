@@ -33,7 +33,12 @@ struct StudioView: View {
 
                     if let audioURL = model.currentAudioURL, isCompletedState {
                         PlaybackCard(model: model, url: audioURL)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            .transition(
+                                AttenMotion.transition(
+                                    .overlay(edge: .bottom),
+                                    reduceMotion: reduceMotion
+                                )
+                            )
                     }
                 }
                 .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
@@ -43,7 +48,10 @@ struct StudioView: View {
             }
         }
         .animation(
-            reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard),
+            AttenMotion.transitionAnimation(
+                AttenMotion.standard,
+                reduceMotion: reduceMotion
+            ),
             value: model.currentAudioURL
         )
         .onChange(of: model.draftText) { _, _ in
@@ -327,6 +335,13 @@ struct StudioView: View {
                 .padding(.top, AttenSpacing.xs)
             }
             .font(AttenTypography.control)
+            .animation(
+                AttenMotion.animation(
+                    AttenMotion.panel,
+                    reduceMotion: reduceMotion
+                ),
+                value: showsAdvancedSettings
+            )
 
             Spacer(minLength: AttenSpacing.xs)
 

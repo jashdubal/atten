@@ -7,6 +7,7 @@ import SwiftUI
 /// same `AVAudioPlayer` that powers the compact player and system commands.
 struct NowPlayingView: View {
     @Bindable var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var track: PlaybackTrack? { model.queue.current }
     private var book: BookRecord? { model.playingBook }
@@ -63,6 +64,12 @@ struct NowPlayingView: View {
 
                     if hasChapterQueue {
                         chapterQueue
+                            .transition(
+                                AttenMotion.transition(
+                                    .fade,
+                                    reduceMotion: reduceMotion
+                                )
+                            )
                     }
                 }
                 .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
@@ -72,6 +79,13 @@ struct NowPlayingView: View {
             }
         }
         .background(AttenBackdrop())
+        .animation(
+            AttenMotion.transitionAnimation(
+                AttenMotion.standard,
+                reduceMotion: reduceMotion
+            ),
+            value: hasChapterQueue
+        )
     }
 
     private var artwork: some View {
@@ -213,6 +227,7 @@ struct NowPlayingView: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
+            .buttonStyle(AttenFeedbackButtonStyle())
             .help(model.isPlaying ? "Pause" : "Play")
             .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
             nowPlayingTransportButton(
@@ -246,6 +261,7 @@ struct NowPlayingView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(!isEnabled)
         .help(label)
         .accessibilityLabel(label)

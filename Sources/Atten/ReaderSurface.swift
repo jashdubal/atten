@@ -340,7 +340,6 @@ struct ReaderTextView: View {
     @Binding var position: ReaderParagraphID?
 
     @State private var hovered: ReaderParagraphID?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private struct Line: Identifiable {
         let id: ReaderParagraphID
@@ -407,7 +406,9 @@ struct ReaderTextView: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(isDimmed(line.id) ? 0.26 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.22), value: isDimmed(line.id))
+            // Focus mode changes the ink immediately. Animating every
+            // paragraph on pointer movement makes long-form text shimmer.
+            .transaction { transaction in transaction.animation = nil }
             .onHover { hovered = $0 ? line.id : (hovered == line.id ? nil : hovered) }
             .id(line.id)
     }

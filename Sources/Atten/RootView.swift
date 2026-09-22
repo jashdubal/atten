@@ -86,7 +86,7 @@ struct RootView: View {
             ZStack(alignment: .top) {
                 AttenBackdrop()
                 AttenAtmosphere()
-                detail
+                animatedDetail
             }
             .onAttenScreenTitle { screenTitle = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
@@ -117,7 +117,10 @@ struct RootView: View {
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
-        .onChange(of: model.section) { _, section in restoredSection = section.rawValue }
+        .onChange(of: model.section) { _, section in
+            restoredSection = section.rawValue
+            screenTitle = nil
+        }
         // A scene-storage write goes to disk, and this one carried up to
         // 100 KB. Running it on every keystroke made typing in Studio stutter,
         // so it waits for the typing to stop.
@@ -180,6 +183,25 @@ struct RootView: View {
         } message: {
             Text(model.updateError ?? "Unknown error")
         }
+    }
+
+    /// Destination changes get a small orientation cue without animating the
+    /// sidebar, top chrome, or long-form content itself.
+    private var animatedDetail: some View {
+        ZStack {
+            detail
+                .id(model.section)
+                .transition(
+                    AttenMotion.transition(
+                        .destination(forward: true),
+                        reduceMotion: reduceMotion
+                    )
+                )
+        }
+        .animation(
+            AttenMotion.transitionAnimation(AttenMotion.transition, reduceMotion: reduceMotion),
+            value: model.section
+        )
     }
 
     private var sidebar: some View {
@@ -395,6 +417,7 @@ private struct SidebarNavigationRow: View {
     let action: () -> Void
 
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     var body: some View {
@@ -428,8 +451,13 @@ private struct SidebarNavigationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .focusEffectDisabled()
         .onHover { isHovering = $0 }
+        .animation(
+            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
+            value: isSelected
+        )
         .accessibilityLabel(item.label)
         .accessibilityHint("Open \(item.label)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

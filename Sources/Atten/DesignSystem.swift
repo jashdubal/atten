@@ -243,6 +243,16 @@ enum AttenMotion {
     /// Section changes and Zen enter/exit.
     static let transition = 0.28
 
+    /// The small amount of movement shared by destination and overlay changes.
+    /// A destination slides only a few points; a panel never moves the reader's
+    /// page underneath it. The reduced-motion form is a crossfade, which keeps
+    /// the change legible without making the window travel.
+    enum Transition {
+        case destination(forward: Bool)
+        case overlay(edge: Edge)
+        case fade
+    }
+
     /// The animation for a state change, or `nil` when the reader has asked
     /// the system for less motion. Returning `nil` makes `withAnimation` and
     /// `.animation(_:value:)` apply the change instantly while keeping the
@@ -255,6 +265,79 @@ enum AttenMotion {
     /// and a slide would be motion for its own sake.
     static func fade(reduceMotion: Bool) -> Animation? {
         reduceMotion ? nil : .easeInOut(duration: fast)
+    }
+
+    /// Use this when a view is inserted or removed. Reduce Motion keeps a
+    /// short crossfade for orientation; state-only changes should use
+    /// ``animation(_:reduceMotion:)`` and become instant instead.
+    static func transitionAnimation(_ duration: Double, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? .easeInOut(duration: min(duration, fast)) : .easeOut(duration: duration)
+    }
+
+    static func transition(
+        _ transition: Transition,
+        reduceMotion: Bool
+    ) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        switch transition {
+        case let .destination(forward):
+            return .asymmetric(
+                insertion: .offset(x: forward ? 24 : -24).combined(with: .opacity),
+                removal: .offset(x: forward ? -24 : 24).combined(with: .opacity)
+            )
+        case let .overlay(edge):
+            return .move(edge: edge).combined(with: .opacity)
+        case .fade:
+            return .opacity
+        }
+    }
+}
+
+/// A shared press cue for controls that intentionally use a custom visual
+/// rather than one of Atten's filled button styles.
+private struct AttenPressFeedback: ViewModifier {
+    let isPressed: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(isPressed && !reduceMotion ? AttenState.pressedScale : 1)
+            .animation(
+                AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
+                value: isPressed
+            )
+    }
+}
+
+struct AttenFeedbackButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .modifier(AttenPressFeedback(isPressed: configuration.isPressed))
+    }
+}
+
+/// A small hover lift for cards and other objects that benefit from a tactile
+/// pointer cue. It is deliberately an offset instead of a layout-affecting
+/// frame change, so neighboring cards never jump when the pointer moves.
+private struct AttenHoverLift: ViewModifier {
+    let amount: CGFloat
+    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .offset(y: isHovering && !reduceMotion ? amount : 0)
+            .animation(
+                AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion),
+                value: isHovering
+            )
+            .onHover { isHovering = $0 }
+    }
+}
+
+extension View {
+    func attenHoverLift(_ amount: CGFloat = -3) -> some View {
+        modifier(AttenHoverLift(amount: amount))
     }
 }
 
@@ -412,8 +495,7 @@ private struct AttenPrimaryButtonBody: View {
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
             .shadow(color: .black.opacity(isEnabled ? 0.3 : 0), radius: 10, y: 3)
             .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
-            .scaleEffect(isPressed && !reduceMotion ? AttenState.pressedScale : 1)
-            .animation(AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion), value: isPressed)
+            .modifier(AttenPressFeedback(isPressed: isPressed))
             .animation(AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion), value: isHovering)
             .onHover { isHovering = $0 }
     }
@@ -441,6 +523,7 @@ private struct AttenSecondaryButtonBody: View {
             .padding(.horizontal, AttenSpacing.sm)
             .frame(minHeight: 34)
             .attenElevated(.flush, radius: AttenRadius.control, fill: background)
+            .modifier(AttenPressFeedback(isPressed: isPressed))
             .onHover { isHovering = $0 }
     }
 
@@ -472,6 +555,7 @@ struct ToolbarIconButton: View {
                 }
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.42)
         .onHover { isHovering = $0 }
@@ -498,6 +582,7 @@ struct AttenBackButton: View {
     let action: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var foreground: Color {
         isHovering ? AttenColor.onAccent : AttenColor.textPrimary
@@ -532,8 +617,12 @@ struct AttenBackButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: AttenMotion.fast), value: isHovering)
+        .animation(
+            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
+            value: isHovering
+        )
         .help("Back to \(title) (⌘[)")
         .accessibilityLabel("Back to \(title)")
     }
