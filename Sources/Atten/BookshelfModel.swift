@@ -30,6 +30,34 @@ enum LibraryFilter: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Presentation order only; records and their persisted import order are unchanged.
+enum LibrarySort: String, CaseIterable, Identifiable {
+    case recentlyAdded = "Recently added"
+    case title = "Title"
+    case author = "Author"
+
+    var id: Self { self }
+
+    func sorted(_ books: [BookRecord]) -> [BookRecord] {
+        books.sorted { lhs, rhs in
+            switch self {
+            case .recentlyAdded:
+                if lhs.addedAt != rhs.addedAt { return lhs.addedAt > rhs.addedAt }
+            case .title:
+                let comparison = lhs.title.localizedStandardCompare(rhs.title)
+                if comparison != .orderedSame { return comparison == .orderedAscending }
+            case .author:
+                let comparison = (lhs.author ?? "Unknown author")
+                    .localizedStandardCompare(rhs.author ?? "Unknown author")
+                if comparison != .orderedSame { return comparison == .orderedAscending }
+                let titleComparison = lhs.title.localizedStandardCompare(rhs.title)
+                if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+}
+
 /// The Library: books Atten has imported, and the narration it generates from
 /// them one chapter at a time.
 ///

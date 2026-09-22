@@ -73,6 +73,7 @@ struct RootView: View {
     @Bindable var model: AppModel
     @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.home.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
+    @SceneStorage("Atten.playerCollapsed") private var isPlayerCollapsed = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var screenTitle: AttenScreenTitle?
     @FocusState private var focusedSidebarItem: SidebarItem?
@@ -81,23 +82,36 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 196, ideal: 208, max: 232)
+                .navigationSplitViewColumnWidth(min: 196, ideal: 224, max: 250)
         } detail: {
             ZStack(alignment: .top) {
                 AttenBackdrop()
-                AttenAtmosphere()
                 animatedDetail
             }
             .onAttenScreenTitle { screenTitle = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
                 TopChrome(model: model, title: screenTitle)
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if model.playerTitle != nil {
+                    ViewThatFits(in: .horizontal) {
+                        GlobalPlayer(model: model, isCollapsed: $isPlayerCollapsed)
+                            .frame(minWidth: isPlayerCollapsed ? 100 : 460, maxWidth: isPlayerCollapsed ? 100 : 680)
+                        GlobalPlayer(model: model, isCollapsed: $isPlayerCollapsed, compact: true)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
+                    .frame(maxWidth: .infinity)
+                }
+            }
         }
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
-        .tint(AttenColor.accent)
+        .tint(model.section == .library ? AttenColor.textSecondary : AttenColor.accent)
+        .environment(\.attenMutedControls, model.section == .library)
         .font(AttenTypography.body)
-        .foregroundStyle(AttenColor.textPrimary)
+        .foregroundStyle(model.section == .library ? AttenColor.textSecondary : AttenColor.textPrimary)
         .background(WindowTitleHider())
         .toolbarBackground(AttenColor.appBackground, for: .windowToolbar)
         .toolbar {
@@ -207,9 +221,9 @@ struct RootView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             AttenLogo()
-                .padding(.horizontal, AttenSpacing.md)
-                .padding(.top, AttenSpacing.md)
-                .padding(.bottom, AttenSpacing.sm)
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .padding(.bottom, 36)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: AttenSpacing.md) {
@@ -217,8 +231,8 @@ struct RootView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         if let title = group.title {
                             Text(title.uppercased())
-                                .font(AttenTypography.caption.weight(.semibold))
-                                .tracking(1.1)
+                                .font(.system(size: 9, weight: .medium))
+                                .tracking(2.8)
                                 .foregroundStyle(AttenColor.textSecondary)
                                 .padding(.horizontal, AttenSpacing.sm)
                                 .padding(.bottom, AttenSpacing.xxs)
@@ -294,8 +308,7 @@ struct RootView: View {
             .padding(.horizontal, AttenSpacing.md)
             .padding(.vertical, AttenSpacing.sm)
         }
-        .background(AttenColor.sidebar.opacity(0.6))
-        .background(.ultraThinMaterial)
+        .background(AttenChromeBackground())
     }
 
     /// How Atten looks, which is now one decision rather than two: there is a
@@ -417,6 +430,7 @@ private struct SidebarNavigationRow: View {
     let action: () -> Void
 
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.attenMutedControls) private var muted
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
@@ -431,17 +445,16 @@ private struct SidebarNavigationRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected ? AttenColor.accent : AttenColor.textPrimary)
+            .foregroundStyle(isSelected && !muted ? AttenColor.textPrimary : AttenColor.textSecondary)
             .padding(.horizontal, AttenSpacing.sm)
-            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
             .overlay(alignment: .leading) {
                 if isSelected {
                     Capsule()
-                        .fill(AttenColor.accent)
-                        .frame(width: 2.5, height: 16)
-                        .offset(x: -6)
+                        .fill(muted ? AttenColor.textMuted : AttenColor.accent)
+                        .frame(width: 2, height: 26)
                 }
             }
             .overlay {
@@ -463,18 +476,13 @@ private struct SidebarNavigationRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Selection is carried by the accent ink, not by a filled pill. A list
-    /// where the current row is a block of colour reads as a set of buttons;
-    /// Apple Music tints the label and leaves the row alone, and a sidebar
-    /// that sits beside a page of prose all day should do the same. Only the
-    /// pointer gets a fill, and barely.
+    /// Tonal selection with a fine cyan marker keeps the navigation quiet.
     private var background: Color {
-        if isSelected { return AttenColor.accent.opacity(0.07) }
+        if isSelected { return AttenColor.surfaceElevated }
         return isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
     }
 
-    /// Only focus draws an edge. Selection is carried by the fill and the
-    /// accent ink, so a list at rest has one mark on it rather than two.
+    /// Keyboard focus adds a visible outline without changing the selection.
     private var borderColor: Color {
         isFocused ? AttenColor.focus : .clear
     }
@@ -556,65 +564,48 @@ extension View {
     }
 }
 
-/// The shell's top chrome.
-///
-/// One region, owned here, holding the screen's name and — once #26 lands —
-/// the global compact player. It exists now so that the player has somewhere
-/// to go that is not the bottom of the reader, and so screens can start
-/// handing their titles up one at a time.
-///
-/// A screen that has not migrated says nothing, and this collapses to nothing
-/// rather than drawing an empty bar above its own header.
+/// Compact screen heading. The reader supplies its own navigation strip.
 private struct TopChrome: View {
     @Bindable var model: AppModel
     let title: AttenScreenTitle?
 
-    /// Either a screen that named itself or something playing is enough to
-    /// draw the row. Neither, and there is no bar at all — a reader with no
-    /// narration loses no page to chrome it is not using.
-    private var isPresent: Bool { title != nil || model.playerTitle != nil }
+    private var isReader: Bool {
+        guard model.section == .library else { return false }
+        if case .reader = model.libraryPath.last { return true }
+        return false
+    }
 
     var body: some View {
-        // Zen removes the shell chrome along with its sidebar. Playback stays
-        // reachable from the reader controls, so hiding this region does not
-        // hide the user's audio state or strand the queue.
-        if isPresent && !model.isReaderFocused {
-            HStack(alignment: .center, spacing: AttenSpacing.sm) {
-                VStack(alignment: .leading, spacing: 0) {
-                    if let title {
-                    Text(title.title)
-                        .font(title.isProminent
-                            ? AttenTypography.displayTitle
-                            : AttenTypography.pageTitle)
-                        .foregroundStyle(AttenColor.textPrimary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if let subtitle = title.subtitle {
-                        Text(subtitle)
-                            .font(title.isProminent
-                                ? AttenTypography.body
-                                : AttenTypography.metadata)
-                            .foregroundStyle(AttenColor.textSecondary)
-                            .lineLimit(1)
-                    }
-                    }
+        if title != nil && !isReader && !model.isReaderFocused {
+            heading
+                .padding(.horizontal, AttenSpacing.lg)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AttenChromeBackground())
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(AttenColor.separator.opacity(0.5))
+                        .frame(height: 0.5)
                 }
+                .accessibilityElement(children: .contain)
+        }
+    }
 
-                Spacer(minLength: AttenSpacing.md)
-
-                GlobalPlayer(model: model)
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let title {
+                Text(title.title)
+                    .font(title.isProminent ? AttenTypography.displayTitle : AttenTypography.sectionTitle)
+                    .foregroundStyle(model.section == .library ? AttenColor.textSecondary : AttenColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let subtitle = title.subtitle {
+                    Text(subtitle)
+                        .font(AttenTypography.metadata)
+                        .foregroundStyle(AttenColor.textSecondary)
+                        .lineLimit(1)
+                }
             }
-            .padding(.horizontal, AttenSpacing.page)
-            .padding(.top, AttenSpacing.lg)
-            .padding(.bottom, AttenSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.ultraThinMaterial)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(AttenColor.separator.opacity(0.5))
-                    .frame(height: 0.5)
-            }
-            .accessibilityElement(children: .contain)
         }
     }
 }

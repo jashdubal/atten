@@ -71,42 +71,26 @@ struct AttenPalette: Sendable, Equatable {
 }
 
 extension AttenPalette {
-    /// Atten's palette.
-    ///
-    /// Dark is the reading black — the same `0x06080C` the page is printed on
-    /// — carried out into the whole app, so the chrome and the page share one
-    /// ground and the page has no edges. Surfaces lift off it by a few points
-    /// rather than by a step: a panel here is a change of depth, not a box
-    /// drawn on top of the window.
-    ///
-    /// The chrome is achromatic. Every accent role is a neutral — near-white
-    /// on the dark side, near-black on the light one — because a hue used for
-    /// selection, progress and primary actions at once stops being an accent
-    /// and becomes the theme. The brand's cyan and violet survive only in
-    /// ``brandGradient``, and only as light: the atmosphere behind a screen,
-    /// never a fill on a control.
-    ///
-    /// Light is a deliberate companion, not an inversion, and the page keeps
-    /// its warm paper: warm ink is what a lamp does to a page, and the
-    /// brightness control still takes the ink down for a dark room.
+    /// Blue-black ground, neutral chrome, and a small amount of cyan for action.
+    /// The light appearance and the Reader's adjustable ink remain available.
     static let atten = AttenPalette(
-        appBackground: AttenThemeColor(0xF7F8FA, 0x06080C),
-        sidebar: AttenThemeColor(0xF4F6F9, 0x07090E),
-        surface: AttenThemeColor(0xFFFFFF, 0x0B0F16),
-        surfaceElevated: AttenThemeColor(0xFCFDFF, 0x0E131B),
-        surfaceMuted: AttenThemeColor(0xEDF0F5, 0x141A24),
-        separator: AttenThemeColor(0xD0D8E3, 0x1F2734),
-        textPrimary: AttenThemeColor(0x0B121C, 0xE7EEF8),
-        textSecondary: AttenThemeColor(0x55637A, 0x8FA2BA),
-        accent: AttenThemeColor(0x111922, 0xE8EEF6),
+        appBackground: AttenThemeColor(0xF7F8FA, 0x06080F),
+        sidebar: AttenThemeColor(0xF4F6F9, 0x06080F),
+        surface: AttenThemeColor(0xFFFFFF, 0x0B0E14),
+        surfaceElevated: AttenThemeColor(0xFCFDFF, 0x121820),
+        surfaceMuted: AttenThemeColor(0xEDF0F5, 0x1D242D),
+        separator: AttenThemeColor(0xD0D8E3, 0x252830),
+        textPrimary: AttenThemeColor(0x0B121C, 0xE8E9EB),
+        textSecondary: AttenThemeColor(0x55637A, 0xA1A5AB),
+        accent: AttenThemeColor(0x111922, 0x2FBDF4),
         accentHover: AttenThemeColor(0x000000, 0xFFFFFF),
         accentSecondary: AttenThemeColor(0x4C5561, 0xB2BAC3),
-        success: AttenThemeColor(0x177A50, 0x4ADE80),
+        success: AttenThemeColor(0x177A50, 0x37DB8A),
         warning: AttenThemeColor(0x8A5A12, 0xF0B849),
         destructive: AttenThemeColor(0xB42346, 0xFB7185),
-        onAccent: AttenThemeColor(0xFFFFFF, 0x06080C),
-        readerText: AttenThemeColor(0x141B26, 0xDCE6F2),
-        readerBackground: AttenThemeColor(0xFBFAF7, 0x06080C),
+        onAccent: AttenThemeColor(0xFFFFFF, 0x06080F),
+        readerText: AttenThemeColor(0x141B26, 0xD6CFC2),
+        readerBackground: AttenThemeColor(0xF7F8FA, 0x06080F),
         readerInk: AttenThemeColor(0x2A2721, 0xD6CFC2),
         readerInkMuted: AttenThemeColor(0x6A6459, 0x8B8578),
         readerAccent: AttenThemeColor(0x6E6459, 0xA79F92),

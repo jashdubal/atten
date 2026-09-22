@@ -1,6 +1,17 @@
 import AVFoundation
 import SwiftUI
 
+private struct AttenMutedControlsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var attenMutedControls: Bool {
+        get { self[AttenMutedControlsKey.self] }
+        set { self[AttenMutedControlsKey.self] = newValue }
+    }
+}
+
 /// The semantic colours every view draws with.
 ///
 /// Each role carries a light and a dark value, and resolves against whichever
@@ -17,6 +28,8 @@ enum AttenColor {
 
     static var textPrimary: Color { palette.textPrimary.color }
     static var textSecondary: Color { palette.textSecondary.color }
+    static var textMuted: Color { Color(light: 0x626873, dark: 0x6F747C) }
+    static var border: Color { Color.primary.opacity(0.10) }
     static var accent: Color { palette.accent.color }
     static var accentHover: Color { palette.accentHover.color }
     static var accentSecondary: Color { palette.accentSecondary.color }
@@ -69,7 +82,7 @@ extension NSColor {
 
     convenience init(hex: UInt) {
         self.init(
-            calibratedRed: CGFloat((hex >> 16) & 0xff) / 255,
+            srgbRed: CGFloat((hex >> 16) & 0xff) / 255,
             green: CGFloat((hex >> 8) & 0xff) / 255,
             blue: CGFloat(hex & 0xff) / 255,
             alpha: 1
@@ -405,6 +418,24 @@ struct AttenBackdrop: View {
     }
 }
 
+/// Light chrome fades into the same ground as the reading page.
+/// Dark mode keeps its flat, blue-black surface.
+struct AttenChromeBackground: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if colorScheme == .light {
+            LinearGradient(
+                colors: [Color(hex: 0xEBEFF4), AttenColor.appBackground],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        } else {
+            AttenColor.appBackground
+        }
+    }
+}
+
 /// A soft brand glow, for the top of a screen that wants some depth behind it.
 ///
 /// Lifted from the landing page, where the same cyan-into-violet ellipse sits
@@ -478,22 +509,31 @@ private struct AttenPrimaryButtonBody: View {
     let label: AnyView
     let isPressed: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.attenMutedControls) private var muted
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     var body: some View {
         label
             .font(AttenTypography.control.weight(.semibold))
-            .foregroundStyle(AttenColor.onAccent.opacity(isEnabled ? 1 : 0.55))
+            .foregroundStyle((muted ? AttenColor.textSecondary : AttenColor.onAccent).opacity(isEnabled ? 1 : 0.55))
             .padding(.horizontal, AttenSpacing.md)
             .frame(minHeight: 38)
             .background {
                 RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
-                    .fill(isHovering ? AttenColor.accentHover : AttenColor.accent)
+                    .fill(muted
+                        ? (isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
+                        : (isHovering ? AttenColor.accentHover : AttenColor.accent))
                     .brightness(isPressed ? -0.05 : 0)
             }
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
-            .shadow(color: .black.opacity(isEnabled ? 0.3 : 0), radius: 10, y: 3)
+            .overlay {
+                if muted {
+                    RoundedRectangle(cornerRadius: AttenRadius.control)
+                        .strokeBorder(AttenColor.separator.opacity(0.65), lineWidth: 1)
+                }
+            }
+            .shadow(color: .black.opacity(isEnabled && !muted ? 0.3 : 0), radius: 10, y: 3)
             .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
             .modifier(AttenPressFeedback(isPressed: isPressed))
             .animation(AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion), value: isHovering)
@@ -510,19 +550,38 @@ struct AttenSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+private struct AttenControlSurface: ViewModifier {
+    let muted: Bool
+    let background: Color
+
+    func body(content: Content) -> some View {
+        if muted {
+            content
+                .background(background, in: RoundedRectangle(cornerRadius: AttenRadius.control))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AttenRadius.control)
+                        .strokeBorder(AttenColor.separator.opacity(0.65), lineWidth: 1)
+                }
+        } else {
+            content.attenElevated(.flush, radius: AttenRadius.control, fill: background)
+        }
+    }
+}
+
 private struct AttenSecondaryButtonBody: View {
     let label: AnyView
     let isPressed: Bool
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.attenMutedControls) private var muted
     @State private var isHovering = false
 
     var body: some View {
         label
             .font(AttenTypography.control)
-            .foregroundStyle(AttenColor.textPrimary.opacity(isEnabled ? 1 : 0.45))
+            .foregroundStyle((muted ? AttenColor.textSecondary : AttenColor.textPrimary).opacity(isEnabled ? 1 : 0.45))
             .padding(.horizontal, AttenSpacing.sm)
             .frame(minHeight: 34)
-            .attenElevated(.flush, radius: AttenRadius.control, fill: background)
+            .modifier(AttenControlSurface(muted: muted, background: background))
             .modifier(AttenPressFeedback(isPressed: isPressed))
             .onHover { isHovering = $0 }
     }
@@ -538,6 +597,7 @@ struct ToolbarIconButton: View {
     let systemImage: String
     let action: () -> Void
     var isEnabled = true
+    @Environment(\.attenMutedControls) private var muted
 
     @State private var isHovering = false
 
@@ -546,7 +606,7 @@ struct ToolbarIconButton: View {
             Image(systemName: systemImage)
                 .font(AttenTypography.control)
                 .frame(width: 30, height: 30)
-                .foregroundStyle(isHovering ? AttenColor.accentHover : AttenColor.textPrimary)
+                .foregroundStyle(muted ? AttenColor.textSecondary : (isHovering ? AttenColor.accentHover : AttenColor.textPrimary))
                 .background(isHovering ? AttenColor.surfaceMuted : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
                 .overlay {
@@ -582,10 +642,11 @@ struct AttenBackButton: View {
     let action: () -> Void
 
     @State private var isHovering = false
+    @Environment(\.attenMutedControls) private var muted
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var foreground: Color {
-        isHovering ? AttenColor.onAccent : AttenColor.textPrimary
+        muted ? AttenColor.textSecondary : (isHovering ? AttenColor.onAccent : AttenColor.textPrimary)
     }
 
     var body: some View {
@@ -593,7 +654,7 @@ struct AttenBackButton: View {
             HStack(spacing: AttenSpacing.xxs) {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(isHovering ? AttenColor.onAccent : AttenColor.accent)
+                    .foregroundStyle(muted ? AttenColor.textSecondary : (isHovering ? AttenColor.onAccent : AttenColor.accent))
                 Text(title)
                     .font(AttenTypography.control)
                     .lineLimit(1)
@@ -604,7 +665,9 @@ struct AttenBackButton: View {
             .frame(maxWidth: 190)
             .frame(height: 28)
             .fixedSize(horizontal: true, vertical: false)
-            .background(isHovering ? AttenColor.accent : AttenColor.surfaceElevated)
+            .background(muted
+                ? (isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
+                : (isHovering ? AttenColor.accent : AttenColor.surfaceElevated))
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
             .overlay {
                 RoundedRectangle(cornerRadius: AttenRadius.control)
@@ -612,7 +675,7 @@ struct AttenBackButton: View {
                     // its accent at 3:1 against its surfaces, which is the bar
                     // WCAG sets for the edge of a control, and the separator
                     // sits at 1.4:1 — a hairline nobody is going to find.
-                    .strokeBorder(AttenColor.accent, lineWidth: 1.5)
+                    .strokeBorder(muted ? AttenColor.separator.opacity(0.65) : AttenColor.accent, lineWidth: muted ? 1 : 1.5)
             }
             .contentShape(Rectangle())
         }
@@ -639,6 +702,7 @@ struct AttenBackButton: View {
 struct AttenSearchField: View {
     let prompt: String
     @Binding var text: String
+    var height: CGFloat = 30
 
     @FocusState private var isFocused: Bool
 
@@ -663,8 +727,8 @@ struct AttenSearchField: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, AttenSpacing.xs)
-        .frame(height: 30)
+        .padding(.horizontal, height > 30 ? 14 : AttenSpacing.xs)
+        .frame(height: height)
         .attenInput()
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.control)
@@ -676,24 +740,24 @@ struct AttenSearchField: View {
 
 struct AttenLogo: View {
     var compact = false
+    @Environment(\.attenMutedControls) private var muted
 
     var body: some View {
-        HStack(spacing: AttenSpacing.xs) {
-            // Neutral, like the rest of the chrome. A boxed, outlined mark
-            // read as a button; the mark itself is enough.
-            Image(systemName: "waveform")
-                .font(.system(size: compact ? 15 : 19, weight: .semibold))
-                .foregroundStyle(AttenColor.textPrimary)
-                .frame(width: compact ? 22 : 26, height: compact ? 22 : 26)
-                .accessibilityHidden(true)
-
-            if !compact {
+        VStack(alignment: .leading, spacing: 9) {
+            if compact {
+                Image(systemName: "waveform")
+                    .font(.system(size: 15, weight: .medium))
+            } else {
                 Text("ATTEN")
-                    .font(.system(size: 15, weight: .semibold))
-                    .tracking(3.0)
-                    .foregroundStyle(AttenColor.textPrimary)
+                    .font(.system(size: 19, weight: .medium))
+                    .tracking(8)
+                Text("LISTEN FURTHER")
+                    .font(.system(size: 8, weight: .medium))
+                    .tracking(3)
+                    .foregroundStyle(AttenColor.textSecondary)
             }
         }
+        .foregroundStyle(muted ? AttenColor.textSecondary : AttenColor.textPrimary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Atten")
     }

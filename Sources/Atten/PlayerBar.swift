@@ -1,5 +1,9 @@
 import SwiftUI
 
+private enum PlayerColor {
+    static let text = Color(light: 0x606469, dark: 0xA1A5AB)
+}
+
 /// How playback times and rates are written, wherever they are written.
 enum PlaybackFormat {
     static let rates: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
@@ -20,62 +24,101 @@ enum PlaybackFormat {
     }
 }
 
-/// The one player, in the top chrome.
-///
-/// Playback used to live in a 56 pt bar pinned under every screen, which cost
-/// the reader a strip of page on every book and still left the reader drawing
-/// its own transport — two sets of controls for one sound. This is the only
-/// one now: compact enough to sit beside a page title, and holding the rest
-/// behind a single expand affordance rather than putting nine controls in the
-/// chrome of a reading app.
-///
-/// It draws nothing when nothing is playing, so a screen with no audio has no
-/// player and loses no room to it.
+/// A floating bottom transport with chapter metadata and direct seeking. The queue,
+/// speed and additional controls remain in the existing playback popover.
 struct GlobalPlayer: View {
     @Bindable var model: AppModel
+    @Binding var isCollapsed: Bool
+    var compact = false
 
     @State private var isExpanded = false
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let title = model.playerTitle {
-            HStack(spacing: AttenSpacing.xs) {
-                playPause
+            HStack(spacing: 14) {
+                HStack(spacing: 0) {
+                    if !compact && !isCollapsed {
+                        TransportButton(
+                            systemImage: "backward.end.fill", size: 12,
+                            help: "Previous chapter", label: "Previous chapter",
+                            isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
+                            action: model.playPrevious
+                        )
+                    }
+                    playPause
+                    if !compact && !isCollapsed {
+                        TransportButton(
+                            systemImage: "forward.end.fill", size: 12,
+                            help: "Next chapter", label: "Next chapter",
+                            isEnabled: model.queue.hasNext,
+                            action: model.playNext
+                        )
+                    }
+                }
 
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: AttenSpacing.xs) {
+                if !isCollapsed {
+                    Rectangle().fill(AttenColor.separator.opacity(0.6))
+                        .frame(width: 1, height: 30)
+
+                    VStack(alignment: .leading, spacing: 0) {
                         Button { model.openNowPlaying() } label: {
-                            Text(title)
-                                .font(AttenTypography.control)
-                                .foregroundStyle(AttenColor.textPrimary)
-                                .lineLimit(1)
-                                // A chapter's title is distinguished by both ends
-                                // of it — "CHAPTER 9: …Ongoing Success" — so the
-                                // middle is what goes.
-                                .truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(title)
+                                    .font(AttenTypography.control.weight(.semibold))
+                                    .foregroundStyle(AttenColor.textPrimary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if !compact, !subtitle.isEmpty {
+                                    Text(subtitle)
+                                        .font(AttenTypography.caption)
+                                        .foregroundStyle(AttenColor.textMuted)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                }
+                            }
                         }
                         .buttonStyle(.plain)
                         .help("Open Now Playing")
                         .accessibilityLabel("Open Now Playing for \(title)")
-                        Spacer(minLength: AttenSpacing.xxs)
-                        Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
-                            .font(AttenTypography.timecode)
-                            .foregroundStyle(AttenColor.textSecondary)
+                        ScrubBar(
+                            position: model.playbackPosition,
+                            duration: model.playbackDuration,
+                            seek: model.seek(to:),
+                            neutral: true
+                        )
                     }
-                    progressLine
-                }
-                .frame(minWidth: 120, idealWidth: 210, maxWidth: 260)
+                    .frame(minWidth: compact ? 100 : 160, maxWidth: .infinity)
 
-                expandButton
+                    Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+                        .font(AttenTypography.timecode)
+                        .foregroundStyle(AttenColor.textMuted)
+                        .accessibilityLabel("\(PlaybackFormat.timeText(model.playbackRemaining)) remaining")
+
+                    expandButton
+                }
+                collapseButton
             }
-            .padding(.horizontal, AttenSpacing.sm)
-            .frame(height: AttenMetrics.compactPlayerHeight)
-            .attenElevated(
-                .raised,
-                radius: AttenRadius.player,
-                fill: AttenColor.surfaceElevated
-            )
+            .padding(.horizontal, isCollapsed ? 10 : (compact ? 12 : 18))
+            .frame(height: isCollapsed ? 48 : (compact ? 54 : 72))
+            .background(.regularMaterial)
+            .background(AttenColor.surface.opacity(0.8))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [AttenColor.textPrimary.opacity(0.16), AttenColor.separator.opacity(0.35)],
+                            startPoint: .top, endPoint: .bottom
+                        ),
+                        lineWidth: 0.75
+                    )
+            }
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.25 : 0.10), radius: 16, y: 6)
+            .environment(\.attenMutedControls, true)
+            .tint(PlayerColor.text)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Player: \(title), \(subtitle)")
@@ -98,10 +141,11 @@ struct GlobalPlayer: View {
     private var playPause: some View {
         Button(action: model.toggleActivePlayback) {
             Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(AttenColor.onAccent)
-                .frame(width: 28, height: 28)
-                .background(Circle().fill(AttenColor.accent))
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(AttenColor.textPrimary)
+                .frame(width: 40, height: 40)
+                .background(AttenColor.textPrimary.opacity(0.08), in: Circle())
+                .contentShape(Rectangle())
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
@@ -110,41 +154,37 @@ struct GlobalPlayer: View {
         .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
     }
 
-    /// A status line, not a control. Seeking is in the expanded panel, where
-    /// there is room to hit it.
-    private var progressLine: some View {
-        GeometryReader { geometry in
-            let fraction = model.playbackDuration > 0
-                ? min(1, max(0, model.playbackPosition / model.playbackDuration))
-                : 0
-            ZStack(alignment: .leading) {
-                Capsule().fill(AttenColor.progressTrack)
-                Capsule()
-                    .fill(AttenColor.progress)
-                    .frame(width: geometry.size.width * fraction)
+    private var collapseButton: some View {
+        Button {
+            isExpanded = false
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
+                isCollapsed.toggle()
             }
-        }
-        .frame(height: 3)
-        .accessibilityHidden(true)
-    }
-
-    private var expandButton: some View {
-        Button { isExpanded.toggle() } label: {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 11, weight: .semibold))
-                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+        } label: {
+            Image(systemName: isCollapsed ? "chevron.up" : "chevron.down")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(PlayerColor.text)
                 .frame(width: 26, height: 26)
-                .foregroundStyle(AttenColor.textSecondary)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .buttonStyle(AttenFeedbackButtonStyle())
-        .animation(
-            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
-            value: isExpanded
-        )
-        .help("Playback controls")
-        .accessibilityLabel("Playback controls")
+        .help(isCollapsed ? "Expand player" : "Collapse player")
+        .accessibilityLabel(isCollapsed ? "Expand player" : "Collapse player")
+    }
+
+    private var expandButton: some View {
+        Button { isExpanded.toggle() } label: {
+            Image(systemName: "list.bullet")
+                .font(.system(size: 14, weight: .regular))
+                .frame(width: 26, height: 26)
+                .foregroundStyle(PlayerColor.text)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .buttonStyle(AttenFeedbackButtonStyle())
+        .help("Queue and playback controls")
+        .accessibilityLabel("Queue and playback controls")
         .accessibilityHint("Opens seek, skip, speed and the queue")
         .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
             ExpandedPlayerPanel(model: model, close: { isExpanded = false })
@@ -174,20 +214,21 @@ struct ExpandedPlayerPanel: View {
         .padding(AttenSpacing.md)
         .frame(width: AttenMetrics.expandedPlayerWidth)
         .background(AttenColor.surface)
-        .background(.ultraThinMaterial)
+        .environment(\.attenMutedControls, true)
+        .tint(PlayerColor.text)
     }
 
     private var heading: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(model.playerTitle ?? "Nothing playing")
                 .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.textPrimary)
+                .foregroundStyle(AttenColor.textSecondary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             if let source = model.playerSubtitle {
                 Text(source)
                     .font(AttenTypography.metadata)
-                    .foregroundStyle(AttenColor.textSecondary)
+                    .foregroundStyle(PlayerColor.text)
                     .lineLimit(1)
             }
             if let position = model.queue.position {
@@ -204,7 +245,8 @@ struct ExpandedPlayerPanel: View {
             ScrubBar(
                 position: model.playbackPosition,
                 duration: model.playbackDuration,
-                seek: model.seek(to:)
+                seek: model.seek(to:),
+                neutral: true
             )
             HStack {
                 Text(PlaybackFormat.timeText(model.playbackPosition))
@@ -240,10 +282,9 @@ struct ExpandedPlayerPanel: View {
             Button(action: model.toggleActivePlayback) {
                 Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AttenColor.onAccent)
+                    .foregroundStyle(AttenColor.textSecondary)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(AttenColor.accent))
-                    .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
+                    .background(Circle().fill(AttenColor.surfaceElevated))
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
@@ -276,7 +317,7 @@ struct ExpandedPlayerPanel: View {
         HStack {
             Text("Speed")
                 .font(AttenTypography.control)
-                .foregroundStyle(AttenColor.textPrimary)
+                .foregroundStyle(AttenColor.textSecondary)
             Spacer()
             Picker("Speed", selection: rateBinding) {
                 ForEach(PlaybackFormat.rates, id: \.self) { rate in
@@ -350,14 +391,14 @@ private struct QueueRow: View {
                     .frame(width: 20, alignment: .trailing)
                 Text(track.title)
                     .font(AttenTypography.metadata)
-                    .foregroundStyle(isCurrent ? AttenColor.accent : AttenColor.textPrimary)
+                    .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
                 if isCurrent {
                     Image(systemName: "waveform")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(AttenColor.accent)
+                        .foregroundStyle(AttenColor.textSecondary)
                 }
             }
             .padding(.horizontal, AttenSpacing.xs)
@@ -374,7 +415,7 @@ private struct QueueRow: View {
     }
 
     private var rowBackground: Color {
-        if isCurrent { return AttenColor.accent.opacity(0.12) }
+        if isCurrent { return AttenColor.surfaceElevated }
         return isHovering ? AttenColor.surfaceMuted : .clear
     }
 }
@@ -397,7 +438,7 @@ private struct TransportButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: size, weight: .medium))
                 .frame(width: 32, height: 32)
-                .foregroundStyle(isHovering ? AttenColor.accentHover : AttenColor.textPrimary)
+                .foregroundStyle(PlayerColor.text)
                 .background(isHovering ? AttenColor.surfaceMuted : .clear)
                 .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
                 .contentShape(Rectangle())
@@ -424,6 +465,7 @@ struct ScrubBar: View {
     let position: TimeInterval
     let duration: TimeInterval
     let seek: (TimeInterval) -> Void
+    var neutral = false
 
     @State private var dragged: TimeInterval?
     @State private var isHovering = false
@@ -445,14 +487,14 @@ struct ScrubBar: View {
             let width = max(1, geometry.size.width)
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(AttenColor.progressTrack)
+                    .fill(neutral ? AttenColor.textMuted.opacity(0.24) : AttenColor.progressTrack)
                     .frame(height: thickness)
                 Capsule()
-                    .fill(AttenColor.progress)
+                    .fill(neutral ? AttenColor.textMuted : AttenColor.progress)
                     .frame(width: width * fraction, height: thickness)
                 if isActive {
                     Circle()
-                        .fill(AttenColor.progress)
+                        .fill(neutral ? AttenColor.textMuted : AttenColor.progress)
                         .frame(width: 11, height: 11)
                         .offset(x: width * fraction - 5.5)
                         .shadow(color: .black.opacity(0.22), radius: 2, y: 1)

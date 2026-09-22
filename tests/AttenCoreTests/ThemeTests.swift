@@ -181,30 +181,16 @@ final class ThemeTests: XCTestCase {
         }
     }
 
-    /// The chrome is achromatic. Selection, progress and the primary action
-    /// all use the accent roles, and a hue doing all three at once stops being
-    /// an accent and becomes the theme — which is what this asserts against.
-    func testTheChromeCarriesNoHue() {
-        let roles: [(String, AttenThemeColor)] = [
-            ("accent", AttenPalette.atten.accent),
-            ("accentHover", AttenPalette.atten.accentHover),
-            ("accentSecondary", AttenPalette.atten.accentSecondary),
-            ("onAccent", AttenPalette.atten.onAccent),
-        ]
-        for (name, role) in roles {
-            for (appearance, value) in [("light", role.light), ("dark", role.dark)] {
-                let (red, green, blue) = channels(value)
-                let spread = Int(max(red, green, blue)) - Int(min(red, green, blue))
-                // The palette is cool-neutral, not pure grey — `textPrimary`
-                // itself runs a 17-point cast — so the bound is set to catch a
-                // real hue rather than to forbid the cast. Brand cyan spreads
-                // 162 points; nothing neutral comes near this line.
-                XCTAssertLessThanOrEqual(
-                    spread, 22,
-                    "\(name) \(appearance) carries a hue; the chrome is meant to be neutral"
-                )
-            }
-        }
+    func testLibraryPaletteUsesTheSpecifiedGroundAndRestrainedAccent() {
+        let palette = AttenPalette.atten
+        XCTAssertEqual(palette.appBackground.dark, 0x06080F)
+        XCTAssertEqual(palette.sidebar.dark, palette.appBackground.dark)
+        XCTAssertEqual(palette.surface.dark, 0x0B0E14)
+        XCTAssertEqual(palette.surfaceElevated.dark, 0x121820)
+        XCTAssertEqual(palette.textPrimary.dark, 0xE8E9EB)
+        XCTAssertEqual(palette.textSecondary.dark, 0xA1A5AB)
+        XCTAssertEqual(palette.accent.dark, 0x2FBDF4)
+        XCTAssertEqual(palette.success.dark, 0x37DB8A)
     }
 
     /// The brand's colour survives as light rather than as paint, so it is
@@ -222,6 +208,10 @@ final class ThemeTests: XCTestCase {
             AttenPalette.atten.appBackground.dark,
             "the reading black and the app background have come apart"
         )
+    }
+
+    func testTheLightPageAndTheAppShareOneGround() {
+        XCTAssertEqual(AttenPalette.atten.readerBackground.light, AttenPalette.atten.appBackground.light)
     }
 
     /// Surfaces lift off that ground by a step, not a jump. Too much

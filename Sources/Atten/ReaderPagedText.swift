@@ -556,20 +556,8 @@ struct ReaderPagedText: View {
     /// The strip at the foot of the sheet that the page number sits on.
     private static let folioHeight: CGFloat = 18
 
-    /// How wide a page of text is allowed to get.
-    ///
-    /// A book is set to about sixty-five characters a line because that is how
-    /// far the eye can travel and still find the beginning of the next one.
-    /// A window is not a book and will happily be two and a half thousand
-    /// points wide: left to fill it, a spread on a large screen came out with
-    /// pages wider than the single-page view, which is the opposite of what
-    /// opening a second page is for. The measure grows with the type and with
-    /// nothing else.
-    ///
-    /// Set nearer eighty characters than sixty-five: sixty-five is the line a
-    /// printed page is cut to, and on a window that wide it left more empty
-    /// page than text. This is the long end of what still reads as a column.
-    private var measure: CGFloat { fontSize * 38 }
+    /// Single pages keep a bounded line length; spreads use both halves of the window.
+    private var measure: CGFloat { fontSize * 48 }
 
     /// The text box on a page. The sheet around it is this plus its margins.
     private func pageSize(in available: CGSize) -> CGSize {
@@ -583,7 +571,8 @@ struct ReaderPagedText: View {
         let sheetWidth = mode == .spread
             ? max(160, (usable - Self.gutter) / 2)
             : usable
-        let width = min(measure, max(120, sheetWidth - margin.side * 2))
+        let availableTextWidth = max(120, sheetWidth - margin.side * 2)
+        let width = mode == .spread ? availableTextWidth : min(measure, availableTextWidth)
         return CGSize(width: width.rounded(.down), height: height.rounded(.down))
     }
 

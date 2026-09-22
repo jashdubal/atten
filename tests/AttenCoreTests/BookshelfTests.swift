@@ -112,6 +112,30 @@ final class BookshelfTests: XCTestCase {
         XCTAssertTrue(shelf.filteredBooks(for: .audiobooks, query: older.title).isEmpty)
     }
 
+    func testLibrarySortUsesMetadataWithoutMutatingRecords() {
+        let first = BookRecord(
+            title: "Chapter 10", author: "Adams", format: .pdf,
+            sourcePath: "/book.pdf", chapters: [], voiceID: "af_heart",
+            speed: 1, audioFormat: .wav, addedAt: Date(timeIntervalSince1970: 1)
+        )
+        var second = first
+        second.id = UUID()
+        second.title = "Chapter 2"
+        second.author = nil
+        second.addedAt = Date(timeIntervalSince1970: 2)
+        let records = [first, second]
+
+        XCTAssertEqual(LibrarySort.recentlyAdded.sorted(records), [second, first])
+        XCTAssertEqual(LibrarySort.title.sorted(records), [second, first])
+        XCTAssertEqual(LibrarySort.author.sorted(records), [first, second])
+        XCTAssertEqual(records, [first, second])
+
+        // Equal sort keys must not reshuffle a shelf on each redraw.
+        second.title = first.title
+        let expected = [first, second].sorted { $0.id.uuidString < $1.id.uuidString }
+        XCTAssertEqual(LibrarySort.title.sorted([second, first]), expected)
+    }
+
     func testNarratingABookWritesOneAudioFilePerChapter() async throws {
         await shelf.importBook(
             from: try makePDF(pages: (1...25).map { "Page \($0)." }),
