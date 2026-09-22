@@ -580,12 +580,11 @@ struct BookReaderView: View {
             Button("Stop", systemImage: "stop.fill") { model.bookshelf.cancelNarration() }
                 .buttonStyle(AttenSecondaryButtonStyle())
         } else if playingChapterIndex == chapterIndex {
-            // Only for the chapter actually on screen: every other chapter
-            // still needs its own "Listen", or its offer to be narrated.
-            // The full player runs along the bottom of the window already, so
-            // the reader carries only what someone reaches for without looking
-            // away from the page.
-            readerTransport
+            // The chapter on screen is the one playing. The reader used to put
+            // its own skip/play/time row here, which meant two sets of
+            // controls for one sound; the transport lives in the top chrome
+            // now, so this only says which chapter you are hearing.
+            playingIndicator
         } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
             Button {
                 // Playing from here continues into the rest of the book, the
@@ -618,35 +617,23 @@ struct BookReaderView: View {
         }
     }
 
-    private var readerTransport: some View {
-        HStack(spacing: 2) {
-            ToolbarIconButton(title: "Back 10 seconds", systemImage: "gobackward.10") {
-                model.skip(by: -NowPlayingCenter.skipInterval)
-            }
-            Button(action: model.toggleActivePlayback) {
-                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(AttenColor.onAccent)
-                    .frame(width: 26, height: 26)
-                    .background(AttenColor.accent)
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help(model.isPlaying ? "Pause narration" : "Resume narration")
-            .accessibilityLabel(model.isPlaying ? "Pause narration" : "Resume narration")
-
-            ToolbarIconButton(title: "Forward 10 seconds", systemImage: "goforward.10") {
-                model.skip(by: NowPlayingCenter.skipInterval)
-            }
-
-            Text("-" + PlayerBar.timeText(model.playbackRemaining))
-                .font(AttenTypography.caption)
-                .monospacedDigit()
-                .foregroundStyle(AttenColor.textSecondary)
-                .padding(.leading, AttenSpacing.xxs)
-                .accessibilityLabel("Time left in this chapter")
-                .accessibilityValue(PlayerBar.timeText(model.playbackRemaining))
+    /// Not a control. The chapter on screen is the one playing, and the
+    /// transport that acts on it is in the top chrome.
+    private var playingIndicator: some View {
+        HStack(spacing: AttenSpacing.xxs) {
+            Image(systemName: "waveform")
+                .font(.system(size: 11, weight: .semibold))
+            Text("Playing")
+                .font(AttenTypography.control)
         }
+        .foregroundStyle(AttenColor.accent)
+        .padding(.horizontal, AttenSpacing.sm)
+        .frame(height: 30)
+        .background(AttenColor.accent.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("This chapter is playing")
+        .accessibilityHint("Pause or seek from the player in the top chrome")
     }
 
     // MARK: - Where the reader is

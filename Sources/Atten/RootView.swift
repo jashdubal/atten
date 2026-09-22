@@ -76,12 +76,7 @@ struct RootView: View {
             }
             .onAttenScreenTitle { screenTitle = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
-                TopChrome(title: screenTitle)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if model.playerTitle != nil {
-                    PlayerBar(model: model)
-                }
+                TopChrome(model: model, title: screenTitle)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -500,12 +495,19 @@ extension View {
 /// A screen that has not migrated says nothing, and this collapses to nothing
 /// rather than drawing an empty bar above its own header.
 private struct TopChrome: View {
+    @Bindable var model: AppModel
     let title: AttenScreenTitle?
 
+    /// Either a screen that named itself or something playing is enough to
+    /// draw the row. Neither, and there is no bar at all — a reader with no
+    /// narration loses no page to chrome it is not using.
+    private var isPresent: Bool { title != nil || model.playerTitle != nil }
+
     var body: some View {
-        if let title {
-            HStack(alignment: .firstTextBaseline, spacing: AttenSpacing.sm) {
+        if isPresent {
+            HStack(alignment: .center, spacing: AttenSpacing.sm) {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let title {
                     Text(title.title)
                         .font(title.isProminent
                             ? AttenTypography.displayTitle
@@ -521,14 +523,12 @@ private struct TopChrome: View {
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                     }
+                    }
                 }
 
                 Spacer(minLength: AttenSpacing.md)
 
-                // Reserved for the global compact player (#26). The slot is
-                // held open here rather than in the player's own file so that
-                // adding it is one edit in one place.
-                PlayerChromeSlot()
+                GlobalPlayer(model: model)
             }
             .padding(.horizontal, AttenSpacing.page)
             .padding(.top, AttenSpacing.lg)
@@ -536,18 +536,6 @@ private struct TopChrome: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(AttenColor.appBackground)
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("\(title.title) header")
         }
-    }
-}
-
-/// Where the global compact player goes.
-///
-/// Empty until #26 moves playback out of the bottom `safeAreaInset`. Keeping
-/// the seam here means that change is an edit to this one view rather than a
-/// second team reopening `RootView`'s layout.
-private struct PlayerChromeSlot: View {
-    var body: some View {
-        EmptyView()
     }
 }
