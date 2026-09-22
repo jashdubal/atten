@@ -225,14 +225,13 @@ struct BookDetailView: View {
             }
 
             if let progress {
-                VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-                    ProgressView(value: progress.fraction)
-                        .tint(AttenColor.accent)
-                    Text("Chapter \(progress.completed + 1) of \(progress.total) — \(progress.chapterTitle)")
-                        .font(AttenTypography.caption)
-                        .foregroundStyle(AttenColor.textSecondary)
-                        .lineLimit(1)
-                }
+                AttenProgressStatus(
+                    title: "Narrating \(book.title)",
+                    detail: "Chapter \(progress.completed + 1) of \(progress.total): \(progress.chapterTitle)",
+                    phase: .active,
+                    progress: progress.total > 0 ? progress.fraction : nil,
+                    progressLabel: "\(progress.completed) of \(progress.total) chapters"
+                )
             } else {
                 NarrationMeter(
                     narrated: narratedCount,

@@ -2,17 +2,36 @@ import Foundation
 
 public struct ModelDownloadProgress: Equatable, Sendable {
     public var percent: Int
+    /// Whether the backend supplied a real percentage for this update. A
+    /// zero percent value can be a legitimate start, so the value itself is
+    /// not enough to decide whether progress is determinate.
+    public var hasPercentage: Bool
     public var status: String
     public var speed: String
     public var eta: String
     public var sizeText: String
 
-    public init(percent: Int = 0, status: String = "", speed: String = "", eta: String = "", sizeText: String = "") {
+    public init(
+        percent: Int = 0,
+        status: String = "",
+        speed: String = "",
+        eta: String = "",
+        sizeText: String = "",
+        hasPercentage: Bool? = nil
+    ) {
         self.percent = percent
+        self.hasPercentage = hasPercentage ?? (percent > 0)
         self.status = status
         self.speed = speed
         self.eta = eta
         self.sizeText = sizeText
+    }
+
+    /// A value suitable for a determinate progress view, or nil when the
+    /// backend did not report a usable percentage.
+    public var fraction: Double? {
+        guard hasPercentage, (0...100).contains(percent) else { return nil }
+        return Double(percent) / 100
     }
 }
 
@@ -92,7 +111,8 @@ public final class ProcessModelDownloader: ModelDownloading, @unchecked Sendable
                         status: event.status ?? "",
                         speed: event.speed ?? "",
                         eta: event.eta ?? "",
-                        sizeText: event.sizeText ?? ""
+                        sizeText: event.sizeText ?? "",
+                        hasPercentage: event.percent != nil
                     ))
                 case "error":
                     lastError = event.message
