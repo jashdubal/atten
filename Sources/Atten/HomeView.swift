@@ -128,10 +128,6 @@ private struct ContinueReadingCard: View {
             .padding(AttenSpacing.md)
             .background(isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.card)
-                    .stroke(AttenColor.separator, lineWidth: 1)
-            }
             .contentShape(Rectangle())
             // Without this the focus ring hugs the label's intrinsic width and
             // stops short of the card it is supposed to be outlining.
@@ -194,10 +190,6 @@ private struct HomeRouteCard: View {
             .padding(AttenSpacing.md)
             .background(isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.card)
-                    .stroke(AttenColor.separator, lineWidth: 1)
-            }
             .contentShape(Rectangle())
             // Without this the focus ring hugs the label's intrinsic width and
             // stops short of the card it is supposed to be outlining.

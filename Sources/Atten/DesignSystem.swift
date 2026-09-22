@@ -197,6 +197,38 @@ struct AttenBackdrop: View {
     }
 }
 
+/// A soft brand glow, for the top of a screen that wants some depth behind it.
+///
+/// Lifted from the landing page, where the same cyan-into-violet ellipse sits
+/// behind the app preview. It is very low alpha on purpose: this is
+/// atmosphere, not decoration, and it must never compete with text sitting on
+/// top of it. Reduce Motion does not apply — nothing here moves — but it is
+/// skipped in the light appearance, where a wash over white reads as a stain
+/// rather than as depth.
+struct AttenAtmosphere: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if colorScheme == .dark {
+            EllipticalGradient(
+                colors: [
+                    Color(hex: 0x5DDBFF).opacity(0.10),
+                    Color(hex: 0x7E3CFF).opacity(0.07),
+                    .clear,
+                ],
+                center: .topLeading,
+                startRadiusFraction: 0,
+                endRadiusFraction: 0.75
+            )
+            .frame(height: 420)
+            .frame(maxWidth: .infinity, alignment: .top)
+            .blur(radius: 40)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
 struct AttenSurfaceModifier: ViewModifier {
     var padding: CGFloat
     var elevated: Bool
@@ -206,13 +238,6 @@ struct AttenSurfaceModifier: ViewModifier {
             .padding(padding)
             .background(elevated ? AttenColor.surfaceElevated : AttenColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
-            // A hairline at a fraction of its weight rather than a drawn box.
-            // The surface is already a step off the ground; an opaque border
-            // on top of that reads as a panel pasted onto the window.
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.card)
-                    .strokeBorder(AttenColor.separator.opacity(0.6), lineWidth: 0.5)
-            }
     }
 }
 
@@ -562,7 +587,7 @@ struct StatusIndicator: View {
                 .fill(isAvailable ? AttenColor.success : AttenColor.destructive)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title.uppercased()).font(AttenTypography.metadata.weight(.semibold))
+                Text(title).font(AttenTypography.metadata.weight(.medium))
                 Text(detail)
                     .font(AttenTypography.caption)
                     .foregroundStyle(AttenColor.textSecondary)
