@@ -87,8 +87,7 @@ struct GlobalPlayer: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(AttenColor.onAccent)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(AttenGradient.brand))
-                .shadow(color: Color(hex: 0x5DDBFF).opacity(0.35), radius: 8)
+                .background(Circle().fill(AttenColor.accent))
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
@@ -106,7 +105,7 @@ struct GlobalPlayer: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(AttenColor.progressTrack)
                 Capsule()
-                    .fill(AttenGradient.brandAcross)
+                    .fill(AttenColor.progress)
                     .frame(width: geometry.size.width * fraction)
             }
         }
@@ -221,8 +220,8 @@ struct ExpandedPlayerPanel: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(AttenColor.onAccent)
                     .frame(width: 44, height: 44)
-                    .background(Circle().fill(AttenGradient.brand))
-                    .shadow(color: Color(hex: 0x5DDBFF).opacity(0.4), radius: 14, y: 3)
+                    .background(Circle().fill(AttenColor.accent))
+                    .shadow(color: .black.opacity(0.35), radius: 10, y: 3)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
@@ -417,7 +416,7 @@ struct ScrubBar: View {
                     .fill(AttenColor.progressTrack)
                     .frame(height: thickness)
                 Capsule()
-                    .fill(AttenGradient.brandAcross)
+                    .fill(AttenColor.progress)
                     .frame(width: width * fraction, height: thickness)
                 if isActive {
                     Circle()
