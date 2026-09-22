@@ -4,10 +4,10 @@ import SwiftUI
 
 /// The reader.
 ///
-/// Contents, bookmarks, and search on the left; the book on the right; where
-/// you are and what you can do with it along the bottom. A PDF keeps its own
-/// typesetting because that is the book; an EPUB has none, so Atten sets the
-/// text it extracted — the same text it reads aloud — on a page of its own.
+/// A centered reading canvas with contents, bookmarks and search in collapsible
+/// tools. A PDF keeps its own typesetting because that is the book; an EPUB has
+/// none, so Atten sets the text it extracted — the same text it reads aloud —
+/// on a page of its own.
 struct BookReaderView: View {
     @Bindable var model: AppModel
     let book: BookRecord
@@ -39,6 +39,7 @@ struct BookReaderView: View {
     @State private var isSearching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var panelTab = ReaderPanelTab.contents
+    @State private var isToolsPresented = false
     @State private var isChromeHovered = false
     @State private var isShowingAppearance = false
     /// The brightness the page is drawn at right now. Held here as well as in
@@ -59,55 +60,28 @@ struct BookReaderView: View {
     private var isFocusMode: Bool { model.isReaderFocused }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if !isFocusMode {
-                ReaderSidePanel(
-                    book: book,
-                    chapterIndex: chapterIndex,
-                    pagination: pagination,
-                    currentLocation: currentLocation,
-                    tab: $panelTab,
-                    query: $query,
-                    hits: hits,
-                    isSearching: isSearching,
-                    selectedHitID: selectedHitID,
-                    playingChapterIndex: playingChapterIndex,
-                    selectChapter: { go(toChapter: $0) },
-                    selectHit: select(_:),
-                    selectBookmark: { go(
-                        toChapter: $0.location.chapterIndex,
-                        paragraph: $0.location.paragraphIndex,
-                        page: $0.location.pageIndex
-                    ) },
-                    removeBookmark: { model.bookshelf.removeBookmark($0.id, from: book.id) },
-                    isSearchFocused: $isSearchFocused
+        VStack(spacing: 0) {
+            progressLine
+            readerCanvas
+            Divider().overlay(AttenColor.separator)
+            controls
+                .opacity(isFocusMode && !isChromeHovered ? 0.35 : 1)
+                .animation(
+                    reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
+                    value: isChromeHovered
                 )
-                .transition(.move(edge: .leading).combined(with: .opacity))
-                Divider().overlay(AttenColor.separator)
-            }
-
-            VStack(spacing: 0) {
-                progressLine
-                page
-                Divider().overlay(AttenColor.separator)
-                controls
-                    .opacity(isFocusMode && !isChromeHovered ? 0.35 : 1)
-                    .animation(
-                        reduceMotion ? nil : .easeOut(duration: AttenMotion.standard),
-                        value: isChromeHovered
-                    )
-                    .onHover { isChromeHovered = $0 }
-            }
+                .onHover { isChromeHovered = $0 }
         }
         .background(AttenColor.appBackground)
-        // The side panel's transition needs an animation of its own: focus mode
-        // is decided on the model now, and a model has no business animating.
-        .animation(
-            reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard),
-            value: isFocusMode
-        )
         .navigationTitle(book.title)
-        .onExitCommand { model.setReaderFocus(false) }
+        .attenScreenTitle(book.title)
+        .onExitCommand {
+            if isToolsPresented {
+                closeTools()
+            } else {
+                model.setReaderFocus(false)
+            }
+        }
         .task(id: book.id) { restore() }
         .onChange(of: query) { _, value in search(value) }
         // Scrolling reports where it is through the position binding rather
@@ -120,10 +94,72 @@ struct BookReaderView: View {
         .onDisappear {
             persistLocation()
             searchTask?.cancel()
+            isToolsPresented = false
             // Idempotent, and the window is put back a run loop later, so
             // closing the book never fights the transition that closed it.
             model.setReaderFocus(false)
         }
+    }
+
+    /// The page gets the whole reader width when the tools are closed. On a
+    /// wide display it is capped so a PDF or a spread does not become a tiny
+    /// strip of content at the far edges, and the EPUB readers remain centered
+    /// in the same calm measure.
+    private var readerCanvas: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Color(hex: palette.background)
+                page
+                    .frame(maxWidth: 1280)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if isToolsPresented {
+                    toolsOverlay(availableWidth: geometry.size.width)
+                }
+            }
+        }
+    }
+
+    private func toolsOverlay(availableWidth: CGFloat) -> some View {
+        let panelWidth = ReaderToolsLayout.panelWidth(for: availableWidth)
+        return ZStack(alignment: .leading) {
+            AttenColor.scrim
+                .opacity(0.22)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { closeTools() }
+
+            ReaderSidePanel(
+                book: book,
+                chapterIndex: chapterIndex,
+                pagination: pagination,
+                currentLocation: currentLocation,
+                tab: $panelTab,
+                query: $query,
+                hits: hits,
+                isSearching: isSearching,
+                selectedHitID: selectedHitID,
+                playingChapterIndex: playingChapterIndex,
+                selectChapter: { go(toChapter: $0) },
+                selectHit: select(_:),
+                selectBookmark: { go(
+                    toChapter: $0.location.chapterIndex,
+                    paragraph: $0.location.paragraphIndex,
+                    page: $0.location.pageIndex
+                ) },
+                removeBookmark: { model.bookshelf.removeBookmark($0.id, from: book.id) },
+                onClose: closeTools,
+                isSearchFocused: $isSearchFocused
+            )
+            .frame(width: panelWidth)
+            .padding(.leading, AttenSpacing.sm)
+            .padding(.vertical, AttenSpacing.sm)
+            .transition(.move(edge: .leading).combined(with: .opacity))
+        }
+        .animation(
+            AttenMotion.animation(AttenMotion.panel, reduceMotion: reduceMotion),
+            value: isToolsPresented
+        )
     }
 
     // MARK: - The page
@@ -262,48 +298,33 @@ struct BookReaderView: View {
     // MARK: - Controls
 
     private var controls: some View {
+        ViewThatFits(in: .horizontal) {
+            fullControls
+            compactControls
+        }
+        .padding(.horizontal, AttenSpacing.md)
+        .padding(.vertical, AttenSpacing.xs)
+        .background(AttenColor.surface)
+        .overlay {
+            // Keyboard equivalents remain available even when the compact
+            // layout moves their visible counterparts behind a menu.
+            readerKeyboardShortcuts
+        }
+        .popover(isPresented: $isShowingAppearance, arrowEdge: .bottom) {
+            appearancePanel
+                .padding(AttenSpacing.md)
+                .frame(width: 280)
+        }
+    }
+
+    private var fullControls: some View {
         HStack(spacing: AttenSpacing.sm) {
             AttenBackButton(title: book.title) { model.goBack() }
 
             Divider().frame(height: 18).overlay(AttenColor.separator)
 
-            // Pages, not chapters. A chapter is still reachable — from the
-            // contents, or with ⌘⌥ — but the thing under the reader's hand
-            // turns one page, which is what a reader reaches for.
-            Button { turnPage(.backward) } label: {
-                Image(systemName: "chevron.left")
-            }
-            .buttonStyle(AttenSecondaryButtonStyle())
-            .disabled(!canTurnBack)
-            // Given up while the caret is in the search field, where the arrow
-            // keys mean what they mean in every other text field.
-            .keyboardShortcut(isSearchFocused ? nil : KeyboardShortcut(.leftArrow, modifiers: []))
-            .help("Previous \(turnLabel) (←)")
-            .accessibilityLabel("Previous \(turnLabel)")
-
-            Button { turnPage(.forward) } label: {
-                Image(systemName: "chevron.right")
-            }
-            .buttonStyle(AttenSecondaryButtonStyle())
-            .disabled(!canTurnForward)
-            .keyboardShortcut(isSearchFocused ? nil : KeyboardShortcut(.rightArrow, modifiers: []))
-            .help("Next \(turnLabel) (→)")
-            .accessibilityLabel("Next \(turnLabel)")
-
-            // Whole chapters keep their own keys, out of the way of the ones
-            // that turn pages.
-            Button("Previous chapter") { go(toChapter: chapterIndex - 1) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-                .disabled(chapterIndex == 0)
-                .hidden()
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
-            Button("Next chapter") { go(toChapter: chapterIndex + 1) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-                .disabled(chapterIndex >= book.chapters.count - 1)
-                .hidden()
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
+            pageTurnButton(.backward)
+            pageTurnButton(.forward)
 
             narrationButton
 
@@ -319,43 +340,242 @@ struct BookReaderView: View {
             Spacer(minLength: 0)
 
             zoomControls
-
-            textSizeShortcuts
-
-            ToolbarIconButton(title: "Find in book (⌘F)", systemImage: "magnifyingglass") {
-                model.setReaderFocus(false)
-                isSearchFocused = true
-            }
-            .keyboardShortcut("f", modifiers: .command)
-
             appearanceButton
+            readerToolsButton
 
-            Button(action: toggleBookmark) {
-                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
-                    .font(AttenTypography.control)
-                    .frame(width: 30, height: 30)
-                    .foregroundStyle(
-                        isBookmarked ? AttenColor.accentSecondary : AttenColor.textPrimary
-                    )
+            bookmarkButton
+            focusButton
+        }
+    }
+
+    /// At a narrow width the reader keeps the thing being read and the page
+    /// turn/readout visible, while grouping secondary actions behind labeled
+    /// menus. This avoids a horizontally clipped toolbar without hiding any
+    /// keyboard equivalent or VoiceOver action.
+    private var compactControls: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            ToolbarIconButton(title: "Back to library", systemImage: "chevron.backward") {
+                model.goBack()
             }
-            .buttonStyle(.plain)
-            .keyboardShortcut("d", modifiers: .command)
-            .help(isBookmarked ? "Remove bookmark (⌘D)" : "Bookmark this page (⌘D)")
-            .accessibilityLabel(isBookmarked ? "Remove bookmark" : "Bookmark this page")
+            compactNavigationMenu
+            Spacer(minLength: AttenSpacing.xs)
+            Text(readout)
+                .font(AttenTypography.caption)
+                .monospacedDigit()
+                .foregroundStyle(AttenColor.textSecondary)
+                .lineLimit(1)
+                .accessibilityLabel(spokenReadout)
+            Spacer(minLength: AttenSpacing.xs)
+            readerToolsButton
+            compactMoreMenu
+        }
+    }
 
-            ToolbarIconButton(
-                title: isFocusMode ? "Leave focus mode (⌃⌘F)" : "Focus mode (⌃⌘F)",
+    @ViewBuilder private var compactNavigationMenu: some View {
+        Menu {
+            Button("Previous \(turnLabel)", systemImage: "chevron.left") {
+                turnPage(.backward)
+            }
+            .disabled(!canTurnBack)
+            Button("Next \(turnLabel)", systemImage: "chevron.right") {
+                turnPage(.forward)
+            }
+            .disabled(!canTurnForward)
+            Divider()
+            Button("Previous chapter", systemImage: "arrow.left.to.line") {
+                go(toChapter: chapterIndex - 1)
+            }
+            .disabled(chapterIndex == 0)
+            Button("Next chapter", systemImage: "arrow.right.to.line") {
+                go(toChapter: chapterIndex + 1)
+            }
+            .disabled(chapterIndex >= book.chapters.count - 1)
+        } label: {
+            Image(systemName: "chevron.left.chevron.right")
+                .font(AttenTypography.control)
+                .frame(width: 30, height: 30)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("Reader navigation")
+        .accessibilityLabel("Reader navigation")
+    }
+
+    private var compactMoreMenu: some View {
+        Menu {
+            if book.chapters.indices.contains(chapterIndex) {
+                Menu("Narration", systemImage: "waveform") {
+                    narrationMenuItems
+                }
+            }
+            Button(
+                isBookmarked ? "Remove bookmark" : "Bookmark this page",
+                systemImage: isBookmarked ? "bookmark.fill" : "bookmark"
+            ) {
+                toggleBookmark()
+            }
+            Divider()
+            Button("Page appearance", systemImage: "textformat.size") {
+                isShowingAppearance = true
+            }
+            Button(
+                isFocusMode ? "Leave focus mode" : "Focus mode",
                 systemImage: isFocusMode
                     ? "arrow.down.right.and.arrow.up.left"
                     : "arrow.up.left.and.arrow.down.right"
             ) {
                 model.setReaderFocus(!isFocusMode)
             }
-            .keyboardShortcut("f", modifiers: [.command, .control])
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(AttenTypography.control)
+                .frame(width: 30, height: 30)
         }
-        .padding(.horizontal, AttenSpacing.md)
-        .padding(.vertical, AttenSpacing.xs)
-        .background(AttenColor.surface)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .help("More reader tools")
+        .accessibilityLabel("More reader tools")
+    }
+
+    @ViewBuilder private var narrationMenuItems: some View {
+        if model.bookshelf.progress?.bookID == book.id {
+            Button("Stop narration", systemImage: "stop.fill") {
+                model.bookshelf.cancelNarration()
+            }
+        } else if playingChapterIndex == chapterIndex {
+            Button(model.isPlaying ? "Pause narration" : "Resume narration", systemImage: model.isPlaying ? "pause.fill" : "play.fill") {
+                model.toggleActivePlayback()
+            }
+        } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
+            Button("Play chapter", systemImage: "play.fill") {
+                let tracks = book.narrationTracks
+                model.play(
+                    tracks: tracks,
+                    startingAt: tracks.firstIndex { $0.url == url } ?? 0
+                )
+            }
+        } else {
+            Button("Narrate this chapter", systemImage: "waveform") {
+                model.bookshelf.narrate(
+                    book.id,
+                    chapters: [chapterIndex],
+                    useMPS: model.settings.useMPS
+                )
+            }
+            .disabled(model.bookshelf.isNarrating)
+        }
+    }
+
+    private func pageTurnButton(_ direction: ReaderTurn) -> some View {
+        Button { turnPage(direction) } label: {
+            Image(systemName: direction == .backward ? "chevron.left" : "chevron.right")
+        }
+        .buttonStyle(AttenSecondaryButtonStyle())
+        .disabled(direction == .backward ? !canTurnBack : !canTurnForward)
+        // Given up while the caret is in the search field, where the arrow
+        // keys mean what they mean in every other text field.
+        .help("\(direction == .backward ? "Previous" : "Next") \(turnLabel)")
+        .accessibilityLabel("\(direction == .backward ? "Previous" : "Next") \(turnLabel)")
+    }
+
+    private var readerToolsButton: some View {
+        ToolbarIconButton(
+            title: isToolsPresented ? "Hide reader tools" : "Show reader tools",
+            systemImage: isToolsPresented ? "sidebar.leading" : "sidebar.leading"
+        ) {
+            toggleTools()
+        }
+        .accessibilityValue(isToolsPresented ? "Expanded" : "Collapsed")
+        .accessibilityHint("Shows search, contents and bookmarks")
+    }
+
+    private func toggleTools() {
+        isToolsPresented.toggle()
+        if !isToolsPresented { isSearchFocused = false }
+    }
+
+    private func closeTools() {
+        isToolsPresented = false
+        isSearchFocused = false
+    }
+
+    private var bookmarkButton: some View {
+        Button(action: toggleBookmark) {
+            Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                .font(AttenTypography.control)
+                .frame(width: 30, height: 30)
+                .foregroundStyle(
+                    isBookmarked ? AttenColor.accentSecondary : AttenColor.textPrimary
+                )
+        }
+        .buttonStyle(.plain)
+        .help(isBookmarked ? "Remove bookmark (⌘D)" : "Bookmark this page (⌘D)")
+        .accessibilityLabel(isBookmarked ? "Remove bookmark" : "Bookmark this page")
+    }
+
+    private var focusButton: some View {
+        ToolbarIconButton(
+            title: isFocusMode ? "Leave focus mode (⌃⌘F)" : "Focus mode (⌃⌘F)",
+            systemImage: isFocusMode
+                ? "arrow.down.right.and.arrow.up.left"
+                : "arrow.up.left.and.arrow.down.right"
+        ) {
+            model.setReaderFocus(!isFocusMode)
+        }
+    }
+
+    /// Keep shortcuts independent from the responsive toolbar. A shortcut
+    /// should not disappear merely because a narrow window moved its visible
+    /// button into a menu.
+    @ViewBuilder private var readerKeyboardShortcuts: some View {
+        textSizeShortcuts
+        Button("Previous \(turnLabel)") { turnPage(.backward) }
+            .keyboardShortcut(
+                isSearchFocused ? nil : KeyboardShortcut(.leftArrow, modifiers: [])
+            )
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        Button("Next \(turnLabel)") { turnPage(.forward) }
+            .keyboardShortcut(
+                isSearchFocused ? nil : KeyboardShortcut(.rightArrow, modifiers: [])
+            )
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        Button("Previous chapter") { go(toChapter: chapterIndex - 1) }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        Button("Next chapter") { go(toChapter: chapterIndex + 1) }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        Button("Bookmark this page") { toggleBookmark() }
+            .keyboardShortcut("d", modifiers: .command)
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        Button("Toggle focus mode") { model.setReaderFocus(!isFocusMode) }
+            .keyboardShortcut("f", modifiers: [.command, .control])
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        Button("Find in book") {
+            isToolsPresented = true
+            isSearchFocused = true
+        }
+        .keyboardShortcut("f", modifiers: .command)
+        .hidden()
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+        Button("Fit page") { zoom(.fit) }
+            .keyboardShortcut("0", modifiers: .command)
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 
     private var playingChapterIndex: Int? {
@@ -377,11 +597,6 @@ struct BookReaderView: View {
     private var appearanceButton: some View {
         ToolbarIconButton(title: "Page appearance and layout", systemImage: "textformat.size") {
             isShowingAppearance.toggle()
-        }
-        .popover(isPresented: $isShowingAppearance, arrowEdge: .bottom) {
-            appearancePanel
-                .padding(AttenSpacing.md)
-                .frame(width: 280)
         }
         .accessibilityLabel("Page appearance")
         .accessibilityValue(viewMode.displayName)
