@@ -264,7 +264,8 @@ struct RootView: View {
             .padding(.horizontal, AttenSpacing.md)
             .padding(.vertical, AttenSpacing.sm)
         }
-        .background(AttenColor.sidebar)
+        .background(AttenColor.sidebar.opacity(0.6))
+        .background(.ultraThinMaterial)
     }
 
     /// How Atten looks, which is now one decision rather than two: there is a
@@ -399,11 +400,20 @@ private struct SidebarNavigationRow: View {
             }
             .foregroundStyle(isSelected ? AttenColor.accent : AttenColor.textPrimary)
             .padding(.horizontal, AttenSpacing.sm)
-            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
             .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
+            .overlay(alignment: .leading) {
+                if isSelected {
+                    Capsule()
+                        .fill(AttenGradient.brand)
+                        .frame(width: 2.5, height: 16)
+                        .offset(x: -6)
+                        .shadow(color: Color(hex: 0x5DDBFF).opacity(0.7), radius: 5)
+                }
+            }
             .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control)
+                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
             }
             .contentShape(Rectangle())
@@ -422,7 +432,8 @@ private struct SidebarNavigationRow: View {
     /// that sits beside a page of prose all day should do the same. Only the
     /// pointer gets a fill, and barely.
     private var background: Color {
-        isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
+        if isSelected { return AttenColor.accent.opacity(0.07) }
+        return isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
     }
 
     /// Only focus draws an edge. Selection is carried by the fill and the
@@ -557,7 +568,12 @@ private struct TopChrome: View {
             .padding(.top, AttenSpacing.lg)
             .padding(.bottom, AttenSpacing.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AttenColor.appBackground)
+            .background(.ultraThinMaterial)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(AttenColor.separator.opacity(0.5))
+                    .frame(height: 0.5)
+            }
             .accessibilityElement(children: .contain)
         }
     }
