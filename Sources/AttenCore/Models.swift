@@ -248,6 +248,11 @@ public struct AppSettings: Codable, Equatable, Sendable {
     /// own. Below 1 the text is carried towards the page's ground, for reading
     /// at night without the glare of full contrast.
     public var readerTextBrightness: Double
+    /// Reading pace learned per voice, from real narrations (`ListenEstimator`).
+    public var listenWordsPerMinuteByVoice: [String: Double]
+    /// Generation seconds per second of audio, averaged across every voice
+    /// (`ListenEstimator`).
+    public var listenRealTimeFactor: Double
 
     public init(
         appearance: AppearancePreference = .system,
@@ -263,7 +268,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
         readerViewMode: ReaderViewMode = .page,
         readerJustifiesText: Bool = true,
         readerFont: ReaderFont = .default,
-        readerTextBrightness: Double = 1.0
+        readerTextBrightness: Double = 1.0,
+        listenWordsPerMinuteByVoice: [String: Double] = [:],
+        listenRealTimeFactor: Double = ListenEstimator.defaultRealTimeFactor
     ) {
         self.appearance = appearance
         self.outputDirectory = outputDirectory
@@ -279,6 +286,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         self.readerJustifiesText = readerJustifiesText
         self.readerFont = readerFont
         self.readerTextBrightness = readerTextBrightness
+        self.listenWordsPerMinuteByVoice = listenWordsPerMinuteByVoice
+        self.listenRealTimeFactor = listenRealTimeFactor
     }
 
     // Only the export folder is required, because no default for it exists
@@ -327,5 +336,22 @@ public struct AppSettings: Codable, Equatable, Sendable {
         readerTextBrightness = (try container
             .decodeIfPresent(Double.self, forKey: .readerTextBrightness))
             .map { min(max(ReaderPagePalette.inkBrightnessRange.lowerBound, $0), ReaderPagePalette.inkBrightnessRange.upperBound) } ?? 1.0
+        listenWordsPerMinuteByVoice = try container.decodeIfPresent(
+            [String: Double].self,
+            forKey: .listenWordsPerMinuteByVoice
+        ) ?? [:]
+        listenRealTimeFactor = try container.decodeIfPresent(Double.self, forKey: .listenRealTimeFactor)
+            ?? ListenEstimator.defaultRealTimeFactor
+    }
+
+    /// `ListenEstimator` reads and writes its calibration here rather than
+    /// keeping its own copy, so a session that hears a chapter generate
+    /// remembers the pace the next time Atten launches.
+    public var listenEstimator: ListenEstimator {
+        get { ListenEstimator(calibratedWordsPerMinute: listenWordsPerMinuteByVoice, realTimeFactor: listenRealTimeFactor) }
+        set {
+            listenWordsPerMinuteByVoice = newValue.calibratedWordsPerMinute
+            listenRealTimeFactor = newValue.realTimeFactor
+        }
     }
 }
