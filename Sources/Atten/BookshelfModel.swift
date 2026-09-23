@@ -1,3 +1,4 @@
+import AVFoundation
 import AttenCore
 import Foundation
 import Observation
@@ -75,8 +76,10 @@ final class BookshelfModel {
         let chapterTitle: String
         let completed: Int
         let total: Int
+        var eta: String = "Estimating time remaining…"
+        var isCombining: Bool = false
 
-        var fraction: Double { total > 0 ? Double(completed) / Double(total) : 0 }
+        var fraction: Double { total > 0 ? min(0.95, Double(completed) / Double(total) * 0.95) : 0 }
     }
 
     private(set) var books: [BookRecord] = []
@@ -101,14 +104,24 @@ final class BookshelfModel {
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let store: BookLibraryStore
+    let synthesis: SynthesisCoordinator
     let covers: BookCoverStore
+    typealias AudioAssembler = @Sendable ([URL], URL) throws -> BookAudioAssembler.Result
+    @ObservationIgnored private let assembleAudio: AudioAssembler
     @ObservationIgnored private let generator: any TTSGenerating
     @ObservationIgnored private var narrationTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingSave: Task<Void, Error>?
     /// Answers with the model a voice still needs, or nil when it can speak
     /// now. Only the app model knows which models are installed.
     @ObservationIgnored var missingModelID: (String) -> String? = { _ in nil }
+    @ObservationIgnored var isAudioInUse: (URL) -> Bool = { _ in false }
+    @ObservationIgnored private var retiredAudio: Set<URL> = []
 
-    init(directories: AppDirectories, generator: any TTSGenerating) {
+    init(directories: AppDirectories, generator: any TTSGenerating,
+         synthesis: SynthesisCoordinator = SynthesisCoordinator(),
+         assembler: @escaping AudioAssembler = { try BookAudioAssembler.assemble($0, in: $1) }) {
+        self.assembleAudio = assembler
+        self.synthesis = synthesis
         self.directories = directories
         self.store = BookLibraryStore(fileURL: directories.booksFile)
         self.covers = BookCoverStore(
@@ -158,7 +171,7 @@ final class BookshelfModel {
     }
 
     func isFullyNarrated(_ book: BookRecord) -> Bool {
-        !book.chapters.isEmpty && narratedCount(of: book) == book.chapters.count
+        book.hasBookAudio && !book.needsPreparation
     }
 
     /// Recounts from the file system. Called when the shelf changes, and again
@@ -173,8 +186,45 @@ final class BookshelfModel {
 
     func load() async {
         do {
-            books = try await store.load().sorted { $0.addedAt > $1.addedAt }
+            let loaded = try await store.load().sorted { $0.addedAt > $1.addedAt }
+            books = await Task.detached(priority: .utility) {
+                loaded.map { original in
+                    var book = original
+                    let urls = Set(book.chapters.compactMap(\.audioURL) + [book.audioURL].compactMap { $0 })
+                    var invalid: Set<URL> = []
+                    for url in urls {
+                        guard let audio = try? AVAudioFile(forReading: url), audio.length > 0 else {
+                            invalid.insert(url); continue
+                        }
+                        if url == book.audioURL,
+                           let end = book.playbackChapters.last?.endTime,
+                           abs(end - Double(audio.length) / audio.processingFormat.sampleRate) > 0.1 {
+                            invalid.insert(url)
+                        }
+                    }
+                    if let url = book.audioURL, invalid.contains(url) {
+                        book.audioPath = nil
+                        book.previousChapters = nil
+                    }
+                    for index in book.chapters.indices {
+                        if let url = book.chapters[index].audioURL, invalid.contains(url) {
+                            book.chapters[index].audioPath = nil
+                            book.chapters[index].startTime = nil
+                            book.chapters[index].endTime = nil
+                        }
+                    }
+                    if !invalid.isEmpty {
+                        book.narrationState = .failed
+                        book.narrationFailure = "Some audio is missing or unreadable. Prepare again to repair it."
+                    }
+                    return book
+                }
+            }.value
             refreshNarrationCounts()
+            if let recovered = await store.recoveredFileURL {
+                errorMessage = "Some library records could not be read. The original is preserved at \(recovered.path)."
+            }
+            // Interrupted preparation is resumed only by an explicit user action.
         } catch {
             errorMessage = "Atten could not read your library: \(error.localizedDescription)"
         }
@@ -206,12 +256,17 @@ final class BookshelfModel {
         }
 
         do {
-            let destination = try copyIntoLibrary(url)
+            let sourceDirectory = directories.bookSources
+            let destination = try await Task.detached(priority: .userInitiated) {
+                try Self.copyIntoLibrary(url, directory: sourceDirectory)
+            }.value
+            let bookID = UUID()
             do {
                 let document = try await Task.detached(priority: .userInitiated) {
                     try DocumentImporter.extract(from: destination)
                 }.value
                 let book = BookRecord(
+                    id: bookID,
                     title: document.title,
                     author: document.author,
                     format: format,
@@ -225,11 +280,14 @@ final class BookshelfModel {
                 )
                 books.insert(book, at: 0)
                 refreshNarrationCounts()
-                try await store.save(books)
-                importSuccessMessage = "Added \(book.title) — \(book.chapters.count) chapters."
+                try await saveNow()
+                importSuccessMessage = "Added \(book.title) — \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters")."
                 successMessage = importSuccessMessage
             } catch {
-                // A book Atten cannot read must not leave a copy behind.
+                // Roll back the visible import if its metadata could not be committed.
+                books.removeAll { $0.id == bookID }
+                refreshNarrationCounts()
+                persist()
                 try? FileManager.default.removeItem(at: destination)
                 throw error
             }
@@ -239,19 +297,19 @@ final class BookshelfModel {
         }
     }
 
-    private func copyIntoLibrary(_ url: URL) throws -> URL {
+    private nonisolated static func copyIntoLibrary(_ url: URL, directory: URL) throws -> URL {
         try FileManager.default.createDirectory(
-            at: directories.bookSources,
+            at: directory,
             withIntermediateDirectories: true
         )
         let base = ExportService.safeFilename(url.deletingPathExtension().lastPathComponent)
         let name = base.isEmpty ? "Book" : base
-        var destination = directories.bookSources
+        var destination = directory
             .appendingPathComponent(name)
             .appendingPathExtension(url.pathExtension)
         var counter = 2
         while FileManager.default.fileExists(atPath: destination.path) {
-            destination = directories.bookSources
+            destination = directory
                 .appendingPathComponent("\(name) \(counter)")
                 .appendingPathExtension(url.pathExtension)
             counter += 1
@@ -262,20 +320,24 @@ final class BookshelfModel {
 
     // MARK: - Narration
 
-    /// Narrates the chapters that have no audio yet, in reading order. Passing
-    /// `chapters` narrates just those, which is how the reader narrates the one
-    /// chapter on screen.
+    /// Resumes chapter checkpoints, then publishes one recording for the book.
+    /// A request from any chapter prepares the whole audiobook.
     func narrate(_ bookID: UUID, chapters requested: [Int]? = nil, useMPS: Bool) {
         guard narrationTask == nil, let book = book(id: bookID) else { return }
-        let pending = (requested ?? Array(book.chapters.indices))
+        let pending = Array(book.chapters.indices)
             .filter { book.chapters.indices.contains($0) && !book.chapters[$0].isNarrated }
-        guard !pending.isEmpty else { return }
+        guard (!book.hasBookAudio || book.needsPreparation), !book.chapters.isEmpty else { return }
 
-        if let missing = missingModelMessage(for: book.voiceID) {
+        if !pending.isEmpty, let missing = missingModelMessage(for: book.voiceID) {
             errorMessage = missing
             return
         }
 
+        guard let lease = synthesis.acquire("Preparing “\(book.title)”") else {
+            errorMessage = "Wait for \(synthesis.activity ?? "the current task") to finish, or stop it first."
+            return
+        }
+        setNarrationState(.preparing, for: bookID)
         errorMessage = nil
         successMessage = nil
         cancelledMessage = nil
@@ -285,8 +347,8 @@ final class BookshelfModel {
             .appendingPathComponent(bookID.uuidString, isDirectory: true)
         progress = NarrationProgress(
             bookID: bookID,
-            chapterID: book.chapters[pending[0]].id,
-            chapterTitle: book.chapters[pending[0]].title,
+            chapterID: book.chapters[pending.first ?? 0].id,
+            chapterTitle: book.chapters[pending.first ?? 0].title,
             completed: book.narratedCount,
             total: book.chapters.count
         )
@@ -294,6 +356,7 @@ final class BookshelfModel {
         narrationTask = Task { [weak self] in
             guard let self else { return }
             defer {
+                synthesis.release(lease)
                 narrationTask = nil
                 progress = nil
             }
@@ -302,6 +365,9 @@ final class BookshelfModel {
                     at: directory,
                     withIntermediateDirectories: true
                 )
+                let started = Date()
+                var completedWords = 0
+                let totalWords = pending.reduce(0) { $0 + book.chapters[$1].text.count }
                 for index in pending {
                     try Task.checkCancellation()
                     guard let position = books.firstIndex(where: { $0.id == bookID }) else { return }
@@ -314,6 +380,10 @@ final class BookshelfModel {
                         completed: current.narratedCount,
                         total: current.chapters.count
                     )
+                    if completedWords > 0 {
+                        let remaining = Date().timeIntervalSince(started) * Double(totalWords - completedWords) / Double(completedWords)
+                        progress?.eta = "About \(max(1, Int(ceil(remaining / 60)))) min remaining"
+                    }
                     let output = try await generator.generate(
                         GenerationRequest(
                             text: chapter.text,
@@ -326,6 +396,8 @@ final class BookshelfModel {
                             modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID
                         )
                     )
+                    try Task.checkCancellation()
+                    completedWords += chapter.text.count
                     // The shelf may have changed while the engine was running.
                     guard let updated = books.firstIndex(where: { $0.id == bookID }),
                           books[updated].chapters.indices.contains(index) else { return }
@@ -333,18 +405,76 @@ final class BookshelfModel {
                     refreshNarrationCounts()
                     // Saved after every chapter, so a crash or a quit costs at
                     // most the one that was in flight.
-                    try await store.save(books)
+                    try await saveNow()
                 }
+                try Task.checkCancellation()
+                guard let snapshot = self.book(id: bookID), snapshot.isFullyNarrated else { return }
+                setNarrationState(.finalizing, for: bookID)
+                progress = NarrationProgress(
+                    bookID: bookID,
+                    chapterID: snapshot.chapters[0].id,
+                    chapterTitle: "Preparing audiobook",
+                    completed: snapshot.chapters.count,
+                    total: snapshot.chapters.count,
+                    eta: "Finishing the book audio…",
+                    isCombining: true
+                )
+                let assemble = assembleAudio
+                let assembly = Task.detached(priority: .userInitiated) {
+                    try assemble(snapshot.chapters.compactMap(\.audioURL), directory)
+                }
+                let result = try await withTaskCancellationHandler {
+                    try await assembly.value
+                } onCancel: {
+                    assembly.cancel()
+                }
+                var committed = false
+                defer { if !committed { try? FileManager.default.removeItem(at: result.url) } }
+                try Task.checkCancellation()
+                guard result.ranges.count == snapshot.chapters.count else { throw CocoaError(.fileReadCorruptFile) }
+                guard let position = books.firstIndex(where: { $0.id == bookID }) else { return }
+                let previous = books[position]
+                books[position].audioPath = result.url.path
+                books[position].previousChapters = nil
+                books[position].needsPreparation = false
+                books[position].narrationState = .ready
+                books[position].narrationFailure = nil
+                books[position].listeningPosition = 0
+                for index in books[position].chapters.indices {
+                    books[position].chapters[index].audioPath = result.url.path
+                    books[position].chapters[index].startTime = result.ranges[index].0
+                    books[position].chapters[index].endTime = result.ranges[index].1
+                }
+                do { try await saveNow() }
+                catch {
+                    if let index = books.firstIndex(where: { $0.id == bookID }) {
+                        books[index].audioPath = previous.audioPath
+                        books[index].chapters = previous.chapters
+                        books[index].previousChapters = previous.previousChapters
+                        books[index].needsPreparation = previous.needsPreparation
+                        books[index].listeningPosition = previous.listeningPosition
+                    }
+                    try? FileManager.default.removeItem(at: result.url)
+                    throw error
+                }
+                committed = true
+                let obsolete = snapshot.chapters.compactMap(\.audioURL) + [previous.audioURL].compactMap { $0 }
+                for url in Set(obsolete) where url != result.url {
+                    retiredAudio.insert(url)
+                }
+                cleanRetiredAudio()
+                refreshNarrationCounts()
                 let finished = books.first { $0.id == bookID }
                 narrationSuccessMessage = finished?.isFullyNarrated == true
                     ? "\(book.title) is fully narrated."
                     : "Narration finished."
                 successMessage = narrationSuccessMessage
             } catch is CancellationError {
-                return
+                setNarrationState(.interrupted, for: bookID)
             } catch BackendError.cancelled {
-                return
+                setNarrationState(.interrupted, for: bookID)
             } catch {
+                setNarrationState(.failed, for: bookID, failure: error.localizedDescription)
                 narrationErrorMessage = error.localizedDescription
                 errorMessage = narrationErrorMessage
             }
@@ -353,12 +483,10 @@ final class BookshelfModel {
 
     func cancelNarration() {
         if let current = progress, let book = book(id: current.bookID) {
-            cancelledMessage = "Narration cancelled for \(book.title). \(current.completed) of \(current.total) chapters remain available."
+            cancelledMessage = "Narration cancelled for \(book.title). \(current.completed) of \(current.total) chapters saved. Resume to finish the audiobook."
         }
         narrationTask?.cancel()
-        narrationTask = nil
         generator.cancel()
-        progress = nil
     }
 
     /// Most voices run on the bundled engine; the rest name one model that has
@@ -368,7 +496,7 @@ final class BookshelfModel {
         guard let required = missingModelID(voiceID) else { return nil }
         let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
         return """
-        \(name) speaks through the \(required) model. Open Models and download it \
+        \(name) speaks through the \(required) model. Open Settings → Models and download it \
         once, or pick another voice for this book.
         """
     }
@@ -397,17 +525,48 @@ final class BookshelfModel {
     /// Narration already on disk was spoken with the old settings, so changing
     /// them clears it rather than leaving a book narrated in two voices.
     private func update(_ bookID: UUID, _ change: (inout BookRecord) -> Void) {
-        guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        guard progress?.bookID != bookID, let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         let before = books[index]
         change(&books[index])
         guard books[index] != before else { return }
-        if before.narratedCount > 0 {
-            removeNarrations(for: bookID, chapters: before.chapters)
+        if before.narratedCount > 0 || before.hasBookAudio {
+            if before.hasBookAudio, books[index].previousChapters == nil {
+                books[index].previousChapters = before.chapters
+            }
+            books[index].needsPreparation = true
+            books[index].narrationState = .unprepared
             for chapter in books[index].chapters.indices {
+                books[index].chapters[chapter].startTime = nil
+                books[index].chapters[chapter].endTime = nil
                 books[index].chapters[chapter].audioPath = nil
             }
             refreshNarrationCounts()
         }
+        persist()
+    }
+
+    func cleanRetiredAudio() {
+        for url in retiredAudio where !isAudioInUse(url) {
+            do {
+                if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+                retiredAudio.remove(url)
+            } catch {
+                // Retry cleanup after the next playback change.
+            }
+        }
+    }
+
+    private func setNarrationState(_ state: NarrationState, for id: UUID, failure: String? = nil) {
+        guard let index = books.firstIndex(where: { $0.id == id }) else { return }
+        books[index].narrationState = state
+        books[index].narrationFailure = failure
+        persist()
+    }
+
+    func saveListeningPosition(_ position: Double, for id: UUID) {
+        guard position.isFinite, let index = books.firstIndex(where: { $0.id == id }) else { return }
+        books[index].listeningPosition = max(0, position)
+        books[index].lastListenedAt = Date()
         persist()
     }
 
@@ -492,14 +651,38 @@ final class BookshelfModel {
         )
     }
 
-    private func persist() {
+    private func enqueueSave() -> Task<Void, Error> {
         let snapshot = books
+        let previous = pendingSave
+        let store = store
+        let task = Task {
+            // A later successful save may recover from an earlier failure.
+            _ = try? await previous?.value
+            try await store.save(snapshot)
+        }
+        pendingSave = task
+        return task
+    }
+
+    private func saveNow() async throws {
+        try await enqueueSave().value
+    }
+
+    func flushPersistence() async throws {
+        try await pendingSave?.value
+    }
+
+    func stopAndSave() async throws {
+        cancelNarration()
+        await narrationTask?.value
+        try await flushPersistence()
+    }
+
+    private func persist() {
+        let task = enqueueSave()
         Task { [weak self] in
-            do {
-                try await self?.store.save(snapshot)
-            } catch {
-                self?.errorMessage = "Your library could not be saved: \(error.localizedDescription)"
-            }
+            do { try await task.value }
+            catch { self?.errorMessage = "Your library could not be saved: \(error.localizedDescription)" }
         }
     }
 

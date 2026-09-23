@@ -75,7 +75,10 @@ extension BookRecord {
     /// Every narrated chapter, in reading order, named the way the book names
     /// it rather than the way the file is named.
     var narrationTracks: [PlaybackTrack] {
-        chapters.compactMap { chapter in
+        if hasBookAudio, let audioURL {
+            return [PlaybackTrack(id: id, url: audioURL, title: title, subtitle: author)]
+        }
+        return chapters.compactMap { chapter in
             guard chapter.isNarrated, let url = chapter.audioURL else { return nil }
             return PlaybackTrack(id: chapter.id, url: url, title: chapter.title, subtitle: title)
         }

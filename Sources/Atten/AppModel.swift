@@ -27,6 +27,7 @@ final class AppModel {
     var isPlaying = false
     /// What is playing, what played before it, and what comes next.
     private(set) var queue = PlaybackQueue()
+    @ObservationIgnored private var playbackBookSnapshot: BookRecord?
     var startupError: String?
     var voicePreviewID: String?
     var playgroundState: GenerationState = .idle
@@ -42,6 +43,7 @@ final class AppModel {
     private(set) var isCheckingForUpdate = false
     let library: ModelLibrary
     let bookshelf: BookshelfModel
+    let synthesis = SynthesisCoordinator()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -85,7 +87,8 @@ final class AppModel {
         // does not stop a book that is halfway through being narrated.
         self.bookshelf = BookshelfModel(
             directories: directories,
-            generator: generator ?? backendClient()
+            generator: generator ?? backendClient(),
+            synthesis: synthesis
         )
         self.library = library ?? ModelLibrary(
             sizeCacheURL: directories.applicationSupport.appendingPathComponent("model_sizes_cache.json")
@@ -101,6 +104,7 @@ final class AppModel {
         self.library.onInstalledModelsChanged = { [weak self] in
             self?.installedModelsChanged()
         }
+        self.bookshelf.isAudioInUse = { [weak self] url in self?.activeAudioURL == url }
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }
@@ -145,7 +149,7 @@ final class AppModel {
         let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
         return """
         \(name) speaks through the \(required) model, which is not downloaded yet. \
-        Open Models and download it once — after that this voice works offline like the rest.
+        Open Settings → Models and download it once — after that this voice works offline like the rest.
         """
     }
 
@@ -173,6 +177,13 @@ final class AppModel {
         }
         library.start()
         await bookshelf.load()
+        if let book = bookshelf.books.filter({ $0.hasBookAudio && $0.lastListenedAt != nil })
+            .max(by: { ($0.lastListenedAt ?? .distantPast) < ($1.lastListenedAt ?? .distantPast) }),
+           let track = book.narrationTracks.first {
+            queue = PlaybackQueue(tracks: book.narrationTracks)
+            playbackBookSnapshot = book
+            start(track, autoplay: false, position: book.listeningPosition)
+        }
         if settings.checksForUpdates { await checkForUpdate() }
     }
 
@@ -185,6 +196,7 @@ final class AppModel {
     /// runs off the main actor and the window is never held up by it.
     private func repairQuarantineIfNeeded() async {
         guard case let .bundled(helper, _)? = BackendLocator.locateInstallation() else { return }
+        guard Bundle.main.object(forInfoDictionaryKey: "AttenDistributionSigned") as? Bool != true else { return }
         let bundle = Bundle.main.bundleURL
         let repaired = await Task.detached(priority: .userInitiated) {
             BundleQuarantine.clear(from: bundle, verifying: helper)
@@ -235,13 +247,26 @@ final class AppModel {
         }
     }
 
+    @ObservationIgnored private var stagedUpdate: URL?
+
+    func finishPendingUpdate() throws {
+        guard let stagedUpdate else { return }
+        try UpdateChecker.scheduleReplacement(of: Bundle.main.bundleURL, with: stagedUpdate)
+        self.stagedUpdate = nil
+    }
+
+    func cancelPendingUpdate() {
+        stagedUpdate = nil
+        isInstallingUpdate = false
+    }
+
     func installUpdate() {
         guard let release = availableUpdate, !isInstallingUpdate else { return }
         isInstallingUpdate = true
         Task {
             do {
                 let stagedApp = try await UpdateChecker.downloadAndStage(release)
-                try UpdateChecker.scheduleReplacement(of: Bundle.main.bundleURL, with: stagedApp)
+                stagedUpdate = stagedApp
                 NSApp.terminate(nil)
             } catch {
                 isInstallingUpdate = false
@@ -264,7 +289,7 @@ final class AppModel {
     /// Held here so that "back" can tell whether there is anything behind the
     /// current screen. The window remembers it across launches by way of scene
     /// storage, which is a place to write it down rather than a second owner.
-    var section = SidebarItem.home {
+    var section = SidebarItem.library {
         didSet {
             // Focus belongs to the reader, not to the window. A sidebar
             // selection can replace the reader without giving its view an
@@ -327,6 +352,7 @@ final class AppModel {
     /// Back to the shelf in one step, for a book that has just been removed
     /// from under whoever was reading it.
     func returnToShelf() {
+        section = .library
         setReaderFocus(false)
         guard !libraryPath.isEmpty else { return }
         libraryMovedForward = false
@@ -424,7 +450,10 @@ final class AppModel {
     /// a Studio render has no book behind it at all.
     var playingBook: BookRecord? {
         guard let track = queue.current else { return nil }
-        return bookshelf.books.first { $0.chapters.contains { $0.id == track.id } }
+        let current = bookshelf.books.first { $0.id == track.id || $0.chapters.contains { $0.id == track.id } }
+        if let current, let snapshot = playbackBookSnapshot,
+           current.id == snapshot.id, current.audioURL != track.url { return snapshot }
+        return current
     }
 
     /// How much of the chapter is left. Measured the same way as the elapsed
@@ -438,6 +467,7 @@ final class AppModel {
         guard let audioPlayer else { return }
         audioPlayer.currentTime = min(max(0, time), audioPlayer.duration)
         playbackPosition = audioPlayer.currentTime
+        saveListeningPosition()
         publishNowPlaying()
     }
 
@@ -466,7 +496,26 @@ final class AppModel {
         seek(to: target)
     }
 
+    var playingChapterIndex: Int? {
+        guard let book = playingBook, book.hasBookAudio else { return nil }
+        return book.playbackChapters.lastIndex { ($0.startTime ?? .infinity) <= playbackPosition }
+    }
+
+    var hasNextChapter: Bool {
+        if let index = playingChapterIndex, let book = playingBook { return index + 1 < book.playbackChapters.count }
+        return queue.hasNext
+    }
+
+    var hasPreviousChapter: Bool {
+        if let index = playingChapterIndex { return index > 0 }
+        return queue.hasPrevious
+    }
+
     func playNext() {
+        if let index = playingChapterIndex, let book = playingBook {
+            if book.playbackChapters.indices.contains(index + 1) { seek(to: book.playbackChapters[index + 1].startTime ?? 0) }
+            return
+        }
         guard let track = queue.advance() else { return }
         start(track)
     }
@@ -475,6 +524,11 @@ final class AppModel {
     /// what it means everywhere else, and what someone who missed a sentence
     /// is reaching for.
     func playPrevious() {
+        if let index = playingChapterIndex, let book = playingBook {
+            let start = book.playbackChapters[index].startTime ?? 0
+            seek(to: playbackPosition - start > 3 ? start : (book.playbackChapters[max(0, index - 1)].startTime ?? 0))
+            return
+        }
         if let audioPlayer, audioPlayer.currentTime > 3 {
             seek(to: 0)
             return
@@ -508,8 +562,9 @@ final class AppModel {
     }
 
     func newDraft() {
-        stopPlayback()
-        generationTask?.cancel()
+        activeTextImportID = nil
+        isImportingText = false
+        if isGenerating || isPlaygroundGenerating || voicePreviewID != nil { cancelGeneration() }
         draftTitle = "Untitled narration"
         draftText = ""
         generationState = .idle
@@ -517,6 +572,7 @@ final class AppModel {
     }
 
     func generate() {
+        guard !isImportingText, !synthesis.isBusy else { return }
         let cleanText = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             generationState = .failed("Enter or import text before generating speech.")
@@ -527,7 +583,6 @@ final class AppModel {
             return
         }
         cancelGeneration()
-        stopPlayback()
         generationState = .generating
         successMessage = nil
         let generationID = UUID()
@@ -547,8 +602,10 @@ final class AppModel {
             modelID: VoiceCatalog.voice(id: selectedVoiceID)?.modelID
         )
 
+        guard let lease = synthesis.acquire("Creating audio") else { return }
         generationTask = Task { [weak self] in
             guard let self else { return }
+            defer { synthesis.release(lease) }
             do {
                 let output = try await generator.generate(request)
                 try Task.checkCancellation()
@@ -569,7 +626,6 @@ final class AppModel {
                 await announceQuarantinedHistory()
                 generationState = .ready(output.url)
                 successMessage = "Speech is ready to review."
-                play(url: output.url)
             } catch is CancellationError {
                 if activeGenerationID == generationID { generationState = .idle }
             } catch BackendError.cancelled {
@@ -634,6 +690,7 @@ final class AppModel {
     func pause() {
         guard isPlaying else { return }
         audioPlayer?.pause()
+        saveListeningPosition()
         isPlaying = false
         stopPlaybackTimer()
         publishNowPlaying()
@@ -658,7 +715,7 @@ final class AppModel {
             togglePlayback(url: previewURL)
             return
         }
-        guard !isGenerating, !isPlaygroundGenerating, voicePreviewID == nil else { return }
+        guard !synthesis.isBusy else { return }
         if let message = missingModelMessage(for: voice.id) {
             generationState = .failed(message)
             return
@@ -676,9 +733,10 @@ final class AppModel {
             useMPS: settings.useMPS,
             modelID: voice.modelID
         )
+        guard let lease = synthesis.acquire("Previewing \(voice.name)") else { return }
         generationTask = Task { [weak self] in
             guard let self else { return }
-            defer { voicePreviewID = nil }
+            defer { voicePreviewID = nil; synthesis.release(lease) }
             do {
                 let output = try await generator.generate(request)
                 guard activeGenerationID == generationID else { return }
@@ -702,6 +760,7 @@ final class AppModel {
         format: AudioFormat,
         useMPS: Bool
     ) {
+        guard !synthesis.isBusy else { return }
         let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             playgroundState = .failed("Enter a short sample before generating.")
@@ -713,7 +772,6 @@ final class AppModel {
         }
 
         cancelGeneration()
-        stopPlayback()
         do {
             try resetPlaygroundDirectory()
         } catch {
@@ -735,8 +793,10 @@ final class AppModel {
             modelID: VoiceCatalog.voice(id: voiceID)?.modelID
         )
 
+        guard let lease = synthesis.acquire("Creating audio") else { return }
         generationTask = Task { [weak self] in
             guard let self else { return }
+            defer { synthesis.release(lease) }
             do {
                 let output = try await generator.generate(request)
                 try Task.checkCancellation()
@@ -803,23 +863,36 @@ final class AppModel {
         saveSettings()
     }
 
+    private(set) var isImportingText = false
+    @ObservationIgnored private var activeTextImportID: UUID?
+
     func importText(from url: URL) {
-        guard url.startAccessingSecurityScopedResource() || url.isFileURL else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
-        do {
-            if url.pathExtension.lowercased() == "rtf" {
-                draftText = try NSAttributedString(
-                    url: url,
-                    options: [:],
-                    documentAttributes: nil
-                ).string
-            } else {
-                draftText = try String(contentsOf: url, encoding: .utf8)
+        guard !isImportingText else { return }
+        isImportingText = true
+        let importID = UUID()
+        activeTextImportID = importID
+        Task {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { url.stopAccessingSecurityScopedResource() }
+                if activeTextImportID == importID { isImportingText = false; activeTextImportID = nil }
             }
-            draftTitle = url.deletingPathExtension().lastPathComponent
-            generationState = .idle
-        } catch {
-            generationState = .failed("Atten could not read that text file: \(error.localizedDescription)")
+            do {
+                let text = try await Task.detached(priority: .userInitiated) {
+                    if url.pathExtension.lowercased() == "rtf" {
+                        return try NSAttributedString(url: url, options: [:], documentAttributes: nil).string
+                    }
+                    return try String(contentsOf: url, encoding: .utf8)
+                }.value
+                guard activeTextImportID == importID else { return }
+                draftText = text
+                draftTitle = url.deletingPathExtension().lastPathComponent
+                if !isGenerating { generationState = .idle }
+            } catch {
+                if activeTextImportID == importID {
+                    generationState = .failed("Atten could not read that text file: \(error.localizedDescription)")
+                }
+            }
         }
     }
 
@@ -845,6 +918,7 @@ final class AppModel {
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls
+        returnToShelf()
         Task { [weak self] in
             guard let self else { return }
             for url in urls {
@@ -872,7 +946,28 @@ final class AppModel {
         }
     }
 
+    private(set) var isExportingBook = false
+
+    func exportBook(_ book: BookRecord) {
+        guard !isExportingBook, book.hasBookAudio, let source = book.audioURL else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Audio]
+        panel.nameFieldStringValue = ExportService.safeFilename(book.title) + ".m4a"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        isExportingBook = true
+        Task {
+            defer { isExportingBook = false }
+            do {
+                try await BookAudioExport.export(source, to: destination)
+                bookshelf.successMessage = "Audiobook exported to \(destination.lastPathComponent)."
+            } catch {
+                bookshelf.errorMessage = "Export failed: \(error.localizedDescription). Choose a writable folder and try again."
+            }
+        }
+    }
+
     func exportCurrent() {
+        if let book = playingBook, book.hasBookAudio { exportBook(book); return }
         guard let url = currentAudioURL,
               let project = projects.first(where: { $0.audioPath == url.path }) else { return }
         export(project)
@@ -976,13 +1071,33 @@ final class AppModel {
         if case .failed = generationState { generationState = .idle }
     }
 
+    func listen(to book: BookRecord, chapter: BookChapter? = nil) {
+        guard book.hasBookAudio, let url = book.audioURL else {
+            bookshelf.narrate(book.id, useMPS: settings.useMPS)
+            return
+        }
+        if activeAudioURL == url {
+            if let chapter { seek(to: chapter.startTime ?? 0); if !isPlaying { toggleActivePlayback() } }
+            else { toggleActivePlayback() }
+        } else {
+            saveListeningPosition()
+            queue = PlaybackQueue(tracks: book.narrationTracks)
+            playbackBookSnapshot = book
+            if let track = queue.current {
+                start(track, position: chapter?.startTime ?? book.listeningPosition)
+            }
+        }
+    }
+
     /// Plays `tracks` back to back, starting at `index`.
     ///
     /// Each is a separate file on disk, so a book can be narrated chapter by
     /// chapter and still listened to as one piece.
     func play(tracks: [PlaybackTrack], startingAt index: Int = 0) {
         guard !tracks.isEmpty else { return }
+        saveListeningPosition()
         queue = PlaybackQueue(tracks: tracks, startingAt: index)
+        playbackBookSnapshot = bookshelf.books.first { $0.id == queue.current?.id }
         guard let track = queue.current else { return }
         start(track)
     }
@@ -1010,7 +1125,7 @@ final class AppModel {
         play(tracks: [track])
     }
 
-    private func start(_ track: PlaybackTrack, secondsBeforeEnd: TimeInterval? = nil) {
+    private func start(_ track: PlaybackTrack, secondsBeforeEnd: TimeInterval? = nil, autoplay: Bool = true, position: Double = 0) {
         do {
             let player = try AVAudioPlayer(contentsOf: track.url)
             let delegate = AudioPlaybackDelegate { [weak self] in
@@ -1022,15 +1137,17 @@ final class AppModel {
             player.enableRate = true
             player.prepareToPlay()
             player.rate = Float(playbackRate)
+            player.currentTime = min(max(0, position), player.duration)
             if let secondsBeforeEnd {
                 player.currentTime = max(0, player.duration - secondsBeforeEnd)
             }
-            player.play()
+            if autoplay { player.play() }
             audioPlayer = player
-            isPlaying = true
+            isPlaying = autoplay
             playbackDuration = player.duration
             playbackPosition = player.currentTime
-            startPlaybackTimer()
+            if autoplay { startPlaybackTimer() }
+            bookshelf.cleanRetiredAudio()
             publishNowPlaying()
         } catch {
             audioPlayer = nil
@@ -1054,10 +1171,12 @@ final class AppModel {
         isPlaying = false
         stopPlaybackTimer()
         playbackPosition = playbackDuration
+        saveListeningPosition()
         publishNowPlaying()
     }
 
     private func stopPlayback() {
+        saveListeningPosition()
         audioPlayer?.stop()
         audioPlayer = nil
         queue = PlaybackQueue()
@@ -1065,7 +1184,14 @@ final class AppModel {
         stopPlaybackTimer()
         playbackPosition = 0
         playbackDuration = 0
+        playbackBookSnapshot = nil
+        bookshelf.cleanRetiredAudio()
         nowPlaying.clear()
+    }
+
+    func prepareForTermination() {
+        cancelGeneration()
+        stopPlayback()
     }
 
     /// The keyboard's play key, Control Center, and a pair of headphones all
@@ -1091,8 +1217,8 @@ final class AppModel {
             position: playbackPosition,
             duration: playbackDuration,
             rate: playbackRate,
-            hasNext: queue.hasNext,
-            hasPrevious: queue.hasPrevious
+            hasNext: hasNextChapter,
+            hasPrevious: hasPreviousChapter
         )
     }
 
@@ -1100,12 +1226,21 @@ final class AppModel {
     /// more. The system runs its own clock between the updates it is told
     /// about, so Now Playing is refreshed when something changes rather than
     /// several times a second.
+    @ObservationIgnored private var lastPositionSave = Date.distantPast
+
+    func saveListeningPosition() {
+        guard let book = playingBook, book.audioURL == bookshelf.book(id: book.id)?.audioURL else { return }
+        bookshelf.saveListeningPosition(playbackPosition, for: book.id)
+        lastPositionSave = Date()
+    }
+
     private func startPlaybackTimer() {
         stopPlaybackTimer()
         let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let player = self.audioPlayer else { return }
                 self.playbackPosition = player.currentTime
+                if Date().timeIntervalSince(self.lastPositionSave) >= 5 { self.saveListeningPosition() }
             }
         }
         RunLoop.main.add(timer, forMode: .common)

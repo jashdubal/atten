@@ -90,6 +90,8 @@ public struct BookChapter: Codable, Identifiable, Equatable, Sendable {
     public var pageIndex: Int?
     /// Where this chapter's narration was written, once it has been generated.
     public var audioPath: String?
+    public var startTime: Double?
+    public var endTime: Double?
 
     public init(
         id: UUID = UUID(),
@@ -124,7 +126,13 @@ public struct BookChapter: Codable, Identifiable, Equatable, Sendable {
         title = try container.decodeIfPresent(String.self, forKey: .title) ?? "Chapter"
         pageIndex = try container.decodeIfPresent(Int.self, forKey: .pageIndex)
         audioPath = try container.decodeIfPresent(String.self, forKey: .audioPath)
+        startTime = try container.decodeIfPresent(Double.self, forKey: .startTime)
+        endTime = try container.decodeIfPresent(Double.self, forKey: .endTime)
     }
+}
+
+public enum NarrationState: String, Codable, Sendable {
+    case unprepared, preparing, interrupted, failed, finalizing, ready
 }
 
 public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
@@ -154,6 +162,29 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     /// existed, and for a book that has been imported and not yet opened;
     /// both are honestly "never opened".
     public var lastOpenedAt: Date?
+    public var audioPath: String?
+    public var audioURL: URL? { audioPath.map { URL(fileURLWithPath: $0) } }
+    public var narrationState: NarrationState = .unprepared
+    public var narrationFailure: String?
+    public var needsPreparation: Bool = false
+    public var listeningPosition: Double = 0
+    public var lastListenedAt: Date?
+    /// Previous complete recording remains playable while replacement checkpoints are built.
+    public var previousChapters: [BookChapter]?
+    public var hasBookAudio: Bool {
+        guard let audioPath, FileManager.default.fileExists(atPath: audioPath) else { return false }
+        let timeline = previousChapters ?? chapters
+        guard !timeline.isEmpty else { return false }
+        var end = 0.0
+        for chapter in timeline {
+            guard let start = chapter.startTime, let stop = chapter.endTime,
+                  start.isFinite, stop.isFinite, abs(start - end) < 0.01, stop > start else { return false }
+            end = stop
+        }
+        return true
+    }
+    public var playbackChapters: [BookChapter] { previousChapters ?? chapters }
+
 
     public init(
         id: UUID = UUID(),
@@ -196,7 +227,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     }
 
     /// Every narrated chapter in reading order, which is what "play all" plays.
-    public var narrationQueue: [URL] { chapters.compactMap { $0.isNarrated ? $0.audioURL : nil } }
+    public var narrationQueue: [URL] { if hasBookAudio, let audioURL { return [audioURL] }; return chapters.compactMap { $0.isNarrated ? $0.audioURL : nil } }
 
     public var wordCount: Int {
         chapters.reduce(0) { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }
@@ -226,6 +257,14 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         lastLocation = (try? container.decodeIfPresent(ReadingLocation.self, forKey: .lastLocation))
             .flatMap { $0 }
         lastOpenedAt = try container.decodeIfPresent(Date.self, forKey: .lastOpenedAt)
+        audioPath = try container.decodeIfPresent(String.self, forKey: .audioPath)
+        narrationState = (try? container.decode(NarrationState.self, forKey: .narrationState)) ?? .unprepared
+        if narrationState == .preparing || narrationState == .finalizing { narrationState = .interrupted }
+        narrationFailure = try? container.decode(String.self, forKey: .narrationFailure)
+        needsPreparation = (try? container.decode(Bool.self, forKey: .needsPreparation)) ?? false
+        listeningPosition = max(0, (try? container.decode(Double.self, forKey: .listeningPosition)) ?? 0)
+        lastListenedAt = try? container.decode(Date.self, forKey: .lastListenedAt)
+        previousChapters = try? container.decode([BookChapter].self, forKey: .previousChapters)
     }
 }
 
@@ -236,6 +275,8 @@ public actor BookLibraryStore {
     private let fileURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    public private(set) var recoveredFileURL: URL?
+    private var loadFailed = false
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
@@ -244,12 +285,21 @@ public actor BookLibraryStore {
 
     public func load() throws -> [BookRecord] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        loadFailed = true
         let data = try Data(contentsOf: fileURL)
-        if let books = try? decoder.decode([BookRecord].self, from: data) { return books }
+        if let books = try? decoder.decode([BookRecord].self, from: data) {
+            loadFailed = false
+            return books
+        }
+        let recovery = fileURL.deletingPathExtension().appendingPathExtension("recovered-\(UUID().uuidString).json")
+        try FileManager.default.copyItem(at: fileURL, to: recovery)
+        recoveredFileURL = recovery
+        loadFailed = false
         return (try? decoder.decode([Salvaged].self, from: data))?.compactMap(\.record) ?? []
     }
 
     public func save(_ books: [BookRecord]) throws {
+        guard !loadFailed else { throw CocoaError(.fileWriteNoPermission) }
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true

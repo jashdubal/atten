@@ -80,6 +80,7 @@ public enum UpdateChecker {
         case checksumMismatch
         case checksumUnavailable
         case incompleteDownload
+        case untrustedUpdate
         case command(String)
 
         public var errorDescription: String? {
@@ -89,6 +90,8 @@ public enum UpdateChecker {
                 "That release does not publish checksums, so Atten will not install it. You can download it yourself from the releases page."
             case .incompleteDownload:
                 "The downloaded update is missing its speech engine or model, so it was not installed."
+            case .untrustedUpdate:
+                "The update is not signed and notarized by Atten’s developer. Your installed app has not been changed."
             case let .command(message): message
             }
         }
@@ -120,6 +123,7 @@ public enum UpdateChecker {
         let stagedApp = staging.appendingPathComponent("Atten.app", isDirectory: true)
         try run("/usr/bin/ditto", [mountPoint.appendingPathComponent("Atten.app").path, stagedApp.path])
         guard isCompleteApp(stagedApp) else { throw InstallError.incompleteDownload }
+        try validateDistributionSignature(stagedApp)
         try? FileManager.default.removeItem(at: dmg)
         return stagedApp
     }
@@ -135,6 +139,17 @@ public enum UpdateChecker {
             resources.appendingPathComponent("Models/Kokoro-82M/kokoro-v1_0.pth"),
         ]
         return required.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Check the publisher as well as the download checksum before replacing an app.
+    static func validateDistributionSignature(_ app: URL) throws {
+        let requirement = "anchor apple generic and identifier \"com.jashdubal.Atten\" and certificate leaf[subject.OU] = \"BK6ZPY7AD9\" and certificate leaf[field.1.2.840.113635.100.6.1.13] exists"
+        do {
+            try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "-R", requirement, app.path])
+            try run("/usr/sbin/spctl", ["--assess", "--type", "execute", app.path])
+        } catch {
+            throw InstallError.untrustedUpdate
+        }
     }
 
     /// Spawns a detached helper that waits for this process to exit, swaps the
@@ -155,7 +170,6 @@ public enum UpdateChecker {
                 mv "$previous" "$1"
             fi
         fi
-        xattr -dr com.apple.quarantine "$1" 2>/dev/null
         open "$1"
         """
         let process = Process()
