@@ -43,25 +43,39 @@ not replace the repository `.venv`. Dependencies are resolved exclusively from
 
 ## Local release build
 
-Ensure `macOS/Info.plist` has the intended version and the worktree is clean:
+Ensure `macOS/Info.plist` has the intended version and the worktree is clean.
+Store notarization credentials outside the repository using `xcrun notarytool
+store-credentials`; pass only the profile name to the build:
+
+```bash
+export ATTEN_SIGNING_IDENTITY='Developer ID Application: Jashraj Dubal (BK6ZPY7AD9)'
+export ATTEN_NOTARY_PROFILE='your-keychain-profile-name'
+```
+
+Then run:
 
 ```bash
 swift test
 python3.12 -m unittest discover -s tests -p 'test_*.py' -v
-scripts/build-release --version 0.2.1
+scripts/build-release --version 0.3.2
 ```
 
 To reuse an already downloaded pinned model snapshot:
 
 ```bash
 ATTEN_MODEL_SOURCE="$HOME/.cache/huggingface/hub/models--hexgrad--Kokoro-82M/snapshots/f3ff3571791e39611d31c381e3a41a3af07b4987" \
-  scripts/build-release --version 0.2.1
+  scripts/build-release --version 0.3.2
 ```
 
 Set `RUN_SYNTHESIS_SMOKE=1` to generate MP3 and WAV samples for every supported
 language from the packaged helper with an empty home directory and offline
 environment. `ALLOW_DIRTY=1` is available only for local packaging validation;
-never use it for a published build.
+never use it for a published build. Dirty candidates archive the actual working
+source, including new nonignored files. `ATTEN_LOCAL_VALIDATION=1` explicitly
+selects ad-hoc signing and skips notarization; never distribute those artifacts.
+A normal release build signs all nested Mach-O components with hardened runtime
+and timestamps, notarizes/staples the app, then signs/notarizes/staples the DMG.
+Signing and notarization failures stop the build.
 
 Artifacts are written to `.build/release-artifacts/`:
 
@@ -81,6 +95,15 @@ The build fails for a missing helper, model, voice, license, non-arm64 Mach-O,
 non-portable dynamic-library path, embedded development path, invalid code
 signature, or a DMG at or above GitHub's 2 GiB file limit.
 
+## CI signing configuration
+
+Configure these GitHub Actions secrets before tagging: `MACOS_CERTIFICATE_P12`
+(base64 Developer ID certificate and private key), `MACOS_CERTIFICATE_PASSWORD`,
+`APPLE_ID`, `APPLE_APP_PASSWORD`, and `APPLE_TEAM_ID`. The Mac job uses a temporary
+keychain, imports the certificate, stores the `atten-ci` notarytool profile, and
+removes the keychain after the job. Credentials must never enter source archives.
+The workflow config is implemented; this local work did not configure remote secrets.
+
 ## GitHub release process
 
 1. Update `CFBundleShortVersionString` in `macOS/Info.plist` and merge through
@@ -88,8 +111,8 @@ signature, or a DMG at or above GitHub's 2 GiB file limit.
 2. Create and push a matching annotated tag:
 
    ```bash
-   git tag -a v0.2.1 -m "Atten 0.2.1"
-   git push origin v0.2.1
+   git tag -a v0.3.2 -m "Atten 0.3.2"
+   git push origin v0.3.2
    ```
 
 3. `.github/workflows/release.yml` checks that the tag and plist versions
@@ -106,7 +129,7 @@ depends on `Atten-macOS-arm64.dmg` being unchanged across releases.
 
 ## Manual release checklist
 
-- Inspect the app at 820×600, 1080×700, and 1440×900 in System, Light, and Dark
+- Inspect the app at its minimum 960×700, 1080×700, and 1440×900 in System, Light, and Dark
   appearances, including Reduce Motion and Reduce Transparency.
 - Verify keyboard-only sidebar navigation, focus rings, VoiceOver labels, hover,
   selection, disabled, loading, success, error, empty, missing-file, long-text,
@@ -115,41 +138,31 @@ depends on `Atten-macOS-arm64.dmg` being unchanged across releases.
   duplicate, regenerate, export, reveal, rename, and delete projects/files.
 - Test with Wi-Fi disabled and no Python executable available through `PATH`.
 - Run `codesign --verify --deep --strict --verbose=2 /Applications/Atten.app`.
-- Confirm Gatekeeper presents the expected unnotarized-app path described below.
+- Run `xcrun stapler validate /Applications/Atten.app` and
+  `spctl --assess --type execute --verbose=2 /Applications/Atten.app`.
+- Verify a quarantined browser download on a clean Mac, then test the update
+  path from the previous release. Signing verification alone does not cover this.
+- Verify cancellation during synthesis and assembly, relaunch/resume, missing
+  audio repair, regeneration, chapter seeking, and restored paused position.
+- Complete VoiceOver, keyboard-only, media-key, reduced-motion, and sleep/wake
+  playback checks. Record the host and results in the acceptance report.
 
 ## User installation and Gatekeeper
 
 Atten requires Apple Silicon and macOS 14 or newer. Open the DMG and drag Atten
-to Applications. Releases are ad-hoc signed but not Developer ID signed or
-notarized, so the first launch is blocked by Gatekeeper with "Apple could not
-verify Atten is free of malware".
+to Applications. New releases must pass Developer ID signing, notarization,
+stapling, and downloaded-installation checks before publication. A signed but
+unnotarized candidate does not satisfy this gate.
 
-To open it: double-click Atten once and dismiss the warning, then open
-**System Settings → Privacy & Security**, scroll to Security, and choose
-**Open Anyway** next to Atten. On macOS 15 and newer this is the only route —
-the older Control-click → **Open** shortcut no longer works for applications
-that are not notarized, so do not document it.
+Previously published ad-hoc releases can require approval in **System Settings →
+Privacy & Security → Open Anyway** after the first blocked launch. Keep that
+legacy guidance attached to the specific old release, not to a verified
+notarized release. Never instruct users to remove quarantine metadata.
 
-Never tell users to run `xattr` or remove quarantine metadata. Those commands
-weaken a macOS safety boundary and conceal whether the downloaded file is the
-one the user intended to open.
-
-Atten does clear the quarantine flag from its own bundle at launch, which is a
-deliberate exception to that rule and not a contradiction of it. macOS marks
-every file inside the disk image, and approving the outer app does not always
-clear the bundled speech engine inside it. A quarantined helper is killed with
-SIGKILL the moment Atten runs it, which the user experiences as a generation
-that stops for no reason. The repair runs only on the bundle the user has
-already opened and approved, grants no access they have not already granted,
-and hides nothing: the approval still happens in System Settings, in full view.
-
-**Notarization is the durable fix and is still outstanding.** Ad-hoc signing
-leaves every new user facing a security warning and leaves the app dependent on
-Gatekeeper's tolerance for unsigned software, which has narrowed with each macOS
-release. Notarizing requires a paid Apple Developer account and a Developer ID
-certificate; the resulting ticket is stapled into the DMG and keeps working
-after the signing certificate expires, so it is a one-time cost that removes the
-warning and the long-term risk of a future macOS refusing the app outright.
+The legacy app's self-quarantine repair is skipped when `AttenDistributionSigned`
+is true. Signed update candidates must match `com.jashdubal.Atten`, team
+`BK6ZPY7AD9`, and Apple's Developer ID requirement, and pass Gatekeeper assessment.
+Pending metadata saves finish before an update swap is scheduled.
 
 Uninstall by quitting Atten and moving it from Applications to Trash. Optional
 user data can be removed from `~/Library/Application Support/Atten`; generated
@@ -169,12 +182,14 @@ the pinned upstream revision. The SPDX SBOM records the locked Python graph.
 
 ## Website copy
 
-Recommended concise copy:
+For a verified notarized release:
 
-> Download Atten for Apple Silicon Macs running macOS 14 or newer. The DMG
-> includes the complete offline speech engine and voices—no Python, model
-> download, account, or internet connection required. This release is not yet
-> Apple-notarized; follow the first-launch instructions on the download page.
+> Download Atten for Apple Silicon Macs running macOS 14 or newer. Add a book,
+> prepare its audio, and listen offline. The DMG includes the speech engine and
+> voices—no Python, account, or internet connection required after installation.
+
+Do not describe the current local candidate as notarized until submission,
+stapling, and downloaded-installation verification have passed.
 
 Use the stable URL at the top of this document. Also link the GitHub Release so
 users can access checksums, provenance, source, notices, and release notes.
@@ -193,7 +208,7 @@ locations and the three-year physical-source offer are documented in
 ## Troubleshooting
 
 - **“Damaged” or cannot be opened:** re-download from the GitHub Release,
-  validate `SHA256SUMS.txt`, then use the documented Control-click/Open flow.
+  validate `SHA256SUMS.txt`, and verify the release signature; report the failure before bypassing Gatekeeper.
 - **Backend or model missing:** reinstall from the official DMG. Do not copy the
   helper or model directory between releases.
 - **Generation fails offline:** confirm the complete app was copied from the
@@ -203,11 +218,17 @@ locations and the three-year physical-source offer are documented in
 - **Maintainer build cannot find a voice:** ensure the model source is revision
   `f3ff3571791e39611d31c381e3a41a3af07b4987` and rerun `scripts/prepare-model`.
 
-## Future signed distribution
+## Isolated interface validation
 
-When an Apple Developer account is available, replace ad-hoc signing with a
-Developer ID Application identity, add hardened-runtime entitlements, submit
-the DMG or app for notarization, staple the ticket, and validate with `spctl`.
-Keep the DMG filename and GitHub stable URL unchanged. Automatic updates can be
-added later with a signed update feed; do not ship an updater before Developer
-ID signing and release-key management are established.
+Set `ATTEN_DATA_DIRECTORY` to an empty directory before launching a development
+bundle. Books, projects, and listening state use that directory; settings use
+`Atten.Validation.<directory-name>`. Use a unique final directory name per test
+run and a separate validation bundle identifier to isolate window restoration.
+Never point a test reset at a real user's library.
+
+## Candidate status
+
+The September 2026 candidate uses the installed Developer ID identity and passes
+deep signature verification and packaged offline synthesis. The notarytool
+Keychain profile name is still needed to submit it. No candidate was published.
+See [the acceptance report](docs/REDESIGN_ACCEPTANCE.md) for remaining gates.

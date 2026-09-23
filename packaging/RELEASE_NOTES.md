@@ -1,3 +1,30 @@
+# Mac reading and listening overhaul — unreleased candidate
+
+Atten now opens in Library. Add a document, read while its narration is prepared,
+and listen when the whole book is ready. Preparation can be stopped and resumed;
+completed chapters survive interruption. Finishing preparation never starts
+playback. Listening and reading positions are saved independently.
+
+Library and Create replace the crowded primary navigation. Create brings drafts,
+saved projects, export history, and voice previews together; model management
+moves into Settings. Dark appearance uses muted neutral charcoal surfaces,
+subtle borders, and restrained controls. The reader retains PDF layout and
+collapsible reading tools.
+
+One synthesis job runs at a time. Replacement narration preserves the previous
+playable recording until the new output commits. Books can be exported as M4A.
+Missing audio and failed preparation expose repair or resume actions.
+
+The candidate is Developer ID signed. Notarization, clean-Mac installation, and
+hardware acceptance remain release gates; this candidate has not been published.
+See `docs/REDESIGN_ACCEPTANCE.md` and `DEPLOYMENT.md` before distributing it.
+Existing IDs, projects, exports, settings, and CLI contracts are preserved.
+Windows changes are outside this candidate.
+
+---
+
+# Previous published release notes
+
 Atten is a fully offline, Apple Silicon-native text-to-speech studio for macOS
 14 and newer. This release includes its Python 3.12 runtime, Kokoro, eSpeak NG,
 all supported voices, and the pinned Kokoro-82M model. No separate Python,

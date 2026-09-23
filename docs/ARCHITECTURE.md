@@ -1,6 +1,47 @@
-# Atten architecture and migration plan
+# Atten architecture
 
-## Repository audit
+
+## Current Mac architecture — September 2026
+
+The two primary workspaces are Library and Create. Library owns import, reading,
+whole-book preparation, and return-to-listening. Create contains drafts, projects,
+exports, and contextual voice previews. Model management lives in Settings.
+Legacy navigation destinations map to these workspaces. Compact and expanded
+players share one playback controller.
+
+`SynthesisCoordinator` grants one UUID-scoped lease across book preparation,
+Create, and voice previews. Cancellation retains the lease until the underlying
+task exits. Reading and existing audio playback remain available during synthesis.
+
+`BookRecord` persists unprepared, preparing, interrupted, failed, finalizing, and
+ready narration states with backward-compatible defaults. On decode, unfinished
+work becomes interrupted; loading never starts generation. Readiness requires a
+real audio file and a contiguous, valid chapter timeline. Library loading checks
+audio headers and durations off the main actor. Existing chapter recordings can
+be finalized explicitly without regenerating valid checkpoints.
+
+`BookshelfModel` serializes metadata writes and checkpoints each completed
+chapter. `BookAudioAssembler` streams through bounded 65,536-frame buffers into
+a unique CAF file. Metadata is committed before chapter files are removed.
+Failed assembly or persistence preserves recoverable work. Replacement narration
+retains the previous playable file and timeline until the replacement commits;
+a loaded old recording is retained until playback releases it.
+
+Listening position is independent of reading position. Selection and position
+restore paused. Preparation and Create completion never start playback. Book
+export uses a temporary M4A file and only replaces the destination on success.
+Imports and audio inspection run off the main actor. Quit waits for cancellation
+and queued persistence; an update swap is scheduled only after that succeeds.
+
+Developer ID signing covers nested executable components and the app, with
+hardened runtime and secure timestamps. Release packaging requires notarization
+and stapling. Staged updates must pass a signature requirement pinned to Atten's
+bundle ID and developer team, plus Gatekeeper assessment. See DEPLOYMENT.md.
+
+The following audit records the original migration context; it is historical,
+not a description of the current feature set.
+
+## Original repository audit
 
 The original project is a Python 3.9+ command-line application. `cli.py` owns
 argument parsing, Kokoro model setup, synthesis, segment merging, cleanup, and

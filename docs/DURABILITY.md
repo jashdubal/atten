@@ -59,28 +59,28 @@ mitigations available today are taken: no dependency on system Python, no
 dependency on anything outside the bundle, and a minimum-version floor that is
 honest.
 
-## Known gap: notarization
+## Current distribution status
 
-Releases are ad-hoc signed and not notarized, so macOS blocks the first launch
-with "Apple could not verify Atten is free of malware", and the user must
-approve it in System Settings → Privacy & Security.
+The September 2026 candidate is Developer ID signed, including the nested speech
+runtime. Signing verification and an offline packaged synthesis check passed.
+Notarization and stapling remain pending the maintainer's notarytool Keychain
+profile. A signed candidate is not yet an accepted distribution release.
 
-This is the largest remaining risk to the promise at the top of this file.
-Gatekeeper's tolerance for software that is not notarized has narrowed with each
-macOS release — macOS 15 already removed the Control-click → **Open** shortcut
-for it — and there is no reason to expect that trend to reverse. Notarizing
-requires a paid Apple Developer account and a Developer ID certificate. The
-ticket is stapled into the DMG and keeps working after the certificate expires,
-so it is a one-time cost that removes both the warning and the long-term risk.
+Release packaging now requires signing and notarization by default. The explicit
+`ATTEN_LOCAL_VALIDATION=1` escape hatch is for local ad-hoc builds only.
+Developer ID builds skip the legacy quarantine repair. Update installation checks
+the app's developer identity and Gatekeeper assessment before replacing the app.
+Previously published ad-hoc releases retain their documented installation path.
 
-Until then, Atten clears the quarantine flag from its own bundle at launch.
-macOS marks every file inside a downloaded disk image, approving the outer app
-does not always clear the engine inside it, and a quarantined engine is killed
-with SIGKILL the moment Atten runs it — which the user experiences as a
-generation that stops for no reason. See `DEPLOYMENT.md` for why this is a
-deliberate exception to the rule against touching quarantine metadata.
+Whole-book preparation checkpoints completed chapters, keeps the previous
+recording during replacement, and commits final metadata before deleting
+recoverable files. Cancellation and relaunch leave unfinished work available for
+explicit resumption. A 30-minute assembly test used about 30.3 MiB peak process
+RSS, compared with 31.3 MiB for the short assembly test on this Mac. This measures
+assembly, not synthesis-model memory. Current evidence and remaining hardware
+checks are in [the acceptance report](REDESIGN_ACCEPTANCE.md).
 
-## What was tested
+## Earlier release testing
 
 Against the packaged, signed app from a release build, not the development
 checkout, because the bundled engine, the bundled model and Gatekeeper only

@@ -33,17 +33,21 @@
 
 ## Local speech, without the setup
 
-Atten is a local voice studio powered by the bundled
-[Kokoro 82M](https://huggingface.co/hexgrad/Kokoro-82M) model. Your text and
-generated audio stay on your computer, and the complete engine works offline after
-installation.
+Atten is a Mac reading and listening app powered by the bundled
+[Kokoro 82M](https://huggingface.co/hexgrad/Kokoro-82M) model. Your documents and
+audio stay on your computer, and the bundled speech engine works offline.
 
-- Create MP3 or WAV audio with 37 voices
-- Preview voices, speed, format, and acceleration settings in the Playground
-- Add PDFs and EPUBs to the Library, read them, and narrate them chapter by chapter
-- Keep projects and exports organized in one native app
-- Import text, regenerate previous work, and export anywhere
+- Add a book or document to **Library**, read it, and prepare its complete narration
+- Resume interrupted preparation without losing completed chapters
+- Listen with chapter navigation, seeking, and independent playback speed
+- Return to your listening position without automatic playback
+- Use **Create** for text-to-audio drafts, voice previews, saved projects, and exports
+- Export prepared books as M4A, and create MP3 or WAV audio with 37 bundled voices
 - Use the compatible CLI for scripts and automation
+
+The Mac overhaul is an unpublished release candidate. See the
+[acceptance report](docs/REDESIGN_ACCEPTANCE.md) for verified behavior and remaining
+release checks; Windows retains its existing interface.
 
 ## Install
 
@@ -51,10 +55,9 @@ installation.
 
 1. **[Download the latest DMG](https://github.com/jashdubal/atten/releases/latest/download/Atten-macOS-arm64.dmg).**
 2. Open it and drag **Atten** into **Applications**.
-3. Launch Atten and start generating speech—everything required is included.
+3. Launch Atten and add a document to Library—everything required is included.
 
-Atten currently requires an Apple Silicon Mac running macOS 14 or newer. The
-release is ad-hoc signed and not yet notarized, so macOS blocks the first launch
+Atten currently requires an Apple Silicon Mac running macOS 14 or newer. Previously published releases are ad-hoc signed and not yet notarized, so macOS blocks the first launch
 with "Apple could not verify Atten is free of malware". To open it: double-click
 Atten and dismiss the warning, then open **System Settings → Privacy & Security**,
 scroll to Security, and choose **Open Anyway** next to Atten. You do this once.
