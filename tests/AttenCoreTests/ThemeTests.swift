@@ -130,11 +130,12 @@ final class ThemeTests: XCTestCase {
     }
 
     /// Progress and focus are roles rather than call sites reaching for the
-    /// accent, so the screens built on this contract stay consistent.
+    /// accent, so the screens built on this contract stay consistent. Focus is
+    /// one of the few things drawn in `signal`.
     func testProgressAndFocusHaveRolesOfTheirOwn() {
         XCTAssertEqual(AttenColor.progress, AttenPalette.atten.accent.color)
         XCTAssertEqual(AttenColor.progressTrack, AttenPalette.atten.surfaceMuted.color)
-        XCTAssertEqual(AttenColor.focus, AttenPalette.atten.accentHover.color)
+        XCTAssertEqual(AttenColor.focus, AttenPalette.atten.signal.color)
     }
 
     /// Text is held to WCAG AAA (7:1) and secondary text to AA (4.5:1); accent
@@ -152,11 +153,13 @@ final class ThemeTests: XCTestCase {
             ("onAccent on accent", \.onAccent, \.accent, 4.5),
             ("readerText on surface", \.readerText, \.surface, 7.0),
             ("readerText on readerHighlight", \.readerText, \.readerHighlight, 4.5),
-            ("separator on appBackground", \.separator, \.appBackground, 1.3),
+            ("signalInk on signal", \.signalInk, \.signal, 4.5),
         ]
         for (name, surface) in surfaces {
             requirements.append(("textPrimary on \(name)", \.textPrimary, surface, 7.0))
             requirements.append(("textSecondary on \(name)", \.textSecondary, surface, 4.5))
+            requirements.append(("text3 on \(name)", \.text3, surface, 3.0))
+            requirements.append(("signal on \(name)", \.signal, surface, 3.0))
             for (label, chrome) in chromeColors {
                 requirements.append(("\(label) on \(name)", chrome, surface, 3.0))
             }
@@ -181,16 +184,65 @@ final class ThemeTests: XCTestCase {
         }
     }
 
+    /// A hairline is translucent, so it is measured as it lands on the
+    /// ground: there, but only just.
+    func testTheHairlineIsFaintButThere() {
+        let palette = AttenPalette.atten
+        for appearance in Appearance.allCases {
+            let ground = appearance.value(palette.bg)
+            let line = composite(
+                appearance.value(palette.hairline),
+                alpha: appearance == .dark ? palette.hairline.darkAlpha : palette.hairline.lightAlpha,
+                over: ground
+            )
+            let ratio = contrastRatio(line, ground)
+            XCTAssertGreaterThan(ratio, 1.1, "\(appearance.rawValue): the hairline has vanished")
+            XCTAssertLessThan(ratio, 1.5, "\(appearance.rawValue): the hairline reads as a rule")
+        }
+    }
+
+    /// The dark appearance is the designed one. The light side mirrors each
+    /// text role's lightness far enough to hold at least the dark side's
+    /// contrast on the ground.
+    func testLightTextHoldsTheDarkContrast() {
+        let palette = AttenPalette.atten
+        for (name, role) in [("text1", palette.text1), ("text2", palette.text2), ("text3", palette.text3)] {
+            XCTAssertGreaterThanOrEqual(
+                contrastRatio(role.light, palette.bg.light),
+                contrastRatio(role.dark, palette.bg.dark),
+                "light \(name) is weaker than dark \(name)"
+            )
+        }
+    }
+
     func testLibraryPaletteUsesTheSpecifiedGroundAndRestrainedAccent() {
         let palette = AttenPalette.atten
-        XCTAssertEqual(palette.appBackground.dark, 0x1E1E1E)
-        XCTAssertEqual(palette.sidebar.dark, 0x141414)
-        XCTAssertEqual(palette.surface.dark, 0x222222)
-        XCTAssertEqual(palette.surfaceElevated.dark, 0x282828)
-        XCTAssertEqual(palette.textPrimary.dark, 0xE6E6E6)
-        XCTAssertEqual(palette.textSecondary.dark, 0xABABAB)
-        XCTAssertEqual(palette.accent.dark, 0xD4D4D4)
+        XCTAssertEqual(palette.bg.dark, OKLCH(0.14, 0.008, 265).hex)
+        XCTAssertEqual(palette.surface1.dark, OKLCH(0.18, 0.01, 265).hex)
+        XCTAssertEqual(palette.text1.dark, OKLCH(0.97, 0, 0).hex)
+        XCTAssertEqual(palette.text2.dark, OKLCH(0.72, 0.01, 265).hex)
+        XCTAssertEqual(palette.text3.dark, OKLCH(0.52, 0.01, 265).hex)
+        XCTAssertEqual(palette.signal.dark, OKLCH(0.84, 0.13, 200).hex)
+        XCTAssertEqual(palette.signalInk.dark, OKLCH(0.18, 0.03, 220).hex)
+        XCTAssertEqual(palette.glass.darkAlpha, 0.55)
+        XCTAssertEqual(palette.hairline.darkAlpha, 0.07)
         XCTAssertEqual(palette.success.dark, 0x73AC88)
+    }
+
+    /// `accent` stopped being the button colour. It is a neutral now, and
+    /// `signal` is the only hue in the chrome.
+    func testTheAccentIsNeutralAndSignalIsTheOnlyHue() {
+        let palette = AttenPalette.atten
+        for appearance in Appearance.allCases {
+            for (name, role) in [
+                ("accent", palette.accent), ("accentHover", palette.accentHover),
+                ("accentSecondary", palette.accentSecondary), ("bg", palette.bg),
+                ("surface1", palette.surface1), ("text1", palette.text1), ("text2", palette.text2),
+            ] {
+                XCTAssertLessThan(chroma(appearance.value(role)), 0.02, "\(appearance.rawValue) \(name) has a hue")
+            }
+            XCTAssertGreaterThan(chroma(appearance.value(palette.signal)), 0.08, "\(appearance.rawValue) signal lost its hue")
+        }
     }
 
     /// In the dark the page and the chrome share one ground, which is what
@@ -224,12 +276,13 @@ final class ThemeTests: XCTestCase {
 
     /// Dark is a cool near-black rather than the neutral grey it replaced —
     /// that is the brief, and it is the one thing about the new palette that a
-    /// later well-meaning tidy could undo without noticing.
-    func testTheDarkAppearanceUsesNeutralCharcoal() {
+    /// later well-meaning tidy could undo without noticing. Never pure black.
+    func testTheDarkAppearanceIsACoolNearBlack() {
         for surface in [AttenPalette.atten.appBackground, AttenPalette.atten.sidebar] {
-            let (red, green, blue) = channels(surface.dark)
-            XCTAssertEqual(red, green)
-            XCTAssertEqual(green, blue)
+            let (red, _, blue) = channels(surface.dark)
+            XCTAssertGreaterThan(blue, red, "the ground is not cool")
+            XCTAssertNotEqual(surface.dark, 0x000000, "the ground is pure black")
+            XCTAssertLessThan(chroma(surface.dark), 0.02, "the ground is tinted rather than cool")
         }
     }
 
@@ -256,6 +309,18 @@ final class ThemeTests: XCTestCase {
 
     private func channels(_ hex: UInt) -> (red: UInt, green: UInt, blue: UInt) {
         ((hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff)
+    }
+
+    private func chroma(_ hex: UInt) -> Double {
+        let (red, green, blue) = channels(hex)
+        return OKLCH(red: Double(red) / 255, green: Double(green) / 255, blue: Double(blue) / 255).c
+    }
+
+    /// `color` at `alpha` laid over an opaque `ground`.
+    private func composite(_ color: UInt, alpha: Double, over ground: UInt) -> UInt {
+        let top = channels(color), bottom = channels(ground)
+        func mix(_ a: UInt, _ b: UInt) -> UInt { UInt((Double(a) * alpha + Double(b) * (1 - alpha)).rounded()) }
+        return mix(top.red, bottom.red) << 16 | mix(top.green, bottom.green) << 8 | mix(top.blue, bottom.blue)
     }
 
     /// WCAG 2.1 relative luminance and contrast ratio.

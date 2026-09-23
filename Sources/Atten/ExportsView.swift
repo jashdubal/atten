@@ -183,11 +183,9 @@ private struct ExportRow: View {
                     name = project.title
                     editingName = false
                 }
-                .controlSize(.small)
+                .buttonStyle(AttenTertiaryButtonStyle())
                 Button("Rename") { commitRename() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
             } else {
                 Menu { actionMenu } label: {
                     Image(systemName: "ellipsis")

@@ -221,15 +221,11 @@ private struct VoiceRow: View {
 
             if isSelected {
                 Button("Open", action: select)
-                    .buttonStyle(.bordered)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .frame(minWidth: 58)
             } else {
                 Button("Use", action: select)
-                    .buttonStyle(.borderedProminent)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .frame(minWidth: 58)
             }
         }

@@ -72,7 +72,6 @@ struct BookReaderView: View {
             readerCanvas
         }
         .background(AttenColor.appBackground)
-        .environment(\.attenMutedControls, true)
         .tint(AttenColor.textSecondary)
         .navigationTitle(book.title)
         .attenScreenTitle(book.title)
@@ -869,7 +868,9 @@ struct BookReaderView: View {
                 } label: {
                     Label("Prepare Audio", systemImage: "waveform")
                 }
-                .buttonStyle(AttenPrimaryButtonStyle())
+                .buttonStyle(AttenPrimaryButtonStyle(
+                    disabledReason: model.synthesis.isBusy ? "Another narration is running" : nil
+                ))
                 .disabled(chapter == nil || model.synthesis.isBusy)
             }
         }

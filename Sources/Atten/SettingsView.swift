@@ -243,7 +243,8 @@ private struct SettingsPane<Content: View>: View {
             .padding(.horizontal, AttenSpacing.lg)
             .padding(.top, AttenSpacing.lg)
 
-            content
+            // The form's own grey would cut the pane in two under its header.
+            content.scrollContentBackground(.hidden)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AttenColor.appBackground)

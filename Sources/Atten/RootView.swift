@@ -145,7 +145,6 @@ struct RootView: View {
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
         .tint(AttenColor.accent)
-        .environment(\.attenMutedControls, false)
         .font(AttenTypography.body)
         .foregroundStyle(AttenColor.textPrimary)
         .background(WindowTitleHider())
@@ -344,7 +343,8 @@ struct RootView: View {
             .padding(.horizontal, AttenSpacing.md)
             .padding(.vertical, AttenSpacing.sm)
         }
-        .background(AttenColor.sidebar)
+        // No background of its own: the system's sidebar material shows
+        // through, which is the only vibrancy the chrome needs.
     }
 
     /// How Atten looks, which is now one decision rather than two: there is a
@@ -459,7 +459,6 @@ private struct SidebarNavigationRow: View {
     let action: () -> Void
 
     @Environment(\.isFocused) private var isFocused
-    @Environment(\.attenMutedControls) private var muted
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
@@ -474,7 +473,7 @@ private struct SidebarNavigationRow: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(isSelected && !muted ? AttenColor.textPrimary : AttenColor.textSecondary)
+            .foregroundStyle(isSelected ? AttenColor.textPrimary : AttenColor.textSecondary)
             .padding(.horizontal, AttenSpacing.sm)
             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
             .background(background)
@@ -484,7 +483,7 @@ private struct SidebarNavigationRow: View {
                     .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
             }
             .overlay(alignment: .leading) {
-                if isSelected && !muted {
+                if isSelected {
                     Capsule()
                         .fill(AttenColor.accent)
                         .frame(width: 2, height: 16)
@@ -494,7 +493,6 @@ private struct SidebarNavigationRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .focusEffectDisabled()
         .onHover { isHovering = $0 }
         .animation(

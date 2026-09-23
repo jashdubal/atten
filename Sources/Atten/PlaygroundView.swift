@@ -200,7 +200,9 @@ struct PlaygroundView: View {
                     Label("Create Sample", systemImage: "flask.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(AttenPrimaryButtonStyle())
+                .buttonStyle(AttenPrimaryButtonStyle(
+                    disabledReason: sampleText.count > 500 ? "Keep it under 500 characters" : "Add sample text"
+                ))
                 .keyboardShortcut(.return, modifiers: [.command, .option])
                 .disabled(
                     sampleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -231,7 +233,7 @@ struct PlaygroundView: View {
             }
             Spacer()
             Button("Clear") { model.clearPlaygroundSample() }
-                .buttonStyle(.bordered)
+                .buttonStyle(AttenSecondaryButtonStyle())
             Button("Use in Draft", systemImage: "arrow.right") {
                 model.usePlaygroundSettingsInStudio(
                     text: sampleText,

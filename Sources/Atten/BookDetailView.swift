@@ -122,9 +122,9 @@ struct BookDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: AttenColor.shadow.opacity(0.15), radius: 6, y: 2)
         .accessibilityLabel("Cover for \(book.title)")
     }
 
@@ -212,7 +212,9 @@ struct BookDetailView: View {
                 } label: {
                     Label(primaryTitle, systemImage: shelf.isFullyNarrated(book) ? (model.playingBook?.id == book.id && model.isPlaying ? "pause.fill" : "play.fill") : "waveform")
                 }
-                .buttonStyle(AttenPrimaryButtonStyle())
+                .buttonStyle(AttenPrimaryButtonStyle(
+                    disabledReason: progress == nil ? "Another narration is running" : nil
+                ))
                 .disabled(progress != nil || (!shelf.isFullyNarrated(book) && model.synthesis.isBusy))
                 .help(shelf.isFullyNarrated(book) ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
 
