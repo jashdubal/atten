@@ -4,6 +4,42 @@ Status: **unpublished Developer ID–signed candidate; not yet notarized or appr
 for distribution**. Scope is macOS 14+ on Apple Silicon. Windows, payments, new
 speech engines, and publishing are outside this work.
 
+## Addendum — 2026-09-23: chrome, motion and Library follow-ups (#43, #44, #45)
+
+Closes #43, #44 and #45. The neutral charcoal palette from the 2026-09-22 pass
+is kept as the dark appearance of record; #45's separate navy palette does not
+land. Its motion half does:
+
+- **Motion (#45):** destination/overlay transitions are a plain crossfade, the
+  pressed-control cue is a brief opacity dim instead of a scale, the hover lift
+  on Home's shelf jackets is removed, and every non-Reader shadow (elevation
+  tokens, the primary button, book/audio artwork, the play button) is capped at
+  radius 6 / opacity ≤0.15. The unused `brandGradient` glow token is removed.
+  The Reader's page-turn animation, its shadows, and the reader page palette
+  are unchanged.
+- **Chrome (#44):** the light-mode chrome gradient is gone — sidebar, top
+  chrome and the detail column now share one flat ground per appearance.
+  Sidebar row selection is a faint tint plus a 2pt accent leading mark instead
+  of a strong tonal fill; the focus ring, `.isSelected` trait and arrow-key
+  navigation are unchanged. The floating player capsule lost its material,
+  gradient stroke and heavy shadow in favor of a solid surface, a hairline
+  border and the same restrained elevation shadow used elsewhere.
+- **Library (#43):** sort choice now persists across launches; the sort menu
+  hides (rather than shows disabled) under the Recently Added filter, which
+  already sorts newest-first; the filter+sort combination rule moved into
+  `BookshelfModel.books(for:query:sort:)`, now covered by a test. The
+  missing-cover jacket uses theme-aware colors instead of fixed paper tones,
+  and no longer prints "ATTEN LIBRARY" filler when a book has no author.
+  Removing a book now asks for confirmation, since it deletes the source file
+  and any narration. The card's spoken VoiceOver value states its ready/narration
+  status, matching what's shown on screen.
+
+`swift test` (221 tests) and `swift build -c release` both pass. This is
+automated evidence only — the manual GUI checks listed under Outstanding
+release gates below (spoken VoiceOver, keyboard-only acceptance, reduced-motion
+visual inspection, physical media keys, light/dark screenshot capture) were not
+performed for this addendum.
+
 ## Implemented
 
 - Library and Create are the primary workspaces. Library opens by default and
