@@ -112,6 +112,42 @@ final class BookshelfTests: XCTestCase {
         XCTAssertTrue(shelf.filteredBooks(for: .audiobooks, query: older.title).isEmpty)
     }
 
+    func testBooksForFilterAppliesSortExceptUnderRecentlyAdded() async throws {
+        await shelf.importBook(from: try makePDF(pages: ["First book."]), defaults: settings())
+        let first = try XCTUnwrap(shelf.books.first)
+        try await Task.sleep(for: .milliseconds(2))
+        await shelf.importBook(from: try makePDF(pages: ["Second book."]), defaults: settings())
+        let second = try XCTUnwrap(shelf.books.first)
+
+        // A PDF without title metadata falls back to its (randomised) file
+        // name, so the expected order is computed the same way the sort does
+        // rather than assumed from the page text.
+        let byTitle = [first, second]
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+            .map(\.id)
+
+        // "All" and "Audiobooks" honour the chosen sort…
+        XCTAssertEqual(shelf.books(for: .books, sort: .title).map(\.id), byTitle)
+
+        shelf.narrate(first.id, chapters: [0], useMPS: false)
+        try await waitForNarration()
+        shelf.narrate(second.id, chapters: [0], useMPS: false)
+        try await waitForNarration()
+        XCTAssertEqual(shelf.books(for: .audiobooks, sort: .title).map(\.id), byTitle)
+
+        // …but "Recently Added" stays newest-first regardless of sort.
+        XCTAssertEqual(
+            shelf.books(for: .recentlyAdded, sort: .title).map(\.id),
+            [second.id, first.id]
+        )
+
+        // A search query still narrows the sorted result.
+        XCTAssertEqual(
+            shelf.books(for: .books, query: first.title, sort: .title).map(\.id),
+            [first.id]
+        )
+    }
+
     func testLibrarySortUsesMetadataWithoutMutatingRecords() {
         let first = BookRecord(
             title: "Chapter 10", author: "Adams", format: .pdf,

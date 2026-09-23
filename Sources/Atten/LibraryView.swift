@@ -12,7 +12,8 @@ struct LibraryView: View {
     @State private var selectedFilter: LibraryFilter = .books
     @State private var isTargeted = false
     @AppStorage("Atten.libraryListView") private var showsList = false
-    @State private var sortOrder = LibrarySort.recentlyAdded
+    @AppStorage("Atten.librarySort") private var sortOrder = LibrarySort.recentlyAdded
+    @State private var pendingRemoval: BookRecord?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -50,6 +51,17 @@ struct LibraryView: View {
             receive(providers)
         }
         .task { shelf.refreshNarrationCounts() }
+        .confirmationDialog(
+            "Remove “\(pendingRemoval?.title ?? "")” from Library?",
+            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingRemoval
+        ) { book in
+            Button("Remove", role: .destructive) { shelf.remove(book.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This deletes the imported file and any narration for this book. This can't be undone.")
+        }
     }
 
     @ViewBuilder private var page: some View {
@@ -201,25 +213,26 @@ struct LibraryView: View {
 
     private var displayControls: some View {
         HStack(spacing: 16) {
-            HStack(spacing: 8) {
-                Text("Sort by")
-                    .foregroundStyle(AttenColor.textMuted)
-                Menu {
-                    Picker("Sort by", selection: $sortOrder) {
-                        ForEach(LibrarySort.allCases) { order in
-                            Text(order.rawValue).tag(order)
+            if selectedFilter != .recentlyAdded {
+                HStack(spacing: 8) {
+                    Text("Sort by")
+                        .foregroundStyle(AttenColor.textMuted)
+                    Menu {
+                        Picker("Sort by", selection: $sortOrder) {
+                            ForEach(LibrarySort.allCases) { order in
+                                Text(order.rawValue).tag(order)
+                            }
                         }
+                    } label: {
+                        Text(sortOrder.rawValue)
                     }
-                } label: {
-                    Text(selectedFilter == .recentlyAdded ? "Recently added" : sortOrder.rawValue)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Sort books")
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .disabled(selectedFilter == .recentlyAdded)
-                .help("Sort books; Recently Added always shows the newest imports first")
+                .font(AttenTypography.metadata)
+                Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
             }
-            .font(AttenTypography.metadata)
-            Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
             HStack(spacing: 4) {
                 layoutButton(list: false, icon: "square.grid.2x2.fill", title: "Grid view")
                 layoutButton(list: true, icon: "list.bullet", title: "List view")
@@ -307,7 +320,7 @@ struct LibraryView: View {
             isList: showsList,
             open: { model.openInLibrary(.book(book.id)) },
             read: { model.openInLibrary(.reader(book.id)) },
-            remove: { shelf.remove(book.id) }
+            remove: { pendingRemoval = book }
         )
         .task(id: book.id) { await shelf.covers.load(book) }
         .contextMenu {
@@ -315,15 +328,13 @@ struct LibraryView: View {
             Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
             Divider()
             Button("Remove from Library", systemImage: "trash", role: .destructive) {
-                shelf.remove(book.id)
+                pendingRemoval = book
             }
         }
     }
 
     private var filteredBooks: [BookRecord] {
-        let books = shelf.filteredBooks(for: selectedFilter, query: query)
-        guard selectedFilter != .recentlyAdded else { return books }
-        return sortOrder.sorted(books)
+        shelf.books(for: selectedFilter, query: query, sort: sortOrder)
     }
 
     /// Dropping a book onto the shelf is the same import as the panel. Books
@@ -413,11 +424,19 @@ private struct BookCard: View {
     let remove: () -> Void
 
     @State private var isHovering = false
-    @Environment(\.colorScheme) private var colorScheme
 
     private var isNarrating: Bool { progress?.bookID == book.id }
     private var isFullyNarrated: Bool {
         book.hasBookAudio && !book.needsPreparation
+    }
+
+    /// Matches whichever caption or meter the card is showing, so VoiceOver
+    /// reports the same state a sighted reader sees.
+    private var narrationStatus: String {
+        if isNarrating || (narrated > 0 && !isFullyNarrated) {
+            return "\(narrated) of \(book.chapters.count) chapters narrated"
+        }
+        return isFullyNarrated ? "ready to listen" : "audio not prepared"
     }
 
     var body: some View {
@@ -461,7 +480,7 @@ private struct BookCard: View {
         .onHover { isHovering = $0 }
         .accessibilityLabel(book.title)
         .accessibilityValue(
-            "\(book.author ?? "Unknown author"), \(narrated) of \(book.chapters.count) chapters narrated"
+            "\(book.author ?? "Unknown author"), \(narrationStatus)"
                 + (book.sourceExists ? "" : ", source file unavailable")
         )
         .accessibilityHint("Open this book")
@@ -481,7 +500,6 @@ private struct BookCard: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .environment(\.colorScheme, cover == nil && !isList ? .light : colorScheme)
             .background(cover != nil && !isList ? AttenColor.surface.opacity(0.92) : .clear,
                         in: RoundedRectangle(cornerRadius: 4))
             .padding(8)
@@ -532,24 +550,26 @@ private struct BookCard: View {
             Text(book.format.displayName.uppercased())
                 .font(.system(size: isList ? 5 : 8, weight: .medium))
                 .tracking(isList ? 1 : 2.8)
+                .foregroundStyle(AttenColor.textSecondary)
             Text(book.title)
                 .font(.system(size: isList ? 9 : 23, weight: .regular, design: .serif))
                 .lineLimit(isList ? 3 : 5)
                 .multilineTextAlignment(.leading)
-            Rectangle().fill(Color(hex: 0x76746F)).frame(width: isList ? 12 : 26, height: 1)
+                .foregroundStyle(AttenColor.textPrimary)
+            Rectangle().fill(AttenColor.separator).frame(width: isList ? 12 : 26, height: 1)
             Spacer(minLength: 0)
-            if !isList {
-                Text(book.author ?? "ATTEN LIBRARY")
+            if !isList, let author = book.author {
+                Text(author)
                     .font(.system(size: 9, weight: .medium))
                     .tracking(2)
                     .lineLimit(2)
+                    .foregroundStyle(AttenColor.textSecondary)
             }
         }
-        .foregroundStyle(Color(hex: 0x363530))
         .padding(isList ? 8 : 26)
         .padding(.top, isList ? 0 : 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(hex: 0xE4DFD5))
+        .background(AttenColor.surfaceElevated)
     }
 }
 

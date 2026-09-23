@@ -170,6 +170,16 @@ final class BookshelfModel {
         }
     }
 
+    /// `filteredBooks(for:query:)` plus the shelf's sort order, in one place
+    /// so the Library view and its tests agree on the combination — in
+    /// particular that Recently Added, already newest-first, is never
+    /// re-sorted underneath itself.
+    func books(for filter: LibraryFilter, query: String = "", sort: LibrarySort) -> [BookRecord] {
+        let candidates = filteredBooks(for: filter, query: query)
+        guard filter != .recentlyAdded else { return candidates }
+        return sort.sorted(candidates)
+    }
+
     func isFullyNarrated(_ book: BookRecord) -> Bool {
         book.hasBookAudio && !book.needsPreparation
     }
