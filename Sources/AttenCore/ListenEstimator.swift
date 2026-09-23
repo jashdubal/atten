@@ -81,12 +81,15 @@ public struct ListenEstimator: Equatable, Sendable {
 
     /// A fixed locale, not the user's: these are compact, uppercase, mono
     /// readouts styled like a HUD, not prose translated for a market.
+    /// Grouped by hand because `NumberFormatter`'s POSIX locale drops the
+    /// separator on some macOS versions.
     private static func groupedNumber(_ value: Int) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.groupingSeparator = ","
-        formatter.usesGroupingSeparator = true
-        return formatter.string(from: NSNumber(value: value)) ?? String(value)
+        let digits = Array(String(value.magnitude))
+        var grouped = ""
+        for (index, digit) in digits.enumerated() {
+            if index > 0, (digits.count - index) % 3 == 0 { grouped.append(",") }
+            grouped.append(digit)
+        }
+        return value < 0 ? "-" + grouped : grouped
     }
 }
