@@ -50,12 +50,11 @@ final class PreparationTests: XCTestCase {
         XCTAssertFalse(timings.segments[0].words.isEmpty)
         let folder = directories.narrations.appendingPathComponent(book.id.uuidString)
         let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-        let chapters = children.filter { $0.lastPathComponent.hasPrefix("chapter-") }
-        XCTAssertEqual(chapters.count, 2)
-        for chapter in chapters {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: chapter.appendingPathComponent("timings.json").path))
-            XCTAssertTrue(FileManager.default.fileExists(atPath: chapter.appendingPathComponent("segments/seg-00000.wav").path))
-        }
+        // Once the book file commits, chapter folders and their segment WAVs
+        // are retired; only the book recording and its timings remain.
+        XCTAssertEqual(children.filter { $0.lastPathComponent.hasPrefix("chapter-") }, [])
+        XCTAssertEqual(children.map(\.lastPathComponent), [audio.deletingLastPathComponent().lastPathComponent])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: NarrationTimings.sidecarURL(for: audio).path))
     }
 
     func testFailedSecondChapterResumesFromCheckpointAfterRelaunch() async throws {
