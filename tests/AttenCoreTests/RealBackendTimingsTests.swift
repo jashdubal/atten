@@ -53,21 +53,15 @@ final class RealBackendTimingsTests: XCTestCase {
         }
         let folder = directories.narrations.appendingPathComponent(book.id.uuidString)
         let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
-        let chapters = children.filter { $0.lastPathComponent.hasPrefix("chapter-") }
-        XCTAssertEqual(chapters.count, 2)
-        for chapter in chapters {
-            let segment = chapter.appendingPathComponent("segments/seg-00000.wav")
-            XCTAssertGreaterThan(try AVAudioFile(forReading: segment).length, 0)
-            let sidecar = try XCTUnwrap(NarrationTimings.load(beside: chapter.appendingPathComponent("chapter.wav")))
-            XCTAssertEqual(sidecar.segments[0].start, 0)
-            XCTAssertFalse(sidecar.segments[0].words.isEmpty)
-        }
+        // Chapter folders, segment WAVs and their sidecars are retired once the
+        // book file commits; the book-level timings carry every chapter's words.
+        XCTAssertEqual(children.filter { $0.lastPathComponent.hasPrefix("chapter-") }, [])
         let player = try AVAudioPlayer(contentsOf: audio)
         player.volume = 0
         XCTAssertTrue(player.prepareToPlay())
         XCTAssertTrue(player.play())
         XCTAssertTrue(player.isPlaying)
         player.stop()
-        print("Real book: 2 chapter sidecars + book timings.json verified; combined CAF playback succeeded")
+        print("Real book: book timings.json verified, chapter folders retired; combined CAF playback succeeded")
     }
 }
