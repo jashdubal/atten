@@ -40,7 +40,7 @@ if [[ "$(uname -m)" != "arm64" ]]; then
     echo "Release builds require an Apple Silicon runner." >&2
     exit 1
 fi
-if [[ "${ALLOW_DIRTY:-0}" != "1" ]] && ! git -C "$ROOT" diff --quiet --ignore-submodules HEAD --; then
+if [[ "${ALLOW_DIRTY:-0}" != "1" && -n "$(git -C "$ROOT" status --porcelain)" ]]; then
     echo "Release builds require a clean worktree. Set ALLOW_DIRTY=1 only for local validation." >&2
     exit 1
 fi
@@ -51,6 +51,15 @@ for command in swift uv pyinstaller hdiutil codesign lipo otool sips iconutil; d
     fi
     command -v "$command" >/dev/null || { echo "Missing required command: $command" >&2; exit 1; }
 done
+
+if [[ "${ATTEN_LOCAL_VALIDATION:-0}" != "1" ]]; then
+    : "${ATTEN_SIGNING_IDENTITY:?Set a Developer ID Application signing identity}"
+    : "${ATTEN_NOTARY_PROFILE:?Set a notarytool Keychain profile}"
+    case "$ATTEN_SIGNING_IDENTITY" in
+        "Developer ID Application:"*) ;;
+        *) echo "A Developer ID Application identity is required." >&2; exit 1 ;;
+    esac
+fi
 
 BUILD_ROOT="$ROOT/.build/release-package"
 APP="$BUILD_ROOT/Atten.app"
@@ -141,15 +150,21 @@ while IFS= read -r -d '' file_path; do
             echo "Unexpected architecture ($architectures): $file_path" >&2
             missing_architecture=1
         fi
-        codesign --force --sign - --timestamp=none "$file_path" >/dev/null
+        if [[ "${ATTEN_LOCAL_VALIDATION:-0}" == "1" ]]; then
+            codesign --force --sign - --timestamp=none "$file_path" >/dev/null
+        fi
     fi
 done < <(find "$APP" -type f -print0)
 if [[ "$missing_architecture" -ne 0 ]]; then
     exit 1
 fi
 
-codesign --force --sign - --timestamp=none "$APP" >/dev/null
-codesign --verify --deep --strict --verbose=2 "$APP"
+if [[ "${ATTEN_LOCAL_VALIDATION:-0}" == "1" ]]; then
+    codesign --force --sign - --timestamp=none "$APP" >/dev/null
+    codesign --verify --deep --strict --verbose=2 "$APP"
+else
+    "$ROOT/scripts/sign-macos-app" "$APP"
+fi
 
 while IFS= read -r -d '' file_path; do
     if file "$file_path" | grep -q 'Mach-O'; then
@@ -179,6 +194,10 @@ if [[ "${RUN_SYNTHESIS_SMOKE:-0}" == "1" ]]; then
     "$ROOT/scripts/smoke-packaged-backend" "$APP"
 fi
 
+if [[ "${ATTEN_LOCAL_VALIDATION:-0}" != "1" ]]; then
+    "$ROOT/scripts/notarize-macos" "$APP"
+fi
+
 mkdir -p "$DMG_STAGING"
 cp -R "$APP" "$DMG_STAGING/Atten.app"
 ln -s /Applications "$DMG_STAGING/Applications"
@@ -190,6 +209,11 @@ hdiutil create \
     -srcfolder "$DMG_STAGING" \
     "$DMG" >/dev/null
 
+if [[ "${ATTEN_LOCAL_VALIDATION:-0}" != "1" ]]; then
+    codesign --sign "$ATTEN_SIGNING_IDENTITY" --timestamp "$DMG"
+    "$ROOT/scripts/notarize-macos" "$DMG"
+fi
+
 if [[ "$(stat -f '%z' "$DMG")" -ge 2147483648 ]]; then
     echo "DMG exceeds GitHub's 2 GiB per-file release limit." >&2
     exit 1
@@ -197,7 +221,12 @@ fi
 
 REVISION="$(git -C "$ROOT" rev-parse HEAD)"
 SOURCE_TAR="$BUILD_ROOT/Atten-corresponding-source.tar"
-git -C "$ROOT" archive --format=tar --prefix="Atten-$VERSION/" --output="$SOURCE_TAR" HEAD
+if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+    # Local candidates must ship source matching the actual binary, including new files.
+    python3 "$ROOT/scripts/archive-working-source" "$SOURCE_TAR" "$VERSION"
+else
+    git -C "$ROOT" archive --format=tar --prefix="Atten-$VERSION/" --output="$SOURCE_TAR" HEAD
+fi
 gzip -9 -c "$SOURCE_TAR" > "$SOURCE_ARCHIVE"
 uv run --frozen python "$ROOT/scripts/generate-sbom" \
     "$SBOM" --version "$VERSION" --revision "$REVISION"

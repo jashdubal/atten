@@ -1,0 +1,21 @@
+#!/bin/bash
+set -euo pipefail
+APP="${1:?Usage: scripts/sign-macos-app APP}"
+: "${ATTEN_SIGNING_IDENTITY:?Set ATTEN_SIGNING_IDENTITY to a Developer ID Application identity}"
+case "$ATTEN_SIGNING_IDENTITY" in
+    "Developer ID Application:"*) ;;
+    *) echo "Distribution requires a Developer ID Application identity." >&2; exit 1 ;;
+esac
+/usr/libexec/PlistBuddy -c 'Delete :AttenDistributionSigned' "$APP/Contents/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c 'Add :AttenDistributionSigned bool true' "$APP/Contents/Info.plist"
+# Sign executable code first, then enclosing framework bundles, then the app.
+while IFS= read -r -d '' item; do
+    if file -b "$item" | grep -q 'Mach-O'; then
+        codesign --force --sign "$ATTEN_SIGNING_IDENTITY" --options runtime --timestamp "$item"
+    fi
+done < <(find "$APP" -type f -print0)
+while IFS= read -r -d '' item; do
+    codesign --force --sign "$ATTEN_SIGNING_IDENTITY" --options runtime --timestamp "$item"
+done < <(find "$APP" -depth -type d \( -name '*.framework' -o -name '*.app' -o -name '*.xpc' \) ! -path "$APP" -print0)
+codesign --force --sign "$ATTEN_SIGNING_IDENTITY" --options runtime --timestamp "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"

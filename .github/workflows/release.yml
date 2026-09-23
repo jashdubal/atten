@@ -44,10 +44,41 @@ jobs:
           swift test
           uv run python -m unittest discover -s tests -p 'test_*.py' -v
 
+      - name: Configure Developer ID signing and notarization
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          : "${MACOS_CERTIFICATE_P12:?Developer ID certificate secret is required}"
+          : "${APPLE_ID:?Notarization credentials are required}"
+          SIGNING_KEYCHAIN="$RUNNER_TEMP/atten-signing.keychain-db"
+          SIGNING_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$SIGNING_PASSWORD"
+          printf '%s' "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/atten-developer-id.p12"
+          security create-keychain -p "$SIGNING_PASSWORD" "$SIGNING_KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$SIGNING_KEYCHAIN"
+          security unlock-keychain -p "$SIGNING_PASSWORD" "$SIGNING_KEYCHAIN"
+          security import "$RUNNER_TEMP/atten-developer-id.p12" -k "$SIGNING_KEYCHAIN" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$SIGNING_PASSWORD" "$SIGNING_KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$SIGNING_KEYCHAIN" "$HOME/Library/Keychains/login.keychain-db"
+          xcrun notarytool store-credentials atten-ci --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
+          rm "$RUNNER_TEMP/atten-developer-id.p12"
+
       - name: Build fully offline macOS release
         env:
           RUN_SYNTHESIS_SMOKE: "1"
+          ATTEN_SIGNING_IDENTITY: "Developer ID Application: Jashraj Dubal (BK6ZPY7AD9)"
+          ATTEN_NOTARY_PROFILE: atten-ci
         run: scripts/build-release --version "${GITHUB_REF_NAME#v}"
+
+      - name: Remove temporary signing keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/atten-signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/atten-developer-id.p12"
 
       - name: Attest macOS release artifacts
         uses: actions/attest-build-provenance@v2

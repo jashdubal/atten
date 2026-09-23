@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+ARTIFACT="${1:?Usage: scripts/notarize-macos APP_OR_DMG}"
+: "${ATTEN_NOTARY_PROFILE:?Set ATTEN_NOTARY_PROFILE to a notarytool Keychain profile}"
+UPLOAD="$ARTIFACT"
+TEMP_DIRECTORY="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIRECTORY"' EXIT
+if [[ "$ARTIFACT" == *.app ]]; then
+    UPLOAD="$TEMP_DIRECTORY/Atten.zip"
+    ditto -c -k --keepParent "$ARTIFACT" "$UPLOAD"
+fi
+xcrun notarytool submit "$UPLOAD" --keychain-profile "$ATTEN_NOTARY_PROFILE" --wait
+xcrun stapler staple "$ARTIFACT"
+xcrun stapler validate "$ARTIFACT"
+if [[ "$ARTIFACT" == *.app ]]; then
+    spctl --assess --type execute --verbose=2 "$ARTIFACT"
+else
+    spctl --assess --type open --context context:primary-signature --verbose=2 "$ARTIFACT"
+fi
