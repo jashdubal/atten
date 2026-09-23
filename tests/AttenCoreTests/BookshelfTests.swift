@@ -483,6 +483,23 @@ final class BookshelfTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: updated.sourceURL, encoding: .utf8), "Second version.")
     }
 
+    func testUpdatingADraftKeepsListeningStateAndNewDraftsGenerateAtNormalSpeed() throws {
+        var defaults = settings()
+        defaults.defaultSpeed = 1.4
+        let first = try shelf.saveDraft(title: "Draft", text: "First.", voiceID: "af_heart", defaults: defaults)
+        XCTAssertEqual(first.speed, 1.0)
+
+        shelf.saveListeningPosition(42, for: first.id)
+        shelf.toggleBookmark(at: ReadingLocation(chapterIndex: 0, paragraphIndex: 0), excerpt: "First.", in: first.id)
+        let updated = try shelf.saveDraft(id: first.id, title: "Draft", text: "Second.", voiceID: "af_bella", defaults: defaults)
+
+        XCTAssertEqual(updated.listeningPosition, 42)
+        XCTAssertEqual(updated.bookmarks.count, 1)
+        XCTAssertEqual(updated.chapters.map(\.id), first.chapters.map(\.id))
+        XCTAssertEqual(updated.voiceID, "af_bella")
+        XCTAssertEqual(updated.contentHash, ContentHash.of("Second."))
+    }
+
     /// A draft is a book with its own dedicated text file, so `remove(_:)` —
     /// which already deletes only one book's own source file — needs no
     /// special case for drafts.

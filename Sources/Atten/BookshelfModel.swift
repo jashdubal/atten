@@ -388,24 +388,40 @@ final class BookshelfModel {
         let destination = directories.bookSources.appendingPathComponent("\(bookID.uuidString).txt")
         try text.write(to: destination, atomically: true, encoding: .utf8)
 
-        let chapterID = existingIndex.flatMap { books[$0].chapters.first?.id } ?? UUID()
-        var draft = BookRecord(
-            id: bookID,
-            title: displayTitle,
-            format: .document,
-            sourcePath: destination.path,
-            chapters: [BookChapter(id: chapterID, title: displayTitle, text: text)],
-            voiceID: voiceID,
-            speed: defaults.defaultSpeed,
-            audioFormat: defaults.defaultFormat,
-            addedAt: existingIndex.map { books[$0].addedAt } ?? Date()
-        )
-        draft.contentHash = ContentHash.of(text)
-
+        let hash = ContentHash.of(text)
+        let draft: BookRecord
         if let existingIndex {
-            books[existingIndex] = draft
+            // Update in place so narration, bookmarks and listening position
+            // survive an autosave; only what the writer controls changes.
+            var updated = books[existingIndex]
+            updated.title = displayTitle
+            updated.sourcePath = destination.path
+            updated.voiceID = voiceID
+            if updated.chapters.count == 1 {
+                updated.chapters[0].title = displayTitle
+                updated.chapters[0].text = text
+            } else {
+                updated.chapters = [BookChapter(title: displayTitle, text: text)]
+            }
+            updated.contentHash = hash
+            books[existingIndex] = updated
+            draft = updated
         } else {
-            books.insert(draft, at: 0)
+            // New narration always generates at 1.0×; listening speed belongs
+            // to the player.
+            var created = BookRecord(
+                id: bookID,
+                title: displayTitle,
+                format: .document,
+                sourcePath: destination.path,
+                chapters: [BookChapter(title: displayTitle, text: text)],
+                voiceID: voiceID,
+                speed: 1.0,
+                audioFormat: defaults.defaultFormat
+            )
+            created.contentHash = hash
+            books.insert(created, at: 0)
+            draft = created
         }
         refreshNarrationCounts()
         persist()

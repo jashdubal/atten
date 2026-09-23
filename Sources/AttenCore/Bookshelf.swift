@@ -272,7 +272,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         listeningPosition = max(0, (try? container.decode(Double.self, forKey: .listeningPosition)) ?? 0)
         lastListenedAt = try? container.decode(Date.self, forKey: .lastListenedAt)
         previousChapters = try? container.decode([BookChapter].self, forKey: .previousChapters)
-        contentHash = try container.decodeIfPresent(String.self, forKey: .contentHash)
+        contentHash = try? container.decode(String.self, forKey: .contentHash)
     }
 }
 
