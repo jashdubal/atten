@@ -11,7 +11,7 @@ import warnings
 
 from atten_backend.catalog import VOICES
 from atten_backend.device import SUPPORTED_DEVICE_MODES, model_status, resolve_device
-from atten_backend.service import GenerationRequest, GenerationService
+from atten_backend.service import GenerationRequest, GenerationService, SoundFileAudioIO
 from play import play_audio_file
 
 warnings.filterwarnings("ignore")
@@ -73,7 +73,11 @@ def process_input(args, service=None):
         log_info(f"Acceleration enabled: {device_info.selected_device}", "🚀")
 
     def segment_progress(count):
-        emit("segment", count=count)
+        if args.segments_dir is None:
+            emit("segment", count=count)
+
+    def segment_ready(payload):
+        emit("segment", **payload)
 
     if args.play_only:
         with TemporaryDirectory(prefix="atten-preview-") as output_directory:
@@ -86,8 +90,10 @@ def process_input(args, service=None):
                     output_format=args.format,
                     output_directory=Path(output_directory),
                     filename="preview",
+                    segments_directory=args.segments_dir,
                 ),
                 progress=segment_progress,
+                segment_ready=segment_ready,
             )
             log_progress("Playing audio preview...", "🔊")
             if not play_audio_file(str(result.output_path), args.silent):
@@ -105,8 +111,10 @@ def process_input(args, service=None):
             output_format=args.format,
             output_directory=Path(args.output),
             filename=args.filename,
+            segments_directory=args.segments_dir,
         ),
         progress=segment_progress,
+        segment_ready=segment_ready,
     )
     log_success(f"Audio saved: {result.output_path.name}", "💾")
 
@@ -168,6 +176,7 @@ def build_parser():
     parser.add_argument(
         "-o", "--output", default="outputs", help="Output directory (default: outputs)."
     )
+    parser.add_argument("--segments-dir", type=Path, help="Keep WAV segments and emit word timings.")
     parser.add_argument("--filename", help="Output filename without extension.")
     parser.add_argument("--play", action="store_true", help="Play after generation.")
     parser.add_argument(
@@ -202,8 +211,23 @@ def backend_info(device_mode="auto"):
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
     global SILENT_MODE, JSON_MODE
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "transcode":
+        parser = argparse.ArgumentParser(description="Transcode local audio to MP3 or WAV.")
+        parser.add_argument("--input", required=True, type=Path)
+        parser.add_argument("--output", required=True, type=Path)
+        parser.add_argument("--json", action="store_true")
+        args = parser.parse_args(argv[1:])
+        SILENT_MODE, JSON_MODE = False, args.json
+        try:
+            path = SoundFileAudioIO().transcode(args.input, args.output)
+            emit("completed", path=str(path))
+            return 0
+        except Exception as error:
+            log_error(str(error))
+            return 1
+    args = build_parser().parse_args(argv)
     SILENT_MODE = args.silent
     JSON_MODE = args.json
 

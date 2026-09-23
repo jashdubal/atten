@@ -394,28 +394,60 @@ final class BookshelfModel {
                         let remaining = Date().timeIntervalSince(started) * Double(totalWords - completedWords) / Double(completedWords)
                         progress?.eta = "About \(max(1, Int(ceil(remaining / 60)))) min remaining"
                     }
-                    let output = try await generator.generate(
+                    let chapterDirectory = directory.appendingPathComponent(
+                        "chapter-\(index)-\(UUID().uuidString)", isDirectory: true
+                    )
+                    var checkpointed = false
+                    defer {
+                        if !checkpointed { try? FileManager.default.removeItem(at: chapterDirectory) }
+                    }
+                    // Segment WAVs only matter while the chapter is being made; the
+                    // chapter file holds the same audio once it is checkpointed.
+                    let segmentsDirectory = chapterDirectory.appendingPathComponent("segments", isDirectory: true)
+                    var segments: [TimedSegment] = []
+                    var audioURL: URL?
+                    let events = generator.generateStream(
                         GenerationRequest(
                             text: chapter.text,
                             voiceID: current.voiceID,
                             speed: current.speed,
                             format: current.audioFormat,
-                            outputDirectory: directory,
+                            outputDirectory: chapterDirectory,
                             filename: Self.chapterFilename(index: index, title: chapter.title),
                             useMPS: useMPS,
-                            modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID
+                            modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID,
+                            segmentsDirectory: segmentsDirectory
                         )
                     )
+                    for try await event in events {
+                        try Task.checkCancellation()
+                        switch event {
+                        case let .segment(segment): segments.append(segment.timing.estimatingMissingWords())
+                        case let .completed(url): audioURL = url
+                        case .failed, .progress: break
+                        }
+                    }
+                    try Task.checkCancellation()
+                    guard let audioURL else { throw BackendError.malformedResponse }
+                    if segments.isEmpty {
+                        let audio = try AVAudioFile(forReading: audioURL)
+                        segments = [TimedSegment(index: 0, text: chapter.text, start: 0,
+                            duration: Double(audio.length) / audio.processingFormat.sampleRate, words: [])
+                            .estimatingMissingWords()]
+                    }
+                    try NarrationTimings(segments: segments).save(beside: audioURL)
                     try Task.checkCancellation()
                     completedWords += chapter.text.count
                     // The shelf may have changed while the engine was running.
                     guard let updated = books.firstIndex(where: { $0.id == bookID }),
                           books[updated].chapters.indices.contains(index) else { return }
-                    books[updated].chapters[index].audioPath = output.url.path
+                    books[updated].chapters[index].audioPath = audioURL.path
                     refreshNarrationCounts()
                     // Saved after every chapter, so a crash or a quit costs at
                     // most the one that was in flight.
+                    checkpointed = true
                     try await saveNow()
+                    try? FileManager.default.removeItem(at: segmentsDirectory)
                 }
                 try Task.checkCancellation()
                 guard let snapshot = self.book(id: bookID), snapshot.isFullyNarrated else { return }
@@ -439,7 +471,7 @@ final class BookshelfModel {
                     assembly.cancel()
                 }
                 var committed = false
-                defer { if !committed { try? FileManager.default.removeItem(at: result.url) } }
+                defer { if !committed { Self.removeRecording(at: result.url) } }
                 try Task.checkCancellation()
                 guard result.ranges.count == snapshot.chapters.count else { throw CocoaError(.fileReadCorruptFile) }
                 guard let position = books.firstIndex(where: { $0.id == bookID }) else { return }
@@ -464,7 +496,7 @@ final class BookshelfModel {
                         books[index].needsPreparation = previous.needsPreparation
                         books[index].listeningPosition = previous.listeningPosition
                     }
-                    try? FileManager.default.removeItem(at: result.url)
+                    Self.removeRecording(at: result.url)
                     throw error
                 }
                 committed = true
@@ -559,11 +591,26 @@ final class BookshelfModel {
         for url in retiredAudio where !isAudioInUse(url) {
             do {
                 if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+                Self.removeRecordingFolder(containing: url)
                 retiredAudio.remove(url)
             } catch {
                 // Retry cleanup after the next playback change.
             }
         }
+    }
+
+    /// Chapter and book recordings each live in a folder of their own, next to
+    /// their `timings.json`; removing the audio should not strand the rest.
+    static func removeRecording(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        removeRecordingFolder(containing: url)
+    }
+
+    static func removeRecordingFolder(containing url: URL) {
+        let folder = url.deletingLastPathComponent()
+        let name = folder.lastPathComponent
+        guard name.hasPrefix("chapter-") || name.hasPrefix("Audiobook-") else { return }
+        try? FileManager.default.removeItem(at: folder)
     }
 
     private func setNarrationState(_ state: NarrationState, for id: UUID, failure: String? = nil) {

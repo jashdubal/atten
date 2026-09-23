@@ -58,6 +58,7 @@ public struct GenerationRequest: Equatable, Sendable {
     public var filename: String
     public var useMPS: Bool
     public var modelID: String?
+    public var segmentsDirectory: URL?
 
     public init(
         text: String,
@@ -67,7 +68,8 @@ public struct GenerationRequest: Equatable, Sendable {
         outputDirectory: URL,
         filename: String,
         useMPS: Bool = true,
-        modelID: String? = nil
+        modelID: String? = nil,
+        segmentsDirectory: URL? = nil
     ) {
         self.text = text
         self.voiceID = voiceID
@@ -77,6 +79,7 @@ public struct GenerationRequest: Equatable, Sendable {
         self.filename = filename
         self.useMPS = useMPS
         self.modelID = modelID
+        self.segmentsDirectory = segmentsDirectory
     }
 }
 

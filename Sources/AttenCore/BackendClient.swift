@@ -42,6 +42,7 @@ public enum BackendError: LocalizedError, Equatable, Sendable {
 
 public protocol TTSGenerating: Sendable {
     func generate(_ request: GenerationRequest) async throws -> GenerationOutput
+    func generateStream(_ request: GenerationRequest) -> AsyncThrowingStream<GenerationEvent, Error>
     func cancel()
 }
 
@@ -70,7 +71,44 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         )
     }
 
+    public func generateStream(_ request: GenerationRequest) -> AsyncThrowingStream<GenerationEvent, Error> {
+        var request = request
+        if request.segmentsDirectory == nil {
+            request.segmentsDirectory = request.outputDirectory
+                .appendingPathComponent("segments-\(UUID().uuidString)", isDirectory: true)
+        }
+        let streamingRequest = request
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let output = try await generate(streamingRequest) { line in
+                        guard let event = try? JSONDecoder().decode(Event.self, from: line) else { return }
+                        if let value = event.generationEvent { continuation.yield(value) }
+                    }
+                    continuation.yield(.completed(output.url))
+                    continuation.finish()
+                } catch {
+                    continuation.yield(.failed(error.localizedDescription))
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination {
+                    task.cancel()
+                    self.cancel()
+                }
+            }
+        }
+    }
+
     public func generate(_ request: GenerationRequest) async throws -> GenerationOutput {
+        try await generate(request, onLine: nil)
+    }
+
+    private func generate(
+        _ request: GenerationRequest,
+        onLine: (@Sendable (Data) -> Void)?
+    ) async throws -> GenerationOutput {
         guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BackendError.invalidRequest("Enter some text before generating speech.")
         }
@@ -107,6 +145,9 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         if let modelID = request.modelID {
             arguments += ["--model", modelID]
         }
+        if let directory = request.segmentsDirectory {
+            arguments += ["--segments-dir", directory.path]
+        }
         child.arguments = arguments
 
         setProcess(child)
@@ -119,7 +160,8 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
                 outputData = try await ProcessExecution(
                     process: child,
                     output: outputPipe.fileHandleForReading,
-                    cancellationRequested: { self.isCancellationRequested }
+                    cancellationRequested: { self.isCancellationRequested },
+                    onLine: onLine
                 ).run()
             } catch where isCancellationRequested || Task.isCancelled {
                 throw BackendError.cancelled
@@ -193,9 +235,25 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         let path: String?
         let segments: Int?
         let sampleRate: Int?
+        let index: Int?
+        let text: String?
+        let start: Double?
+        let duration: Double?
+        let words: [TimedWord]?
+
+        var generationEvent: GenerationEvent? {
+            if event == "progress", let message { return .progress(message) }
+            if event == "segment", let index, let path, let text, let start, let duration {
+                return .segment(SegmentReady(
+                    url: URL(fileURLWithPath: path),
+                    timing: TimedSegment(index: index, text: text, start: start, duration: duration, words: words ?? [])
+                ))
+            }
+            return nil
+        }
 
         enum CodingKeys: String, CodingKey {
-            case event, message, path, segments
+            case event, message, path, segments, index, text, start, duration, words
             case sampleRate = "sample_rate"
         }
     }
@@ -302,15 +360,18 @@ private final class ProcessExecution: @unchecked Sendable {
     private let process: Process
     private let output: FileHandle
     private let cancellationRequested: @Sendable () -> Bool
+    private let onLine: (@Sendable (Data) -> Void)?
 
     init(
         process: Process,
         output: FileHandle,
-        cancellationRequested: @escaping @Sendable () -> Bool
+        cancellationRequested: @escaping @Sendable () -> Bool,
+        onLine: (@Sendable (Data) -> Void)? = nil
     ) {
         self.process = process
         self.output = output
         self.cancellationRequested = cancellationRequested
+        self.onLine = onLine
     }
 
     func run() async throws -> Data {
@@ -319,7 +380,21 @@ private final class ProcessExecution: @unchecked Sendable {
                 do {
                     try process.run()
                     if cancellationRequested() { process.terminate() }
-                    let data = try output.readToEnd() ?? Data()
+                    var data = Data()
+                    var pending = Data()
+                    while true {
+                        let chunk = output.availableData
+                        if chunk.isEmpty { break }
+                        data.append(chunk)
+                        if let onLine {
+                            pending.append(chunk)
+                            while let newline = pending.firstIndex(of: 10) {
+                                onLine(Data(pending[..<newline]))
+                                pending.removeSubrange(...newline)
+                            }
+                        }
+                    }
+                    if !pending.isEmpty { onLine?(pending) }
                     process.waitUntilExit()
                     continuation.resume(returning: data)
                 } catch {
@@ -359,6 +434,11 @@ public struct RetryingBackendClient: TTSGenerating {
             }
         }
         throw lastError ?? BackendError.processFailed("Speech generation failed.")
+    }
+
+    // Replaying a stream could duplicate audio already consumed by a listener.
+    public func generateStream(_ request: GenerationRequest) -> AsyncThrowingStream<GenerationEvent, Error> {
+        wrapped.generateStream(request)
     }
 
     public func cancel() { wrapped.cancel() }
