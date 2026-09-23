@@ -477,23 +477,19 @@ struct BookReaderView: View {
             Button(model.isPlaying ? "Pause narration" : "Resume narration", systemImage: model.isPlaying ? "pause.fill" : "play.fill") {
                 model.toggleActivePlayback()
             }
-        } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
+        } else if let chapter, book.hasBookAudio {
             Button("Play chapter", systemImage: "play.fill") {
-                let tracks = book.narrationTracks
-                model.play(
-                    tracks: tracks,
-                    startingAt: tracks.firstIndex { $0.url == url } ?? 0
-                )
+                model.listen(to: book, chapter: chapter)
             }
         } else {
-            Button("Narrate this chapter", systemImage: "waveform") {
+            Button("Prepare Audio", systemImage: "waveform") {
                 model.bookshelf.narrate(
                     book.id,
                     chapters: [chapterIndex],
                     useMPS: model.settings.useMPS
                 )
             }
-            .disabled(model.bookshelf.isNarrating)
+            .disabled(model.synthesis.isBusy)
         }
     }
 
@@ -626,6 +622,9 @@ struct BookReaderView: View {
 
     private var playingChapterIndex: Int? {
         guard let playing = model.activeAudioURL else { return nil }
+        if book.hasBookAudio, playing == book.audioURL {
+            return book.chapters.lastIndex { ($0.startTime ?? .infinity) <= model.playbackPosition }
+        }
         return book.chapters.firstIndex { $0.audioURL == playing }
     }
 
@@ -847,17 +846,12 @@ struct BookReaderView: View {
                 // controls for one sound; the transport lives in the bottom player
                 // now, so this only says which chapter you are hearing.
                 playingIndicator
-            } else if let chapter, chapter.isNarrated, let url = chapter.audioURL {
+            } else if let chapter, book.hasBookAudio, let url = book.audioURL {
                 Button {
                     // Playing from here continues into the rest of the book, the
                     // way turning a page would — and keeps what came before it in
                     // the queue, so the player can go back a chapter.
-                    let tracks = book.narrationTracks
-                    model.play(
-                        tracks: tracks,
-                        startingAt: tracks.firstIndex { $0.url == url } ?? 0
-                    )
-                    model.openNowPlaying()
+                    model.listen(to: book, chapter: chapter)
                 } label: {
                     Label(
                         model.isPlaying && model.activeAudioURL == url ? "Playing" : "Listen",
@@ -873,10 +867,10 @@ struct BookReaderView: View {
                         useMPS: model.settings.useMPS
                     )
                 } label: {
-                    Label("Narrate this chapter", systemImage: "waveform")
+                    Label("Prepare Audio", systemImage: "waveform")
                 }
                 .buttonStyle(AttenPrimaryButtonStyle())
-                .disabled(chapter == nil || model.bookshelf.isNarrating)
+                .disabled(chapter == nil || model.synthesis.isBusy)
             }
         }
         .frame(minHeight: 38, alignment: .leading)

@@ -28,7 +28,7 @@ enum AttenColor {
 
     static var textPrimary: Color { palette.textPrimary.color }
     static var textSecondary: Color { palette.textSecondary.color }
-    static var textMuted: Color { Color(light: 0x626873, dark: 0x6F747C) }
+    static var textMuted: Color { Color(light: 0x626873, dark: 0x979797) }
     static var border: Color { Color.primary.opacity(0.10) }
     static var accent: Color { palette.accent.color }
     static var accentHover: Color { palette.accentHover.color }
@@ -90,56 +90,6 @@ extension NSColor {
     }
 }
 
-/// Light, as a material rather than as decoration.
-///
-/// A dark interface that is only dark reads as flat, whatever its palette —
-/// which is the difference between this and every generic dark theme. What
-/// makes Cursor, Linear or a SpaceX console look machined is that surfaces
-/// catch light along their top edge and fall away below it, and that the one
-/// saturated thing on screen glows slightly.
-///
-/// The brand gradient is the landing page's, verbatim. Everything else here is
-/// achromatic: light is white, shadow is black, and the palette supplies the
-/// colour.
-enum AttenGradient {
-    /// Cyan → pale cyan → violet, on the diagonal.
-    ///
-    /// For light — a glow, a halo — not for a fill. A gradient poured into a
-    /// button makes an interface look like a demo of itself.
-    static var brand: LinearGradient {
-        LinearGradient(
-            colors: AttenPalette.brandGradient,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-    }
-
-    /// The same, running left to right — for text and for long bars, where a
-    /// diagonal would band.
-    static var brandAcross: LinearGradient {
-        LinearGradient(
-            colors: AttenPalette.brandGradient,
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    /// The light that catches the top edge of a raised surface and dies a few
-    /// points down. This is the whole trick.
-    static func edge(_ scheme: ColorScheme) -> LinearGradient {
-        let top = scheme == .dark ? 0.16 : 0.9
-        let bottom = scheme == .dark ? 0.03 : 0.35
-        return LinearGradient(
-            colors: [
-                Color.white.opacity(top),
-                Color.white.opacity(bottom),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-}
-
 /// How far off the page a surface sits.
 enum AttenElevation {
     /// Flush with the ground — a list row, a field.
@@ -152,29 +102,29 @@ enum AttenElevation {
     var shadowRadius: CGFloat {
         switch self {
         case .flush: 0
-        case .raised: 18
-        case .floating: 34
+        case .raised: 4
+        case .floating: 16
         }
     }
 
     var shadowY: CGFloat {
         switch self {
         case .flush: 0
-        case .raised: 6
-        case .floating: 14
+        case .raised: 1
+        case .floating: 6
         }
     }
 
     var shadowOpacity: Double {
         switch self {
         case .flush: 0
-        case .raised: 0.34
-        case .floating: 0.48
+        case .raised: 0.08
+        case .floating: 0.20
         }
     }
 }
 
-/// A surface with a lit top edge and weight underneath it.
+/// Quiet surfaces use a uniform hairline and a small shadow.
 struct AttenElevatedSurface: ViewModifier {
     var elevation: AttenElevation = .raised
     var radius: CGFloat = AttenRadius.card
@@ -186,14 +136,9 @@ struct AttenElevatedSurface: ViewModifier {
         content
             .background(fill ?? AttenColor.surface)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            // The hairline is brighter along the top than the bottom, because
-            // that is where light would land. A uniform border is the thing
-            // that makes a panel read as a drawn box.
             .overlay {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(AttenGradient.edge(scheme), lineWidth: 1)
-                    .blendMode(scheme == .dark ? .plusLighter : .multiply)
-                    .opacity(scheme == .dark ? 1 : 0.5)
+                    .strokeBorder(AttenColor.separator.opacity(scheme == .dark ? 0.75 : 0.55), lineWidth: 1)
             }
             .shadow(
                 color: .black.opacity(elevation.shadowOpacity),
@@ -204,7 +149,7 @@ struct AttenElevatedSurface: ViewModifier {
 }
 
 extension View {
-    /// Raise this off the page: lit along the top edge, weighted underneath.
+    /// Apply the shared surface treatment.
     func attenElevated(
         _ elevation: AttenElevation = .raised,
         radius: CGFloat = AttenRadius.card,
@@ -248,13 +193,12 @@ enum AttenRadius {
 /// through ``AttenMotion/animation(_:reduceMotion:)``, which is the only way a
 /// screen should be reaching for these.
 enum AttenMotion {
-    static let fast = 0.14
+    static let fast = 0.12
     static let standard = 0.18
-    /// Player expand/collapse and panel disclosure — far enough to need an
-    /// arc, close enough that nobody waits for it.
-    static let panel = 0.24
+    /// Panel disclosure settles quickly without overshoot.
+    static let panel = 0.22
     /// Section changes and Zen enter/exit.
-    static let transition = 0.28
+    static let transition = 0.20
 
     /// The small amount of movement shared by destination and overlay changes.
     /// A destination slides only a few points; a panel never moves the reader's
@@ -271,7 +215,7 @@ enum AttenMotion {
     /// `.animation(_:value:)` apply the change instantly while keeping the
     /// state cue itself, which is what Reduce Motion asks for.
     static func animation(_ duration: Double, reduceMotion: Bool) -> Animation? {
-        reduceMotion ? nil : .easeOut(duration: duration)
+        reduceMotion ? nil : settle(duration)
     }
 
     /// A crossfade for the cases where something has to replace something else
@@ -284,7 +228,12 @@ enum AttenMotion {
     /// short crossfade for orientation; state-only changes should use
     /// ``animation(_:reduceMotion:)`` and become instant instead.
     static func transitionAnimation(_ duration: Double, reduceMotion: Bool) -> Animation? {
-        reduceMotion ? .easeInOut(duration: min(duration, fast)) : .easeOut(duration: duration)
+        reduceMotion ? .easeInOut(duration: min(duration, fast)) : settle(duration)
+    }
+
+    /// A prompt start and a quiet finish, with no bounce or overshoot.
+    private static func settle(_ duration: Double) -> Animation {
+        .timingCurve(0.22, 1, 0.36, 1, duration: duration)
     }
 
     static func transition(
@@ -295,11 +244,23 @@ enum AttenMotion {
         switch transition {
         case let .destination(forward):
             return .asymmetric(
-                insertion: .offset(x: forward ? 24 : -24).combined(with: .opacity),
-                removal: .offset(x: forward ? -24 : 24).combined(with: .opacity)
+                insertion: .offset(x: forward ? 8 : -8).combined(with: .opacity),
+                removal: .opacity
             )
         case let .overlay(edge):
-            return .move(edge: edge).combined(with: .opacity)
+            // Travel is independent of panel size, so wide inspectors never
+            // sweep across the content beneath them.
+            let offset: CGSize
+            switch edge {
+            case .leading: offset = CGSize(width: -10, height: 0)
+            case .trailing: offset = CGSize(width: 10, height: 0)
+            case .top: offset = CGSize(width: 0, height: -10)
+            case .bottom: offset = CGSize(width: 0, height: 10)
+            }
+            return .asymmetric(
+                insertion: .offset(offset).combined(with: .opacity),
+                removal: .opacity
+            )
         case .fade:
             return .opacity
         }
@@ -349,7 +310,7 @@ private struct AttenHoverLift: ViewModifier {
 }
 
 extension View {
-    func attenHoverLift(_ amount: CGFloat = -3) -> some View {
+    func attenHoverLift(_ amount: CGFloat = -1) -> some View {
         modifier(AttenHoverLift(amount: amount))
     }
 }
@@ -365,7 +326,7 @@ enum AttenState {
     /// …and while it is being pressed, where the control darkens instead.
     static let pressedFill = 0.16
     /// A pressed control shrinks by this much. Skipped under Reduce Motion.
-    static let pressedScale = 0.985
+    static let pressedScale = 0.995
     /// Everything disabled fades to here rather than greying its own colours.
     static let disabledOpacity = 0.42
     /// The ring drawn around whatever has keyboard focus.
@@ -419,7 +380,7 @@ struct AttenBackdrop: View {
 }
 
 /// Light chrome fades into the same ground as the reading page.
-/// Dark mode keeps its flat, blue-black surface.
+/// Dark chrome uses the darker charcoal sidebar surface.
 struct AttenChromeBackground: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -431,43 +392,7 @@ struct AttenChromeBackground: View {
                 endPoint: .bottom
             )
         } else {
-            AttenColor.appBackground
-        }
-    }
-}
-
-/// A soft brand glow, for the top of a screen that wants some depth behind it.
-///
-/// Lifted from the landing page, where the same cyan-into-violet ellipse sits
-/// behind the app preview. It is very low alpha on purpose: this is
-/// atmosphere, not decoration, and it must never compete with text sitting on
-/// top of it. Reduce Motion does not apply — nothing here moves — but it is
-/// skipped in the light appearance, where a wash over white reads as a stain
-/// rather than as depth.
-struct AttenAtmosphere: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        if colorScheme == .dark {
-            ZStack(alignment: .top) {
-                EllipticalGradient(
-                    colors: [Color(hex: 0x5DDBFF).opacity(0.10), .clear],
-                    center: .init(x: 0.18, y: 0.0),
-                    startRadiusFraction: 0,
-                    endRadiusFraction: 0.62
-                )
-                EllipticalGradient(
-                    colors: [Color(hex: 0x7E3CFF).opacity(0.09), .clear],
-                    center: .init(x: 0.72, y: 0.06),
-                    startRadiusFraction: 0,
-                    endRadiusFraction: 0.58
-                )
-            }
-            .frame(height: 560)
-            .frame(maxWidth: .infinity, alignment: .top)
-            .blur(radius: 70)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            AttenColor.sidebar
         }
     }
 }
@@ -748,13 +673,9 @@ struct AttenLogo: View {
                 Image(systemName: "waveform")
                     .font(.system(size: 15, weight: .medium))
             } else {
-                Text("ATTEN")
-                    .font(.system(size: 19, weight: .medium))
-                    .tracking(8)
-                Text("LISTEN FURTHER")
-                    .font(.system(size: 8, weight: .medium))
-                    .tracking(3)
-                    .foregroundStyle(AttenColor.textSecondary)
+                Text("Atten")
+                    .font(.system(size: 20, weight: .semibold))
+
             }
         }
         .foregroundStyle(muted ? AttenColor.textSecondary : AttenColor.textPrimary)

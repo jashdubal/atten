@@ -219,8 +219,7 @@ private struct ContinueHero: View {
                 .buttonStyle(AttenSecondaryButtonStyle())
             } else if narratedCount > 0 {
                 Button {
-                    model.play(tracks: book.narrationTracks)
-                    model.openNowPlaying()
+                    model.listen(to: book)
                 } label: {
                     Label("Listen", systemImage: "play.fill")
                 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 private enum PlayerColor {
-    static let text = Color(light: 0x606469, dark: 0xA1A5AB)
+    static let text = AttenColor.textSecondary
 }
 
 /// How playback times and rates are written, wherever they are written.
@@ -25,13 +25,12 @@ enum PlaybackFormat {
 }
 
 /// A floating bottom transport with chapter metadata and direct seeking. The queue,
-/// speed and additional controls remain in the existing playback popover.
+/// expanded controls open the shared Now Playing destination.
 struct GlobalPlayer: View {
     @Bindable var model: AppModel
     @Binding var isCollapsed: Bool
     var compact = false
 
-    @State private var isExpanded = false
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -43,7 +42,7 @@ struct GlobalPlayer: View {
                         TransportButton(
                             systemImage: "backward.end.fill", size: 12,
                             help: "Previous chapter", label: "Previous chapter",
-                            isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
+                            isEnabled: model.hasPreviousChapter || model.playbackPosition > 3,
                             action: model.playPrevious
                         )
                     }
@@ -52,7 +51,7 @@ struct GlobalPlayer: View {
                         TransportButton(
                             systemImage: "forward.end.fill", size: 12,
                             help: "Next chapter", label: "Next chapter",
-                            isEnabled: model.queue.hasNext,
+                            isEnabled: model.hasNextChapter,
                             action: model.playNext
                         )
                     }
@@ -122,13 +121,6 @@ struct GlobalPlayer: View {
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("Player: \(title), \(subtitle)")
-            .onChange(of: model.playerTitle) { _, title in
-                // Playback can stop while the popover is open. Its anchor then
-                // disappears; close the local state with it to avoid a stale
-                // overlay being restored when another track starts.
-                if title == nil { isExpanded = false }
-            }
-            .onDisappear { isExpanded = false }
         }
     }
 
@@ -156,7 +148,6 @@ struct GlobalPlayer: View {
 
     private var collapseButton: some View {
         Button {
-            isExpanded = false
             withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
                 isCollapsed.toggle()
             }
@@ -174,7 +165,7 @@ struct GlobalPlayer: View {
     }
 
     private var expandButton: some View {
-        Button { isExpanded.toggle() } label: {
+        Button { model.openNowPlaying() } label: {
             Image(systemName: "list.bullet")
                 .font(.system(size: 14, weight: .regular))
                 .frame(width: 26, height: 26)
@@ -186,241 +177,9 @@ struct GlobalPlayer: View {
         .help("Queue and playback controls")
         .accessibilityLabel("Queue and playback controls")
         .accessibilityHint("Opens seek, skip, speed and the queue")
-        .popover(isPresented: $isExpanded, arrowEdge: .bottom) {
-            ExpandedPlayerPanel(model: model, close: { isExpanded = false })
-        }
+
     }
 }
-
-/// Everything the compact player does not show.
-///
-/// A popover rather than a sheet: it is dismissed by Escape and by clicking
-/// away without either being wired up here, and it does not take the window
-/// hostage while a chapter is playing.
-struct ExpandedPlayerPanel: View {
-    @Bindable var model: AppModel
-    let close: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.md) {
-            heading
-            scrubber
-            transport
-            Divider().overlay(AttenColor.separator)
-            speed
-            if model.queue.tracks.count > 1 { queue }
-            stop
-        }
-        .padding(AttenSpacing.md)
-        .frame(width: AttenMetrics.expandedPlayerWidth)
-        .background(AttenColor.surface)
-        .environment(\.attenMutedControls, true)
-        .tint(PlayerColor.text)
-    }
-
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(model.playerTitle ?? "Nothing playing")
-                .font(AttenTypography.sectionTitle)
-                .foregroundStyle(AttenColor.textSecondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            if let source = model.playerSubtitle {
-                Text(source)
-                    .font(AttenTypography.metadata)
-                    .foregroundStyle(PlayerColor.text)
-                    .lineLimit(1)
-            }
-            if let position = model.queue.position {
-                Text(position)
-                    .font(AttenTypography.metadata)
-                    .foregroundStyle(AttenColor.textSecondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var scrubber: some View {
-        VStack(spacing: 2) {
-            ScrubBar(
-                position: model.playbackPosition,
-                duration: model.playbackDuration,
-                seek: model.seek(to:),
-                neutral: true
-            )
-            HStack {
-                Text(PlaybackFormat.timeText(model.playbackPosition))
-                Spacer()
-                Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
-            }
-            .font(AttenTypography.timecode)
-            .foregroundStyle(AttenColor.textSecondary)
-        }
-    }
-
-    private var transport: some View {
-        HStack(spacing: AttenSpacing.xs) {
-            Spacer(minLength: 0)
-            if model.queue.tracks.count > 1 {
-                TransportButton(
-                    systemImage: "backward.end.fill",
-                    size: 12,
-                    help: "Previous chapter",
-                    label: "Previous chapter",
-                    isEnabled: model.queue.hasPrevious || model.playbackPosition > 3,
-                    action: model.playPrevious
-                )
-            }
-            TransportButton(
-                systemImage: "gobackward.10",
-                size: 16,
-                help: "Back 10 seconds",
-                label: "Back ten seconds"
-            ) {
-                model.skip(by: -NowPlayingCenter.skipInterval)
-            }
-            Button(action: model.toggleActivePlayback) {
-                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .frame(width: 44, height: 44)
-                    .background(Circle().fill(AttenColor.surfaceElevated))
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .buttonStyle(.plain)
-            .buttonStyle(AttenFeedbackButtonStyle())
-            .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
-            .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
-            TransportButton(
-                systemImage: "goforward.10",
-                size: 16,
-                help: "Forward 10 seconds",
-                label: "Forward ten seconds"
-            ) {
-                model.skip(by: NowPlayingCenter.skipInterval)
-            }
-            if model.queue.tracks.count > 1 {
-                TransportButton(
-                    systemImage: "forward.end.fill",
-                    size: 12,
-                    help: "Next chapter",
-                    label: "Next chapter",
-                    isEnabled: model.queue.hasNext,
-                    action: model.playNext
-                )
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var speed: some View {
-        HStack {
-            Text("Speed")
-                .font(AttenTypography.control)
-                .foregroundStyle(AttenColor.textSecondary)
-            Spacer()
-            Picker("Speed", selection: rateBinding) {
-                ForEach(PlaybackFormat.rates, id: \.self) { rate in
-                    Text(PlaybackFormat.rateText(rate)).tag(rate)
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityLabel("Listening speed")
-            .accessibilityValue(PlaybackFormat.rateText(model.playbackRate))
-        }
-    }
-
-    /// The rest of the book, when there is a rest of the book. A one-off
-    /// Studio render has a queue of one and gets no list.
-    private var queue: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.xs) {
-            Text("UP NEXT")
-                .font(AttenTypography.metadata.weight(.semibold))
-                .tracking(1.2)
-                .foregroundStyle(AttenColor.textSecondary)
-
-            ScrollView {
-                VStack(spacing: 1) {
-                    ForEach(Array(model.queue.tracks.enumerated()), id: \.element.id) { index, track in
-                        QueueRow(
-                            track: track,
-                            number: index + 1,
-                            isCurrent: index == model.queue.index
-                        ) {
-                            model.play(tracks: model.queue.tracks, startingAt: index)
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: 168)
-        }
-    }
-
-    private var stop: some View {
-        Button {
-            model.closePlayer()
-            close()
-        } label: {
-            Label("Stop and close", systemImage: "stop.fill")
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(AttenSecondaryButtonStyle())
-        .accessibilityLabel("Stop and close the player")
-    }
-
-    private var rateBinding: Binding<Double> {
-        Binding(get: { model.playbackRate }, set: { model.setPlaybackRate($0) })
-    }
-}
-
-private struct QueueRow: View {
-    let track: PlaybackTrack
-    let number: Int
-    let isCurrent: Bool
-    let play: () -> Void
-
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: play) {
-            HStack(spacing: AttenSpacing.xs) {
-                Text("\(number)")
-                    .font(AttenTypography.timecode)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .frame(width: 20, alignment: .trailing)
-                Text(track.title)
-                    .font(AttenTypography.metadata)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-                if isCurrent {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(AttenColor.textSecondary)
-                }
-            }
-            .padding(.horizontal, AttenSpacing.xs)
-            .frame(height: 26)
-            .background(rowBackground)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
-        .onHover { isHovering = $0 }
-        .accessibilityLabel("Chapter \(number), \(track.title)")
-        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
-    }
-
-    private var rowBackground: Color {
-        if isCurrent { return AttenColor.surfaceElevated }
-        return isHovering ? AttenColor.surfaceMuted : .clear
-    }
-}
-
-// MARK: - Pieces
 
 private struct TransportButton: View {
     let systemImage: String

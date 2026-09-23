@@ -24,33 +24,42 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @Bindable var model: AppModel
+    @State private var selectedTab: String
+
+    init(model: AppModel, initialTab: String = "general") {
+        self.model = model
+        _selectedTab = State(initialValue: initialTab)
+    }
 
     var body: some View {
-        TabView {
-            SettingsPane(title: "Provider", detail: "Local speech synthesis status and acceleration.") {
+        TabView(selection: $selectedTab) {
+            SettingsPane(title: "General", detail: "Speech stays on this Mac.") {
                 providerForm
             }
-            .tabItem { Label("Provider", systemImage: SettingsCategory.provider.icon) }
+            .tabItem { Label("General", systemImage: SettingsCategory.provider.icon) }.tag("general")
 
-            SettingsPane(title: "Audio", detail: "Defaults used for new Studio generations.") {
+            SettingsPane(title: "Audio", detail: "Defaults used for new audio.") {
                 audioForm
             }
-            .tabItem { Label("Audio", systemImage: SettingsCategory.audio.icon) }
+            .tabItem { Label("Audio", systemImage: SettingsCategory.audio.icon) }.tag("audio")
 
             SettingsPane(title: "Storage", detail: "Where Atten keeps generated audio and project history.") {
                 storageForm
             }
-            .tabItem { Label("Storage", systemImage: SettingsCategory.storage.icon) }
+            .tabItem { Label("Storage", systemImage: SettingsCategory.storage.icon) }.tag("storage")
 
             SettingsPane(title: "Appearance", detail: "Match macOS or choose a specific appearance.") {
                 appearanceForm
             }
-            .tabItem { Label("Appearance", systemImage: SettingsCategory.appearance.icon) }
+            .tabItem { Label("Appearance", systemImage: SettingsCategory.appearance.icon) }.tag("appearance")
+
+            ModelsView(model: model)
+                .tabItem { Label("Models", systemImage: "shippingbox") }.tag("models")
 
             SettingsPane(title: "Shortcuts", detail: "Keyboard commands available throughout Atten.") {
                 shortcutsForm
             }
-            .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }
+            .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }.tag("shortcuts")
         }
         .tint(AttenColor.accent)
         .font(AttenTypography.body)
@@ -191,15 +200,16 @@ struct SettingsView: View {
 
     private var shortcutsForm: some View {
         Form {
-            Section("Studio") {
-                ShortcutRow(action: "New Studio draft", keys: "⌘N")
-                ShortcutRow(action: "Import text", keys: "⌘O")
+            Section("Create") {
+                ShortcutRow(action: "New draft", keys: "⌘N")
+                ShortcutRow(action: "Add to Library", keys: "⌘O")
+                ShortcutRow(action: "Import text into draft", keys: "⇧⌘O")
                 ShortcutRow(action: "Generate speech", keys: "⌘↩")
                 ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
             }
             Section("Navigation and playback") {
-                ShortcutRow(action: "Open Studio", keys: "⌘1")
-                ShortcutRow(action: "Open Playground", keys: "⌘2")
+                ShortcutRow(action: "Open Library", keys: "⌘1")
+                ShortcutRow(action: "Open Create", keys: "⌘2")
                 ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
                 ShortcutRow(action: "Play or pause", keys: "⌥Space")
                 ShortcutRow(action: "Cancel generation", keys: "Esc")

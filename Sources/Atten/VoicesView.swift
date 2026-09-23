@@ -243,7 +243,7 @@ private struct VoiceRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .contextMenu {
-            Button(isSelected ? "Open in Studio" : "Use in Studio", action: select)
+            Button(isSelected ? "Open Draft" : "Use in Draft", action: select)
             Button("Preview", systemImage: "play.fill", action: preview)
             Button(
                 isFavorite ? "Remove from Favorites" : "Add to Favorites",

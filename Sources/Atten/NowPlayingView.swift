@@ -14,7 +14,7 @@ struct NowPlayingView: View {
     private var project: ProjectRecord? { model.playingProject }
     private var isBookAudio: Bool { book != nil }
     private var hasChapterQueue: Bool {
-        isBookAudio && model.queue.tracks.count > 1
+        isBookAudio && (book?.playbackChapters.count ?? 0) > 1
     }
 
     var body: some View {
@@ -33,10 +33,10 @@ struct NowPlayingView: View {
             AttenEmptyState(
                 title: "Nothing playing",
                 systemImage: "waveform",
-                detail: "Start a book chapter or a Studio render and its controls will appear here."
+                detail: "Prepare a book or create audio and its controls will appear here."
             )
-            Button("Go to Home", systemImage: "house") {
-                model.section = .home
+            Button("Go to Library", systemImage: "books.vertical") {
+                model.returnToShelf()
             }
             .buttonStyle(AttenPrimaryButtonStyle())
             .fixedSize()
@@ -168,7 +168,7 @@ struct NowPlayingView: View {
             .lineLimit(2)
         } else if let project {
             let voice = VoiceCatalog.voice(id: project.voiceID)?.name ?? project.voiceID
-            Text(["Studio", voice, project.format.displayName]
+            Text(["Create", voice, project.format.displayName]
                 .joined(separator: " · "))
                 .font(AttenTypography.body)
                 .foregroundStyle(AttenColor.textSecondary)
@@ -208,7 +208,7 @@ struct NowPlayingView: View {
                 nowPlayingTransportButton(
                     systemImage: "backward.end.fill",
                     label: "Previous chapter",
-                    isEnabled: model.queue.hasPrevious,
+                    isEnabled: model.hasPreviousChapter,
                     action: model.playPrevious
                 )
             }
@@ -239,7 +239,7 @@ struct NowPlayingView: View {
                 nowPlayingTransportButton(
                     systemImage: "forward.end.fill",
                     label: "Next chapter",
-                    isEnabled: model.queue.hasNext,
+                    isEnabled: model.hasNextChapter,
                     action: model.playNext
                 )
             }
@@ -293,9 +293,14 @@ struct NowPlayingView: View {
                 }
                 .buttonStyle(AttenSecondaryButtonStyle())
                 .help("Read this book")
+                Button("Book Details", systemImage: "book.closed") { model.openInLibrary(.book(book.id)) }
+                    .buttonStyle(AttenSecondaryButtonStyle())
+                Button("Export…", systemImage: "square.and.arrow.up") { model.exportBook(book) }
+                    .buttonStyle(AttenSecondaryButtonStyle())
+                    .disabled(model.isExportingBook)
             }
             if project != nil {
-                Button("Open Studio", systemImage: "waveform") {
+                Button("Open Create", systemImage: "waveform") {
                     model.section = .studio
                 }
                 .buttonStyle(AttenSecondaryButtonStyle())
@@ -304,47 +309,34 @@ struct NowPlayingView: View {
         }
     }
 
+    private func timestamp(_ time: Double) -> String {
+        let seconds = Int(time)
+        return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+    }
+
     private var chapterQueue: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
-            Text("CHAPTER QUEUE")
+            Text("CHAPTERS")
                 .font(AttenTypography.metadata.weight(.semibold))
                 .tracking(1.4)
                 .foregroundStyle(AttenColor.textSecondary)
 
             VStack(spacing: 1) {
-                ForEach(Array(model.queue.tracks.enumerated()), id: \.element.id) { index, item in
-                    Button {
-                        model.play(tracks: model.queue.tracks, startingAt: index)
-                    } label: {
-                        HStack(spacing: AttenSpacing.sm) {
-                            Text("\(index + 1)")
-                                .font(AttenTypography.timecode)
-                                .foregroundStyle(AttenColor.textSecondary)
-                                .frame(width: 26, alignment: .trailing)
-                            Text(item.title)
-                                .font(AttenTypography.control)
-                                .foregroundStyle(index == model.queue.index
-                                    ? AttenColor.accent
-                                    : AttenColor.textPrimary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 0)
-                            if index == model.queue.index {
-                                Image(systemName: model.isPlaying ? "waveform" : "pause.fill")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(AttenColor.accent)
+                if let book {
+                    ForEach(Array(book.playbackChapters.enumerated()), id: \.element.id) { index, chapter in
+                        Button { model.listen(to: book, chapter: chapter) } label: {
+                            HStack {
+                                Text("\(index + 1). \(chapter.title)")
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(timestamp(chapter.startTime ?? 0))
+                                    .monospacedDigit()
                             }
+                            .padding(AttenSpacing.sm)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, AttenSpacing.sm)
-                        .frame(minHeight: 34)
-                        .background(index == model.queue.index
-                            ? AttenColor.accent.opacity(0.12)
-                            : AttenColor.surface)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Chapter \(index + 1), \(item.title)")
-                    .accessibilityAddTraits(index == model.queue.index ? [.isButton, .isSelected] : [.isButton])
                 }
             }
             .background(AttenColor.surface)

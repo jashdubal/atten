@@ -14,7 +14,18 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case exports
 
     var id: String { rawValue }
-    var label: String { rawValue.capitalized }
+    var label: String { self == .studio ? "Create" : (self == .nowPlaying ? "Now Playing" : rawValue.capitalized) }
+    static let primaryItems: [SidebarItem] = [.library, .studio]
+    var workspace: SidebarItem {
+        switch self {
+        case .home, .library, .nowPlaying: .library
+        default: .studio
+        }
+    }
+    static func restored(_ raw: String) -> SidebarItem {
+        guard let item = SidebarItem(rawValue: raw) else { return .library }
+        return item == .home || item == .nowPlaying ? .library : item
+    }
 
     var icon: String {
         switch self {
@@ -49,16 +60,16 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         var title: String? {
             switch self {
             case .read: nil
-            case .create: "Create"
-            case .manage: "Manage"
+            case .create: nil
+            case .manage: nil
             }
         }
 
         var items: [SidebarItem] {
             switch self {
-            case .read: [.home, .nowPlaying, .library]
-            case .create: [.studio, .playground]
-            case .manage: [.voices, .models, .projects, .exports]
+            case .read: [.library]
+            case .create: [.studio]
+            case .manage: []
             }
         }
     }
@@ -71,10 +82,12 @@ extension Notification.Name {
 
 struct RootView: View {
     @Bindable var model: AppModel
-    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.home.rawValue
+    @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.library.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
     @SceneStorage("Atten.playerCollapsed") private var isPlayerCollapsed = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showsModelSettings = false
+    @State private var lastWorkspace = SidebarItem.library
     @State private var screenTitle: AttenScreenTitle?
     @FocusState private var focusedSidebarItem: SidebarItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -90,7 +103,30 @@ struct RootView: View {
             }
             .onAttenScreenTitle { screenTitle = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
-                TopChrome(model: model, title: screenTitle)
+                VStack(spacing: 0) {
+                    TopChrome(model: model, title: screenTitle)
+                    if let activity = model.synthesis.activity {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text(activity).font(AttenTypography.caption)
+                            Spacer()
+                            Button("Stop") {
+                                if model.bookshelf.isNarrating { model.bookshelf.cancelNarration() }
+                                else { model.cancelGeneration() }
+                            }
+                            .controlSize(.small)
+                        }
+                        .padding(.horizontal, 24).padding(.vertical, 8)
+                        .background(AttenColor.surface)
+                    }
+                    if model.isExportingBook {
+                        HStack {
+                            ProgressView().controlSize(.small)
+                            Text("Exporting audiobook…").font(AttenTypography.caption)
+                            Spacer()
+                        }.padding(.horizontal, 24).padding(.vertical, 8)
+                    }
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if model.playerTitle != nil {
@@ -108,32 +144,45 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
-        .tint(model.section == .library ? AttenColor.textSecondary : AttenColor.accent)
-        .environment(\.attenMutedControls, model.section == .library)
+        .tint(AttenColor.accent)
+        .environment(\.attenMutedControls, false)
         .font(AttenTypography.body)
-        .foregroundStyle(model.section == .library ? AttenColor.textSecondary : AttenColor.textPrimary)
+        .foregroundStyle(AttenColor.textPrimary)
         .background(WindowTitleHider())
         .toolbarBackground(AttenColor.appBackground, for: .windowToolbar)
         .toolbar {
             if !model.isReaderFocused {
                 ToolbarItem(placement: .primaryAction) {
                     ToolbarIconButton(
-                        title: "New Studio draft (⌘N)",
-                        systemImage: "square.and.pencil"
+                        title: model.section.workspace == .library ? "Add to Library (⌘O)" : "New draft (⌘N)",
+                        systemImage: model.section.workspace == .library ? "plus" : "square.and.pencil"
                     ) {
-                        openNewDraft()
+                        if model.section.workspace == .library { model.openBookImportPanel() }
+                        else { openNewDraft() }
                     }
                 }
             }
         }
         .task {
-            model.section = SidebarItem(rawValue: restoredSection) ?? .home
+            model.section = SidebarItem.restored(restoredSection)
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
         .onChange(of: model.section) { _, section in
-            restoredSection = section.rawValue
+            if section == .models {
+                showsModelSettings = true
+                model.section = lastWorkspace
+            } else {
+                lastWorkspace = section.workspace
+                restoredSection = section.rawValue
+            }
             screenTitle = nil
+        }
+        .sheet(isPresented: $showsModelSettings) {
+            VStack(spacing: 0) {
+                HStack { Spacer(); Button("Done") { showsModelSettings = false }.keyboardShortcut(.cancelAction) }.padding(12)
+                SettingsView(model: model, initialTab: "models")
+            }.frame(width: 780, height: 600)
         }
         // A scene-storage write goes to disk, and this one carried up to
         // 100 KB. Running it on every keystroke made typing in Studio stutter,
@@ -148,6 +197,7 @@ struct RootView: View {
             NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
         ) { _ in
             restoredDraft = String(model.draftText.prefix(100_000))
+            model.saveListeningPosition()
         }
         .onReceive(NotificationCenter.default.publisher(for: .attenOpenStudio)) { _ in
             model.section = .studio
@@ -199,15 +249,15 @@ struct RootView: View {
         }
     }
 
-    /// Destination changes get a small orientation cue without animating the
-    /// sidebar, top chrome, or long-form content itself.
+    /// Peer sections dissolve in place; directional travel is reserved for
+    /// opening a destination within a section.
     private var animatedDetail: some View {
         ZStack {
             detail
                 .id(model.section)
                 .transition(
                     AttenMotion.transition(
-                        .destination(forward: true),
+                        .fade,
                         reduceMotion: reduceMotion
                     )
                 )
@@ -223,47 +273,34 @@ struct RootView: View {
             AttenLogo()
                 .padding(.horizontal, 24)
                 .padding(.top, 28)
-                .padding(.bottom, 36)
+                .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: AttenSpacing.md) {
-                ForEach(SidebarItem.Group.allCases) { group in
-                    VStack(alignment: .leading, spacing: 1) {
-                        if let title = group.title {
-                            Text(title.uppercased())
-                                .font(.system(size: 9, weight: .medium))
-                                .tracking(2.8)
-                                .foregroundStyle(AttenColor.textSecondary)
-                                .padding(.horizontal, AttenSpacing.sm)
-                                .padding(.bottom, AttenSpacing.xxs)
-                        }
-                        ForEach(group.items) { item in
-                            SidebarNavigationRow(
-                                item: item,
-                                isSelected: model.section == item
-                            ) {
-                                model.section = item
-                                focusedSidebarItem = item
-                            }
-                            .focused($focusedSidebarItem, equals: item)
-                        }
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(SidebarItem.primaryItems) { item in
+                    SidebarNavigationRow(item: item, isSelected: model.section.workspace == item) {
+                        if item == .library { model.returnToShelf() }
+                        else { model.section = item }
+                        focusedSidebarItem = item
                     }
+                    .focused($focusedSidebarItem, equals: item)
                 }
             }
             .padding(.horizontal, AttenSpacing.xs)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onMoveCommand(perform: moveSidebarSelection)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("Sections")
 
             Divider()
                 .overlay(AttenColor.separator)
 
-            StatusIndicator(
-                title: "\(model.library.installed.count) voices installed",
-                detail: model.backendIsAvailable ? "Ready" : "Offline",
-                isAvailable: model.backendIsAvailable
-            )
-            .padding([.horizontal, .top], AttenSpacing.md)
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .padding(AttenSpacing.md)
 
             HStack(spacing: AttenSpacing.sm) {
                 Link(destination: UpdateChecker.repositoryURL) {
@@ -350,23 +387,16 @@ struct RootView: View {
     @ViewBuilder private var detail: some View {
         switch model.section {
         case .home:
-            HomeView(model: model)
+            LibraryView(model: model)
         case .nowPlaying:
             NowPlayingView(model: model)
-        case .studio:
-            StudioView(model: model)
-        case .playground:
-            PlaygroundView(model: model) { model.section = .studio }
         case .library:
             LibraryView(model: model)
-        case .voices:
-            VoicesView(model: model) { model.section = .studio }
         case .models:
-            ModelsView(model: model)
-        case .projects:
-            ProjectsView(model: model) { model.section = .studio }
-        case .exports:
-            ExportsView(model: model)
+            SettingsView(model: model, initialTab: "models")
+        case .studio, .playground, .voices, .projects, .exports:
+            CreateWorkspace(model: model)
+
         }
     }
 
@@ -413,8 +443,8 @@ struct RootView: View {
 
     private func moveSidebarSelection(_ direction: MoveCommandDirection) {
         guard direction == .up || direction == .down else { return }
-        let items = SidebarItem.allCases
-        let selected = focusedSidebarItem ?? model.section
+        let items = SidebarItem.primaryItems
+        let selected = focusedSidebarItem ?? model.section.workspace
         guard let index = items.firstIndex(of: selected) else { return }
         let offset = direction == .down ? 1 : -1
         let nextIndex = min(max(index + offset, items.startIndex), items.index(before: items.endIndex))
@@ -450,13 +480,6 @@ private struct SidebarNavigationRow: View {
             .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    Capsule()
-                        .fill(muted ? AttenColor.textMuted : AttenColor.accent)
-                        .frame(width: 2, height: 26)
-                }
-            }
             .overlay {
                 RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
@@ -476,7 +499,7 @@ private struct SidebarNavigationRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Tonal selection with a fine cyan marker keeps the navigation quiet.
+    /// Selection uses a quiet tonal fill; keyboard focus keeps its own outline.
     private var background: Color {
         if isSelected { return AttenColor.surfaceElevated }
         return isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
@@ -596,7 +619,7 @@ private struct TopChrome: View {
             if let title {
                 Text(title.title)
                     .font(title.isProminent ? AttenTypography.displayTitle : AttenTypography.sectionTitle)
-                    .foregroundStyle(model.section == .library ? AttenColor.textSecondary : AttenColor.textPrimary)
+                    .foregroundStyle(AttenColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if let subtitle = title.subtitle {

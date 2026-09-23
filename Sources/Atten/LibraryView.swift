@@ -94,6 +94,10 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: AttenSpacing.lg) {
                     header
                     LibraryStatusArea(shelf: shelf)
+                    if query.isEmpty, selectedFilter == .books,
+                       let book = continueBook {
+                        ContinueListeningCard(model: model, book: book)
+                    }
                     if !shelf.books.isEmpty {
                         searchAndFilters
                     }
@@ -105,8 +109,8 @@ struct LibraryView: View {
                     }
                     importHint
                 }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 32)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 24)
                 .frame(maxWidth: 1440, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
@@ -136,22 +140,16 @@ struct LibraryView: View {
         }
     }
 
+    private var continueBook: BookRecord? {
+        model.playingBook ?? shelf.books.filter { $0.lastListenedAt != nil }
+            .max { ($0.lastListenedAt ?? .distantPast) < ($1.lastListenedAt ?? .distantPast) }
+    }
+
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Circle().fill(AttenColor.accent).frame(width: 6, height: 6)
-                Text("LIBRARY")
-                    .font(.system(size: 9, weight: .medium))
-                    .tracking(3.5)
-                    .foregroundStyle(AttenColor.textSecondary)
-            }
-            Text("Books and documents")
-                .font(.system(size: 38, weight: .regular))
-                .foregroundStyle(AttenColor.textPrimary)
-            Text("Add a book, a paper, or a report — Atten reads it here and narrates it a section at a time.")
-                .font(.system(size: 14))
-                .foregroundStyle(AttenColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Library").font(AttenTypography.pageTitle)
+            Text("Your books and documents, ready when you are.")
+                .font(AttenTypography.body).foregroundStyle(AttenColor.textSecondary)
         }
     }
 
@@ -159,7 +157,7 @@ struct LibraryView: View {
         Button {
             model.openBookImportPanel()
         } label: {
-            Label("Add book", systemImage: "plus")
+            Label("Add to Library", systemImage: "plus")
         }
         .buttonStyle(LibraryAddButtonStyle())
         .disabled(shelf.isImporting)
@@ -197,6 +195,7 @@ struct LibraryView: View {
                 .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Library filter")
     }
 
@@ -253,7 +252,7 @@ struct LibraryView: View {
     }
 
     private var searchField: some View {
-        AttenSearchField(prompt: "Search your library…", text: $model.libraryQuery, height: 44)
+        AttenSearchField(prompt: "Search your library…", text: $model.libraryQuery, height: 34)
             .frame(maxWidth: 640)
     }
 
@@ -349,6 +348,7 @@ struct LibraryView: View {
 
 struct LibraryStatusArea: View {
     let shelf: BookshelfModel
+    var showsPreparation = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.xs) {
@@ -360,13 +360,13 @@ struct LibraryStatusArea: View {
                 )
             }
 
-            if let progress = shelf.progress, let book = shelf.book(id: progress.bookID) {
+            if showsPreparation, let progress = shelf.progress, let book = shelf.book(id: progress.bookID) {
                 AttenProgressStatus(
                     title: "Narrating \(book.title)",
-                    detail: "Chapter \(progress.completed + 1) of \(progress.total): \(progress.chapterTitle)",
+                    detail: progress.isCombining ? "Combining chapters into one audio file" : "Chapter \(min(progress.completed + 1, progress.total)) of \(progress.total): \(progress.chapterTitle)",
                     phase: .active,
                     progress: progress.total > 0 ? progress.fraction : nil,
-                    progressLabel: "\(progress.completed) of \(progress.total) chapters",
+                    progressLabel: progress.eta,
                     actionTitle: "Stop",
                     action: shelf.cancelNarration
                 )
@@ -417,7 +417,7 @@ private struct BookCard: View {
 
     private var isNarrating: Bool { progress?.bookID == book.id }
     private var isFullyNarrated: Bool {
-        !book.chapters.isEmpty && narrated == book.chapters.count
+        book.hasBookAudio && !book.needsPreparation
     }
 
     var body: some View {
@@ -433,13 +433,22 @@ private struct BookCard: View {
                             .font(AttenTypography.control.weight(.semibold))
                             .foregroundStyle(AttenColor.textPrimary)
                             .lineLimit(2)
-                        Text(book.author ?? "Unknown author")
+                        Text(book.author ?? book.format.displayName)
                             .font(AttenTypography.metadata)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
+                    Group {
+                    if isNarrating || (narrated > 0 && !isFullyNarrated) {
+                        NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
+                    } else {
+                        Label(isFullyNarrated ? "Ready to listen" : "Audio not prepared",
+                              systemImage: isFullyNarrated ? "headphones" : "waveform")
+                            .font(AttenTypography.caption)
+                            .foregroundStyle(AttenColor.textSecondary)
+                    }
+                    }
                         .frame(maxWidth: isList ? 360 : nil)
                         .accessibilityHidden(true)
                 }
@@ -616,7 +625,7 @@ struct NarrationMeter: View {
     private var label: String {
         if isRunning { return "Narrating… \(narrated) of \(total) chapters" }
         if total == 0 { return "No chapters" }
-        if narrated == total { return "\(total) chapters narrated" }
+        if narrated == total { return "Audiobook · \(total) chapters" }
         return "\(narrated) of \(total) chapters narrated"
     }
 }
@@ -632,5 +641,31 @@ private extension NSItemProvider {
                 continuation.resume(returning: url)
             }
         }
+    }
+}
+
+private struct ContinueListeningCard: View {
+    @Bindable var model: AppModel
+    let book: BookRecord
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Image(systemName: "headphones").font(.title2).foregroundStyle(AttenColor.accent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Continue listening").font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
+                Text(book.title).font(.headline).lineLimit(1)
+                Text(book.hasBookAudio ? "Resume where you left off" : "Audio unavailable — open this book to prepare it again")
+                    .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
+            }
+            Spacer()
+            Button("Open Book") { model.openInLibrary(.book(book.id)) }
+                .buttonStyle(AttenSecondaryButtonStyle())
+            if book.hasBookAudio {
+                Button(model.playingBook?.id == book.id && model.isPlaying ? "Pause" : "Listen") { model.listen(to: book) }
+                    .buttonStyle(AttenPrimaryButtonStyle())
+            }
+        }
+        .padding(20)
+        .background(AttenColor.surface, in: RoundedRectangle(cornerRadius: 10))
     }
 }

@@ -9,6 +9,7 @@ struct BookDetailView: View {
 
     @State private var pendingVoice: Voice?
     @State private var confirmRemoval = false
+    @State private var pendingSpeed: Double?
 
     private var shelf: BookshelfModel { model.bookshelf }
 
@@ -24,7 +25,7 @@ struct BookDetailView: View {
                 AttenBackButton(title: "Library") { model.goBack() }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 header
-                LibraryStatusArea(shelf: shelf)
+                LibraryStatusArea(shelf: shelf, showsPreparation: false)
                 if !book.sourceExists { missingSourceNotice }
                 controls
                 chapterList
@@ -45,13 +46,24 @@ struct BookDetailView: View {
             ),
             titleVisibility: .visible
         ) {
-            Button("Change Voice and Clear Narration", role: .destructive) {
+            Button("Change Voice") {
                 if let pendingVoice { shelf.updateVoice(pendingVoice.id, for: book.id) }
                 pendingVoice = nil
             }
             Button("Keep Current Voice", role: .cancel) { pendingVoice = nil }
         } message: {
-            Text("\(narratedCount) narrated chapters would be deleted so the whole book is read in one voice.")
+            Text("Prepare the book again to use this voice. Your existing audiobook remains available until its replacement is ready.")
+        }
+        .confirmationDialog("Change narration speed?", isPresented: Binding(
+            get: { pendingSpeed != nil }, set: { if !$0 { pendingSpeed = nil } }
+        ), titleVisibility: .visible) {
+            Button("Change Speed") {
+                if let pendingSpeed { shelf.updateSpeed(pendingSpeed, for: book.id) }
+                pendingSpeed = nil
+            }
+            Button("Cancel", role: .cancel) { pendingSpeed = nil }
+        } message: {
+            Text("Prepare the book again to apply this change. The existing audiobook remains playable. Use the player speed control to change listening speed immediately.")
         }
         .confirmationDialog(
             "Remove \(book.title) from your library?",
@@ -123,7 +135,7 @@ struct BookDetailView: View {
                 title: book.title,
                 detail: [
                     book.author,
-                    "\(book.chapters.count) \(book.format.sectionNoun.lowercased())s",
+                    "\(book.chapters.count) \(book.format.sectionNoun.lowercased())\(book.chapters.count == 1 ? "" : "s")",
                     "\(book.wordCount.formatted()) words",
                     book.bookmarks.isEmpty
                         ? nil
@@ -138,6 +150,11 @@ struct BookDetailView: View {
 
     private var actionsMenu: some View {
         Menu {
+            Button(model.isExportingBook ? "Exporting Audiobook…" : "Export Audiobook…", systemImage: "square.and.arrow.up") {
+                model.exportBook(book)
+            }
+            .disabled(!book.hasBookAudio || model.isExportingBook)
+            Divider()
             Button("Reveal Source in Finder", systemImage: "folder") {
                 model.revealBookSource(book)
             }
@@ -179,20 +196,25 @@ struct BookDetailView: View {
         .accessibilityElement(children: .combine)
     }
 
+    private var primaryTitle: String {
+        if let progress { return progress.isCombining ? "Finalizing…" : "Preparing…" }
+        if shelf.isFullyNarrated(book) { return model.playingBook?.id == book.id && model.isPlaying ? "Pause" : "Listen" }
+        return narratedCount > 0 || book.narrationState == .interrupted || book.narrationState == .failed
+            ? "Resume Preparation" : "Prepare Audio"
+    }
+
     private var controls: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             HStack(spacing: AttenSpacing.sm) {
                 Button {
-                    model.play(tracks: book.narrationTracks)
-                    model.openNowPlaying()
+                    if shelf.isFullyNarrated(book) { model.listen(to: book) }
+                    else { shelf.narrate(book.id, useMPS: model.settings.useMPS) }
                 } label: {
-                    Label("Play all", systemImage: "play.fill")
+                    Label(primaryTitle, systemImage: shelf.isFullyNarrated(book) ? (model.playingBook?.id == book.id && model.isPlaying ? "pause.fill" : "play.fill") : "waveform")
                 }
                 .buttonStyle(AttenPrimaryButtonStyle())
-                .disabled(narratedCount == 0)
-                .help(narratedCount == 0
-                    ? "Narrate the book first"
-                    : "Play every narrated chapter in order")
+                .disabled(progress != nil || (!shelf.isFullyNarrated(book) && model.synthesis.isBusy))
+                .help(shelf.isFullyNarrated(book) ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
 
                 // A book already started opens where it was left off, so the
                 // button says so rather than promising the first page.
@@ -209,35 +231,29 @@ struct BookDetailView: View {
                 if progress != nil {
                     Button("Stop", systemImage: "stop.fill") { shelf.cancelNarration() }
                         .buttonStyle(AttenSecondaryButtonStyle())
-                } else if !shelf.isFullyNarrated(book) {
-                    Button {
-                        shelf.narrate(book.id, useMPS: model.settings.useMPS)
-                    } label: {
-                        Label(
-                            narratedCount == 0 ? "Narrate book" : "Narrate remaining",
-                            systemImage: "waveform"
-                        )
-                    }
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .disabled(shelf.isNarrating)
-                    .help(shelf.isNarrating ? "Another book is being narrated" : "")
+                }
+                if book.hasBookAudio && book.needsPreparation {
+                    Button("Listen to Existing Audio") { model.listen(to: book) }
+                        .buttonStyle(AttenSecondaryButtonStyle())
                 }
             }
 
             if let progress {
                 AttenProgressStatus(
-                    title: "Narrating \(book.title)",
-                    detail: "Chapter \(progress.completed + 1) of \(progress.total): \(progress.chapterTitle)",
+                    title: progress.isCombining ? "Finalizing audiobook" : "Preparing audio",
+                    detail: progress.isCombining ? "Combining chapters into one audio file" : "Chapter \(min(progress.completed + 1, progress.total)) of \(progress.total): \(progress.chapterTitle)",
                     phase: .active,
                     progress: progress.total > 0 ? progress.fraction : nil,
-                    progressLabel: "\(progress.completed) of \(progress.total) chapters"
+                    progressLabel: progress.eta
                 )
             } else {
-                NarrationMeter(
-                    narrated: narratedCount,
-                    total: book.chapters.count,
-                    isRunning: false
-                )
+                if let failure = book.narrationFailure {
+                    Text("Preparation stopped: \(failure) Resume to retry. Completed chapters are saved.")
+                        .font(AttenTypography.caption).foregroundStyle(AttenColor.destructive)
+                }
+                Label(shelf.isFullyNarrated(book) ? "Audiobook ready" : "\(narratedCount) of \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters") prepared",
+                      systemImage: shelf.isFullyNarrated(book) ? "checkmark.circle" : "waveform")
+                    .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
             }
 
             Divider().overlay(AttenColor.separator)
@@ -248,18 +264,20 @@ struct BookDetailView: View {
     }
 
     private var settings: some View {
-        HStack(alignment: .top, spacing: AttenSpacing.lg) {
-            FormRow(label: "Voice") {
-                Picker("", selection: voiceBinding) {
+        HStack(alignment: .bottom, spacing: AttenSpacing.lg) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Voice")
+                Picker("Narration voice", selection: voiceBinding) {
                     ForEach(voices) { voice in
-                        Text("\(voice.name) · \(voice.language)").tag(voice.id)
+                        Text(voice.name).tag(voice.id)
                     }
                 }
                 .labelsHidden()
                 .frame(width: 220)
             }
-            FormRow(label: "Speed") {
-                Picker("", selection: speedBinding) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Narration speed")
+                Picker("Narration speed", selection: speedBinding) {
                     ForEach([0.75, 0.9, 1.0, 1.15, 1.3, 1.5], id: \.self) { value in
                         Text(String(format: "%.2g×", value)).tag(value)
                     }
@@ -267,15 +285,13 @@ struct BookDetailView: View {
                 .labelsHidden()
                 .frame(width: 90)
             }
-            FormRow(label: "Format") {
-                Picker("", selection: formatBinding) {
-                    ForEach(AudioFormat.allCases) { format in
-                        Text(format.displayName).tag(format)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                .frame(width: 120)
+            if let required = model.requiredModelID(for: book.voiceID) {
+                Button("Download Voice Model") { model.library.download(required) }
+                    .disabled(model.library.downloads[required] != nil)
+                    .help("Download once; this voice then works offline")
+            } else if let voice = VoiceCatalog.voice(id: book.voiceID) {
+                Button("Preview") { model.previewVoice(voice) }
+                    .disabled(model.synthesis.isBusy)
             }
             Spacer(minLength: 0)
         }
@@ -289,15 +305,14 @@ struct BookDetailView: View {
         return VoiceCatalog.all
     }
 
-    /// Changing a setting mid-book would leave it narrated in two voices or two
-    /// speeds, so anything already generated is cleared — but only after the
-    /// user has been told what that costs.
+    /// Confirm replacement settings while preserving the completed recording
+    /// until its replacement is ready.
     private var voiceBinding: Binding<String> {
         Binding(
             get: { book.voiceID },
             set: { newValue in
                 guard newValue != book.voiceID else { return }
-                if narratedCount > 0 {
+                if narratedCount > 0 || book.hasBookAudio {
                     pendingVoice = VoiceCatalog.voice(id: newValue)
                 } else {
                     shelf.updateVoice(newValue, for: book.id)
@@ -309,7 +324,10 @@ struct BookDetailView: View {
     private var speedBinding: Binding<Double> {
         Binding(
             get: { book.speed },
-            set: { shelf.updateSpeed($0, for: book.id) }
+            set: { value in
+                if narratedCount > 0 || book.hasBookAudio { pendingSpeed = value }
+                else { shelf.updateSpeed(value, for: book.id) }
+            }
         )
     }
 
@@ -364,7 +382,7 @@ private struct ChapterRow: View {
     @State private var metadata: AudioFileMetadata?
 
     private var isPlaying: Bool {
-        model.isPlaying && model.activeAudioURL == chapter.audioURL
+        model.isPlaying && model.activeAudioURL == book.audioURL && model.playbackPosition >= (chapter.startTime ?? 0) && model.playbackPosition < (chapter.endTime ?? .infinity)
     }
 
     var body: some View {
@@ -394,8 +412,8 @@ private struct ChapterRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .contextMenu {
-            Button("Narrate This Chapter", systemImage: "waveform", action: narrateOne)
-                .disabled(chapter.isNarrated || model.bookshelf.isNarrating)
+            Button("Prepare Complete Audiobook", systemImage: "waveform", action: narrateOne)
+                .disabled(book.hasBookAudio || model.synthesis.isBusy)
         }
         .task(id: chapter.audioPath) {
             guard let url = chapter.audioURL, chapter.isNarrated else {
@@ -411,16 +429,9 @@ private struct ChapterRow: View {
             ProgressView()
                 .controlSize(.small)
                 .frame(width: 30, height: 30)
-        } else if chapter.isNarrated, let url = chapter.audioURL {
+        } else if book.hasBookAudio {
             Button {
-                model.togglePlayback(
-                    track: PlaybackTrack(
-                        id: chapter.id,
-                        url: url,
-                        title: chapter.title,
-                        subtitle: book.title
-                    )
-                )
+                if isPlaying { model.toggleActivePlayback() } else { model.listen(to: book, chapter: chapter) }
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(AttenTypography.caption.weight(.semibold))
@@ -432,23 +443,20 @@ private struct ChapterRow: View {
             .buttonStyle(.plain)
             .accessibilityLabel(isPlaying ? "Pause \(chapter.title)" : "Play \(chapter.title)")
         } else {
-            Button(action: narrateOne) {
-                Image(systemName: "waveform")
-                    .font(AttenTypography.caption)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .frame(width: 30, height: 30)
-                    .background(AttenColor.surfaceMuted.opacity(isHovering ? 0.8 : 0.35))
-                    .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
-            }
-            .buttonStyle(.plain)
-            .disabled(model.bookshelf.isNarrating)
-            .help("Narrate this chapter")
-            .accessibilityLabel("Narrate \(chapter.title)")
+            Image(systemName: "text.alignleft")
+                .font(AttenTypography.caption)
+                .foregroundStyle(AttenColor.textSecondary)
+                .frame(width: 30, height: 30)
+                .accessibilityHidden(true)
         }
     }
 
     private var detail: String {
         if isGenerating { return "generating…" }
+        if let start = chapter.startTime {
+            let seconds = Int(start)
+            return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
+        }
         return metadata?.durationText ?? "—"
     }
 }

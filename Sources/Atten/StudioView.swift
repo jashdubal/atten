@@ -11,7 +11,6 @@ struct StudioView: View {
     @State private var hasEditedDraft = false
     @State private var cancellationNotice = false
     @State private var pasteNotice: String?
-    @State private var completedDraftText: String?
 
     private enum StudioState {
         case idle
@@ -47,6 +46,20 @@ struct StudioView: View {
                 .frame(maxWidth: .infinity, alignment: .top)
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.selectedVoice.name).font(AttenTypography.control)
+                    Text("\(model.format.displayName) · \(PlaybackFormat.rateText(model.speed)) · On this Mac")
+                        .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
+                }
+                Spacer()
+                generationAction.frame(width: 190)
+            }
+            .padding(.horizontal, 24).padding(.vertical, 12)
+            .background(AttenColor.surface)
+            .overlay(alignment: .top) { Divider() }
+        }
         .animation(
             AttenMotion.transitionAnimation(
                 AttenMotion.standard,
@@ -58,7 +71,6 @@ struct StudioView: View {
             hasEditedDraft = true
             cancellationNotice = false
             pasteNotice = nil
-            completedDraftText = nil
         }
         .onChange(of: model.generationState) { _, state in
             switch state {
@@ -66,7 +78,6 @@ struct StudioView: View {
                 cancellationNotice = false
             case .ready:
                 cancellationNotice = false
-                completedDraftText = model.draftText
             case .idle:
                 // The model intentionally returns to idle after cancellation;
                 // the local notice keeps that useful distinction visible here.
@@ -74,32 +85,24 @@ struct StudioView: View {
             }
         }
         .onChange(of: model.selectedVoiceID) { _, _ in
-            completedDraftText = nil
             model.applySettings()
         }
         .onChange(of: model.speed) { _, _ in
-            completedDraftText = nil
             model.applySettings()
         }
         .onChange(of: model.format) { _, _ in
-            completedDraftText = nil
             model.applySettings()
         }
         .onChange(of: model.settings.useMPS) { _, _ in
-            completedDraftText = nil
             model.applySettings()
         }
     }
 
     private var header: some View {
-        HStack(alignment: .bottom, spacing: AttenSpacing.md) {
-            PageHeader(
-                eyebrow: "Studio",
-                title: "Create speech",
-                detail: "Write naturally, then turn your words into audio on this Mac."
-            )
-            Spacer()
-            statePill
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Create audio").font(AttenTypography.pageTitle)
+            Text("Write or import text, choose a voice, and save the result.")
+                .font(AttenTypography.body).foregroundStyle(AttenColor.textSecondary)
         }
     }
 
@@ -119,6 +122,10 @@ struct StudioView: View {
     }
 
     @ViewBuilder private var statusArea: some View {
+        if model.isImportingText {
+            HStack { ProgressView().controlSize(.small); Text("Importing text…") }
+                .font(AttenTypography.caption)
+        }
         if let pasteNotice {
             StatusBanner(kind: .success, message: pasteNotice) { self.pasteNotice = nil }
         }
@@ -152,7 +159,7 @@ struct StudioView: View {
         } else {
             VStack(alignment: .leading, spacing: AttenSpacing.md) {
                 editorPane
-                    .frame(minHeight: max(410, height - 300))
+                    .frame(minHeight: max(310, height - 380))
                 inspectorPane
             }
         }
@@ -177,6 +184,7 @@ struct StudioView: View {
             }
 
             TextField("Project title", text: $model.draftTitle)
+                .disabled(model.isImportingText)
                 .textFieldStyle(.plain)
                 .font(AttenTypography.sectionTitle)
                 .padding(.horizontal, AttenSpacing.sm)
@@ -186,6 +194,7 @@ struct StudioView: View {
 
             ZStack(alignment: .topLeading) {
                 AlignedTextEditor(text: $model.draftText, accessibilityLabel: "Speech text")
+                    .disabled(model.isImportingText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityHint("Enter the text Atten should speak. You can paste text or drop a file here.")
 
@@ -202,7 +211,7 @@ struct StudioView: View {
                     .allowsHitTesting(false)
                 }
             }
-            .frame(minHeight: 350)
+            .frame(minHeight: 220)
             .attenInput()
             .overlay {
                 if isDropTargeted {
@@ -224,7 +233,6 @@ struct StudioView: View {
                     hasEditedDraft = true
                 }
                 .buttonStyle(AttenSecondaryButtonStyle())
-                .keyboardShortcut("o")
                 .help("Import a UTF-8 text, Markdown, source, or RTF file")
 
                 Button("Paste", systemImage: "doc.on.clipboard") {
@@ -310,6 +318,8 @@ struct StudioView: View {
                     Slider(value: $model.speed, in: 0.5...2, step: 0.05) {
                         Text("Speech speed")
                     }
+                    .labelsHidden()
+                    .accessibilityLabel("Speech speed")
                     .accessibilityValue(String(format: "%.2f times", model.speed))
                     .accessibilityHint("Adjusts how quickly the generated speech is read")
                 }
@@ -345,8 +355,6 @@ struct StudioView: View {
 
             Spacer(minLength: AttenSpacing.xs)
 
-            generationAction
-
             Text("Speech stays on this Mac. Completed audio also appears in Projects and the shared player.")
                 .font(AttenTypography.caption)
                 .foregroundStyle(AttenColor.textSecondary)
@@ -359,23 +367,12 @@ struct StudioView: View {
     @ViewBuilder private var generationAction: some View {
         switch studioState {
         case .generating:
-            VStack(alignment: .leading, spacing: AttenSpacing.xs) {
-                AttenProgressStatus(
-                    title: "Generating speech",
-                    detail: "The local speech backend is working. Progress is indeterminate because it does not report a fraction.",
-                    phase: .active
-                )
-                Button("Cancel generation", role: .cancel) {
-                    cancellationNotice = true
-                    model.cancelGeneration()
-                }
-                .buttonStyle(AttenSecondaryButtonStyle())
-                .frame(maxWidth: .infinity)
-                .keyboardShortcut(.escape, modifiers: [])
-                .accessibilityHint("Stops this generation and keeps your script so you can try again")
+            Button("Stop Generation", role: .cancel) {
+                cancellationNotice = true
+                model.cancelGeneration()
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Generating speech")
+            .buttonStyle(AttenSecondaryButtonStyle())
+            .accessibilityHint("Stops generation and keeps your draft")
         case .cancelled:
             Button {
                 model.generate()
@@ -388,9 +385,9 @@ struct StudioView: View {
             .accessibilityHint("Starts speech generation again using your current script and settings")
         case .completed:
             Button {
-                model.toggleActivePlayback()
+                if let url = model.currentAudioURL { model.togglePlayback(url: url) }
             } label: {
-                Label(model.isPlaying ? "Pause in Player" : "Play in Player", systemImage: model.isPlaying ? "pause.fill" : "play.fill")
+                Label(model.activeAudioURL == model.currentAudioURL && model.isPlaying ? "Pause" : "Play Audio", systemImage: model.activeAudioURL == model.currentAudioURL && model.isPlaying ? "pause.fill" : "play.fill")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(AttenPrimaryButtonStyle())
@@ -403,7 +400,7 @@ struct StudioView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(AttenPrimaryButtonStyle())
-            .disabled(model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: [.command])
         case .idle, .empty, .ready:
             Button {
@@ -414,7 +411,7 @@ struct StudioView: View {
             }
             .buttonStyle(AttenPrimaryButtonStyle())
             .keyboardShortcut(.return, modifiers: [.command])
-            .disabled(model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityHint(
                 model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? "Enter or paste text before generating speech"
@@ -435,8 +432,11 @@ struct StudioView: View {
     }
 
     private var isCompletedState: Bool {
-        if case .ready = model.generationState, completedDraftText == model.draftText { return true }
-        return false
+        guard let project = model.currentProject else { return false }
+        return project.text == model.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+            && project.voiceID == model.selectedVoiceID
+            && project.speed == model.speed
+            && project.format == model.format
     }
 
     private var stateLabel: String {
@@ -520,7 +520,7 @@ struct StudioView: View {
                 HStack(spacing: AttenSpacing.sm) {
                     Button("Try Again") { model.generate() }
                         .buttonStyle(.bordered)
-                        .disabled(model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if message.localizedCaseInsensitiveContains("model") {
                         Button("Open Models") { model.section = .models }
                             .buttonStyle(.bordered)

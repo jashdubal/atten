@@ -232,7 +232,7 @@ struct PlaygroundView: View {
             Spacer()
             Button("Clear") { model.clearPlaygroundSample() }
                 .buttonStyle(.bordered)
-            Button("Use in Studio", systemImage: "arrow.right") {
+            Button("Use in Draft", systemImage: "arrow.right") {
                 model.usePlaygroundSettingsInStudio(
                     text: sampleText,
                     voiceID: voiceID,
