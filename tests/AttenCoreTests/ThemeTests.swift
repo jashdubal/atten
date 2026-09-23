@@ -193,12 +193,6 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(palette.success.dark, 0x73AC88)
     }
 
-    /// The brand's colour survives as light rather than as paint, so it is
-    /// still there to glow with — and still exactly the landing page's.
-    func testTheBrandSurvivesAsAGradient() {
-        XCTAssertEqual(AttenPalette.brandGradient.count, 3)
-    }
-
     /// In the dark the page and the chrome share one ground, which is what
     /// makes the page have no edges and the app feel like one surface rather
     /// than a window with panels pasted on it.

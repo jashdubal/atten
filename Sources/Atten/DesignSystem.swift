@@ -103,7 +103,7 @@ enum AttenElevation {
         switch self {
         case .flush: 0
         case .raised: 4
-        case .floating: 16
+        case .floating: 6
         }
     }
 
@@ -111,7 +111,7 @@ enum AttenElevation {
         switch self {
         case .flush: 0
         case .raised: 1
-        case .floating: 6
+        case .floating: 2
         }
     }
 
@@ -119,7 +119,7 @@ enum AttenElevation {
         switch self {
         case .flush: 0
         case .raised: 0.08
-        case .floating: 0.20
+        case .floating: 0.10
         }
     }
 }
@@ -200,10 +200,9 @@ enum AttenMotion {
     /// Section changes and Zen enter/exit.
     static let transition = 0.20
 
-    /// The small amount of movement shared by destination and overlay changes.
-    /// A destination slides only a few points; a panel never moves the reader's
-    /// page underneath it. The reduced-motion form is a crossfade, which keeps
-    /// the change legible without making the window travel.
+    /// A brief crossfade shared by destination and overlay changes. Nothing
+    /// slides — a panel never moves the reader's page underneath it, and a
+    /// destination change reads as a state change rather than travel.
     enum Transition {
         case destination(forward: Bool)
         case overlay(edge: Edge)
@@ -240,30 +239,9 @@ enum AttenMotion {
         _ transition: Transition,
         reduceMotion: Bool
     ) -> AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        switch transition {
-        case let .destination(forward):
-            return .asymmetric(
-                insertion: .offset(x: forward ? 8 : -8).combined(with: .opacity),
-                removal: .opacity
-            )
-        case let .overlay(edge):
-            // Travel is independent of panel size, so wide inspectors never
-            // sweep across the content beneath them.
-            let offset: CGSize
-            switch edge {
-            case .leading: offset = CGSize(width: -10, height: 0)
-            case .trailing: offset = CGSize(width: 10, height: 0)
-            case .top: offset = CGSize(width: 0, height: -10)
-            case .bottom: offset = CGSize(width: 0, height: 10)
-            }
-            return .asymmetric(
-                insertion: .offset(offset).combined(with: .opacity),
-                removal: .opacity
-            )
-        case .fade:
-            return .opacity
-        }
+        // Every case reads as a crossfade now; the enum and its cases stay so
+        // call sites can keep naming what kind of change this is.
+        .opacity
     }
 }
 
@@ -275,7 +253,7 @@ private struct AttenPressFeedback: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(isPressed && !reduceMotion ? AttenState.pressedScale : 1)
+            .opacity(isPressed ? AttenState.pressedOpacity : 1)
             .animation(
                 AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
                 value: isPressed
@@ -290,31 +268,6 @@ struct AttenFeedbackButtonStyle: ButtonStyle {
     }
 }
 
-/// A small hover lift for cards and other objects that benefit from a tactile
-/// pointer cue. It is deliberately an offset instead of a layout-affecting
-/// frame change, so neighboring cards never jump when the pointer moves.
-private struct AttenHoverLift: ViewModifier {
-    let amount: CGFloat
-    @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        content
-            .offset(y: isHovering && !reduceMotion ? amount : 0)
-            .animation(
-                AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion),
-                value: isHovering
-            )
-            .onHover { isHovering = $0 }
-    }
-}
-
-extension View {
-    func attenHoverLift(_ amount: CGFloat = -1) -> some View {
-        modifier(AttenHoverLift(amount: amount))
-    }
-}
-
 /// What a control looks like under the pointer, under the finger, and when it
 /// is the one selected.
 ///
@@ -325,8 +278,8 @@ enum AttenState {
     static let hoverFill = 0.08
     /// …and while it is being pressed, where the control darkens instead.
     static let pressedFill = 0.16
-    /// A pressed control shrinks by this much. Skipped under Reduce Motion.
-    static let pressedScale = 0.995
+    /// A pressed control dims to this opacity.
+    static let pressedOpacity = 0.85
     /// Everything disabled fades to here rather than greying its own colours.
     static let disabledOpacity = 0.42
     /// The ring drawn around whatever has keyboard focus.
@@ -458,7 +411,6 @@ private struct AttenPrimaryButtonBody: View {
                         .strokeBorder(AttenColor.separator.opacity(0.65), lineWidth: 1)
                 }
             }
-            .shadow(color: .black.opacity(isEnabled && !muted ? 0.3 : 0), radius: 10, y: 3)
             .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
             .modifier(AttenPressFeedback(isPressed: isPressed))
             .animation(AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion), value: isHovering)

@@ -127,7 +127,7 @@ struct NowPlayingView: View {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
                 .strokeBorder(AttenColor.separator, lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Audio artwork placeholder")
     }
@@ -223,7 +223,7 @@ struct NowPlayingView: View {
                     .foregroundStyle(AttenColor.onAccent)
                     .frame(width: 52, height: 52)
                     .background(Circle().fill(AttenColor.accent))
-                    .shadow(color: .black.opacity(0.3), radius: 10, y: 3)
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)

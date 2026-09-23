@@ -357,7 +357,6 @@ private struct ShelfTile: View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
                 BookJacket(book: book, cover: cover, height: 132)
-                    .attenHoverLift()
                 Text(book.title)
                     .font(AttenTypography.metadata.weight(.medium))
                     .foregroundStyle(AttenColor.textPrimary)
@@ -453,7 +452,7 @@ struct BookJacket: View {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.45), radius: 12, y: 5)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .accessibilityHidden(true)
     }
 }

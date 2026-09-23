@@ -95,13 +95,4 @@ extension AttenPalette {
         readerHighlight: AttenThemeColor(0xE8E2D4, 0x363636),
         scrim: AttenThemeColor(0x0B121C, 0x000000)
     )
-
-    /// The brand's colour, kept for light rather than for paint.
-    ///
-    /// Taken from the landing page verbatim — cyan through pale cyan to
-    /// violet. It belongs in effects: the glow behind a screen, a halo under
-    /// something active. It is deliberately not available as a fill, because
-    /// a gradient on a button is the fastest way to make an interface look
-    /// like a demo of itself.
-    static let brandGradient = [Color(hex: 0x5DDBFF), Color(hex: 0xB7F2FF), Color(hex: 0x9E70FF)]
 }

@@ -124,7 +124,7 @@ struct BookDetailView: View {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
         .accessibilityLabel("Cover for \(book.title)")
     }
 
