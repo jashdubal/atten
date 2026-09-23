@@ -4,6 +4,29 @@ import XCTest
 @testable import Atten
 
 final class BookAudioTests: XCTestCase {
+    func testAssemblyOffsetsTimingsWithoutChangingRelativeWords() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var urls: [URL] = []
+        for index in 0..<2 {
+            let url = try await ImmediateGenerator().generate(chapter: "chapter", in: directory.appendingPathComponent("chapter-\(index)"))
+            let timing = TimedSegment(index: 0, text: "hello", start: 0, duration: 0.1,
+                                      words: [TimedWord(text: "hello", start: 0.02, end: 0.08)])
+            try NarrationTimings(segments: [timing]).save(beside: url)
+            urls.append(url)
+        }
+        let result = try BookAudioAssembler.assemble(urls, in: directory)
+        let timing = try XCTUnwrap(NarrationTimings.load(beside: result.url))
+        XCTAssertEqual(timing.segments.map(\.index), [0, 1])
+        XCTAssertEqual(timing.segments[1].start, result.ranges[1].0, accuracy: 0.00001)
+        XCTAssertEqual(timing.segments[1].words[0].start, 0.02)
+        XCTAssertEqual(timing.locate(time: 0.13).segment, 1)
+        XCTAssertEqual(timing.locate(time: 0.13).word, 0)
+        let second = try BookAudioAssembler.assemble(urls, in: directory)
+        XCTAssertNotEqual(NarrationTimings.sidecarURL(for: result.url), NarrationTimings.sidecarURL(for: second.url))
+        XCTAssertEqual(try NarrationTimings.load(beside: result.url), timing)
+    }
+
     func testLongBookAssemblyStreamsThirtyMinutes() throws {
         guard ProcessInfo.processInfo.environment["ATTEN_RUN_PERFORMANCE"] == "1" else {
             throw XCTSkip("Run with ATTEN_RUN_PERFORMANCE=1 for the disk-backed long-audio check")

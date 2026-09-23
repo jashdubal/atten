@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import shutil
+import subprocess
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional
 import errno
@@ -102,6 +103,7 @@ class GenerationRequest:
     output_format: str = "mp3"
     output_directory: Path = Path("outputs")
     filename: Optional[str] = None
+    segments_directory: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -178,6 +180,43 @@ class SoundFileAudioIO:
         import soundfile as sf
 
         sf.write(str(path), audio, self.sample_rate)
+
+    def transcode(self, source, destination):
+        """Decode locally and stream through the same libsndfile MP3/WAV writer."""
+        import soundfile as sf
+
+        source, destination = Path(source), Path(destination)
+        if source.suffix.lower() not in {".wav", ".caf", ".m4a"}:
+            raise ValueError("Input format must be wav, caf, or m4a.")
+        if destination.suffix.lower() not in {".mp3", ".wav"}:
+            raise ValueError("Output format must be mp3 or wav.")
+        if destination.exists():
+            raise FileExistsError(f"File '{destination}' already exists.")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = destination.with_name(
+            f".{destination.stem}.atten-{uuid.uuid4().hex}.part{destination.suffix}"
+        )
+        try:
+            with TemporaryDirectory(prefix="atten-transcode-") as directory:
+                decoded = source
+                if source.suffix.lower() == ".m4a":
+                    decoded = Path(directory) / "decoded.wav"
+                    if shutil.which("afconvert"):
+                        command = ["afconvert", "-f", "WAVE", "-d", "LEI16", str(source), str(decoded)]
+                    elif shutil.which("ffmpeg"):
+                        command = ["ffmpeg", "-nostdin", "-v", "error", "-i", str(source), str(decoded)]
+                    else:
+                        raise RuntimeError("M4A decoding requires afconvert or ffmpeg.")
+                    subprocess.run(command, check=True, capture_output=True)
+                with sf.SoundFile(str(decoded)) as audio:
+                    with sf.SoundFile(str(temporary), mode="w", samplerate=audio.samplerate,
+                                      channels=audio.channels) as output:
+                        for block in audio.blocks(blocksize=audio.samplerate * 30, dtype="float32"):
+                            output.write(block)
+                os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return destination.resolve()
 
     def merge(self, destination, segment_paths):
         """Joins segments into one file a block at a time.
@@ -264,6 +303,7 @@ class GenerationService:
         self,
         request: GenerationRequest,
         progress: Optional[Callable[[int], None]] = None,
+        segment_ready: Optional[Callable[[dict], None]] = None,
     ) -> GenerationResult:
         text = request.text.strip()
         if not text:
@@ -307,13 +347,33 @@ class GenerationService:
             with TemporaryDirectory(prefix="atten-") as temporary_directory:
                 segment_paths = []
                 provider = self.get_provider_for_voice(request.voice)
-                for index, (_graphemes, _phonemes, audio) in enumerate(
-                    provider.segments(text, request.voice, request.speed)
-                ):
-                    segment_path = Path(temporary_directory) / (
-                        f"segment-{index}.{request.output_format}"
-                    )
+                offset = 0.0
+                segments_directory = request.segments_directory
+                if segments_directory is not None:
+                    segments_directory = Path(segments_directory).expanduser().resolve()
+                    segments_directory.mkdir(parents=True, exist_ok=True)
+                for index, result in enumerate(provider.segments(text, request.voice, request.speed)):
+                    graphemes, _phonemes, audio = result
+                    if segments_directory is None:
+                        segment_path = Path(temporary_directory) / f"segment-{index}.{request.output_format}"
+                    else:
+                        segment_path = segments_directory / f"seg-{index:05d}.wav"
                     self.audio_io.write(segment_path, audio)
+                    if segments_directory is not None:
+                        # Close and sync the WAV before announcing that it can be read.
+                        with segment_path.open("rb") as segment_file:
+                            os.fsync(segment_file.fileno())
+                        duration = len(audio) / self.audio_io.sample_rate
+                        words = []
+                        for token in getattr(result, "tokens", None) or []:
+                            start, end = getattr(token, "start_ts", None), getattr(token, "end_ts", None)
+                            if start is not None and end is not None:
+                                words.append({"text": token.text, "start": float(start), "end": float(end)})
+                        if segment_ready:
+                            segment_ready({"index": index, "path": str(segment_path),
+                                           "text": graphemes or "", "start": offset,
+                                           "duration": duration, "words": words})
+                        offset += duration
                     segment_paths.append(segment_path)
                     segment_count += 1
                     if progress:

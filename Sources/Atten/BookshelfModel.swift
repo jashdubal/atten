@@ -394,27 +394,55 @@ final class BookshelfModel {
                         let remaining = Date().timeIntervalSince(started) * Double(totalWords - completedWords) / Double(completedWords)
                         progress?.eta = "About \(max(1, Int(ceil(remaining / 60)))) min remaining"
                     }
-                    let output = try await generator.generate(
+                    let chapterDirectory = directory.appendingPathComponent(
+                        "chapter-\(index)-\(UUID().uuidString)", isDirectory: true
+                    )
+                    var checkpointed = false
+                    defer {
+                        if !checkpointed { try? FileManager.default.removeItem(at: chapterDirectory) }
+                    }
+                    var segments: [TimedSegment] = []
+                    var audioURL: URL?
+                    let events = generator.generateStream(
                         GenerationRequest(
                             text: chapter.text,
                             voiceID: current.voiceID,
                             speed: current.speed,
                             format: current.audioFormat,
-                            outputDirectory: directory,
+                            outputDirectory: chapterDirectory,
                             filename: Self.chapterFilename(index: index, title: chapter.title),
                             useMPS: useMPS,
-                            modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID
+                            modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID,
+                            segmentsDirectory: chapterDirectory.appendingPathComponent("segments", isDirectory: true)
                         )
                     )
+                    for try await event in events {
+                        try Task.checkCancellation()
+                        switch event {
+                        case let .segment(segment): segments.append(segment.timing.estimatingMissingWords())
+                        case let .completed(url): audioURL = url
+                        case .failed, .progress: break
+                        }
+                    }
+                    try Task.checkCancellation()
+                    guard let audioURL else { throw BackendError.malformedResponse }
+                    if segments.isEmpty {
+                        let audio = try AVAudioFile(forReading: audioURL)
+                        segments = [TimedSegment(index: 0, text: chapter.text, start: 0,
+                            duration: Double(audio.length) / audio.processingFormat.sampleRate, words: [])
+                            .estimatingMissingWords()]
+                    }
+                    try NarrationTimings(segments: segments).save(beside: audioURL)
                     try Task.checkCancellation()
                     completedWords += chapter.text.count
                     // The shelf may have changed while the engine was running.
                     guard let updated = books.firstIndex(where: { $0.id == bookID }),
                           books[updated].chapters.indices.contains(index) else { return }
-                    books[updated].chapters[index].audioPath = output.url.path
+                    books[updated].chapters[index].audioPath = audioURL.path
                     refreshNarrationCounts()
                     // Saved after every chapter, so a crash or a quit costs at
                     // most the one that was in flight.
+                    checkpointed = true
                     try await saveNow()
                 }
                 try Task.checkCancellation()

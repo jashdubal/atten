@@ -171,3 +171,45 @@ whole document and must not happen per keystroke.
 7:1 for body text, 4.5:1 for secondary text and button labels, and the 3:1 that
 WCAG sets for interface components against accent and status colours. A new
 theme that is pretty but unreadable fails the suite.
+
+## Streaming generation and word timings
+
+Generation remains backward compatible without `--segments-dir`: the legacy
+`segment` count events, merged audio, and `completed` payload are unchanged.
+With `--json --segments-dir <directory>`, each segment is closed and synced as
+`seg-00000.wav`, `seg-00001.wav`, etc. (24 kHz mono) before its NDJSON event:
+
+```json
+{"event":"segment","index":0,"path":"/tmp/segments/seg-00000.wav","text":"Hello.","start":0.0,"duration":0.8,"words":[{"text":"Hello","start":0.0,"end":0.6}]}
+```
+
+`start` is the segment's offset in the final recording; word `start`/`end` are
+seconds relative to that segment. Kokoro's `Result.tokens` supply timestamps;
+XTTS/MMS and languages without token timing emit an empty `words` array. Swift
+estimates missing words by sentence and word character counts. Segment files
+remain in the caller-owned directory, including completed segments after failure.
+Use a separate directory for each generation.
+
+`TTSGenerating.generateStream` yields progress and segments while the process
+runs, then completion only after a successful exit. Failures yield `.failed` and
+finish with an error; cancellation terminates the child. The whole-file API and
+its retry policy are unchanged. Streams are not retried because consumers may
+already have used an emitted segment. Legacy generators can use the default
+whole-file stream adapter.
+
+Each chapter recording has its own directory with `timings.json` and `segments/`.
+Assembly offsets segment starts by decoded chapter durations and writes a
+book-level `timings.json` beside the combined CAF in a unique recording directory,
+so replacement generation cannot overwrite a previous recording's timings.
+Word offsets stay segment-relative. `NarrationTimings.load(beside:)` returns nil
+for older recordings without a sidecar, and `locate(time:)` binary-searches both
+segments and words. It returns array positions, segment -1 for an empty timeline,
+and a nil word during silence or outside the recording. No book/project schema
+migration is required.
+
+`cli.py transcode --input <file.wav|.caf|.m4a> --output <file.mp3|.wav> [--json]`
+streams decoded audio through the existing libsndfile writer, preserving sample
+rate and channels. M4A decoding uses macOS `afconvert` (or installed `ffmpeg` on
+other platforms); WAV/CAF need no external decoder. Existing destinations are
+rejected and output is published atomically. JSON mode emits `completed` with
+`path`, or `error` with `message` and a nonzero exit status.

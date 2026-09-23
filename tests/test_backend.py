@@ -1,4 +1,6 @@
 import json
+import io
+from contextlib import redirect_stdout
 import os
 from pathlib import Path
 import sys
@@ -345,6 +347,98 @@ class CLICompatibilityTests(unittest.TestCase):
         for device in ("auto", "cpu", "cuda", "mps"):
             args = cli.build_parser().parse_args(["hello", "--device", device])
             self.assertEqual(args.device, device)
+
+
+class StreamingTests(unittest.TestCase):
+    def test_durable_segments_include_kokoro_words_and_sample_offsets(self):
+        class Result:
+            tokens = [types.SimpleNamespace(text="Hello", start_ts=0.1, end_ts=0.4),
+                      types.SimpleNamespace(text="!", start_ts=None, end_ts=None)]
+
+            def __iter__(self):
+                return iter(("Hello!", "phonemes", [0.1] * 12000))
+
+        provider = FakeProvider()
+        provider.segments = lambda *_: iter([Result(), Result()])
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = []
+
+            def ready(event):
+                self.assertTrue(Path(event["path"]).is_file())
+                self.assertFalse((root / "final.wav").exists())
+                events.append(event)
+
+            result = GenerationService(provider, SoundFileAudioIO()).generate(
+                GenerationRequest(text="Hello! Hello!", output_directory=root, filename="final",
+                                  output_format="wav", segments_directory=root / "segments"),
+                segment_ready=ready,
+            )
+            import soundfile as sf
+            self.assertEqual([e["index"] for e in events], [0, 1])
+            self.assertEqual([e["start"] for e in events], [0, 0.5])
+            self.assertEqual(events[0]["words"], [{"text": "Hello", "start": 0.1, "end": 0.4}])
+            for event in events:
+                audio = sf.info(event["path"])
+                self.assertEqual((audio.samplerate, audio.channels, audio.format), (24000, 1, "WAV"))
+                self.assertEqual(audio.duration, event["duration"])
+            self.assertEqual(sf.info(str(result.output_path)).duration, 1)
+
+    def test_legacy_tuple_provider_has_no_words_and_cli_contract_is_opt_in(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for streaming in (False, True):
+                args = ["Hello", "--json", "--output", str(root), "--filename", str(streaming)]
+                if streaming:
+                    args += ["--segments-dir", str(root / "segments")]
+                output = io.StringIO()
+                service = GenerationService(FakeProvider(), FakeAudioIO())
+                with patch.object(cli, "GenerationService", return_value=service), redirect_stdout(output):
+                    self.assertEqual(cli.main(args), 0)
+                events = [json.loads(line) for line in output.getvalue().splitlines()]
+                segments = [e for e in events if e["event"] == "segment"]
+                completed = events[-1]
+                self.assertEqual(completed, {"event": "completed", "path": str((root / f"{streaming}.mp3").resolve()),
+                                             "segments": 2, "sample_rate": 24000, "preview": False})
+                if streaming:
+                    self.assertEqual(segments[0]["words"], [])
+                    self.assertEqual(Path(segments[0]["path"]).name, "seg-00000.wav")
+                else:
+                    self.assertEqual(segments, [{"event": "segment", "count": 1}, {"event": "segment", "count": 2}])
+
+    def test_transcode_preserves_duration_rate_and_channels_without_overwriting(self):
+        import soundfile as sf
+        import numpy as np
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for source_format in ("wav", "caf"):
+                source = root / f"input.{source_format}"
+                sf.write(str(source), np.zeros((44100, 2)), 44100)
+                for output_format in ("wav", "mp3"):
+                    destination = root / f"{source_format}.{output_format}"
+                    self.assertEqual(cli.main(["transcode", "--input", str(source), "--output", str(destination)]), 0)
+                    info = sf.info(str(destination))
+                    self.assertEqual((info.samplerate, info.channels), (44100, 2))
+                    self.assertAlmostEqual(info.duration, 1, delta=0.05)
+                    original = destination.read_bytes()
+                    with self.assertRaises(FileExistsError):
+                        SoundFileAudioIO().transcode(source, destination)
+                    self.assertEqual(destination.read_bytes(), original)
+
+    @unittest.skipUnless(sys.platform == "darwin", "M4A fixture uses macOS afconvert")
+    def test_transcode_m4a(self):
+        import subprocess
+        import soundfile as sf
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.wav"
+            SoundFileAudioIO().write(source, [0.1] * 24000)
+            m4a = root / "source.m4a"
+            subprocess.run(["afconvert", "-f", "m4af", "-d", "aac", str(source), str(m4a)], check=True)
+            result = SoundFileAudioIO().transcode(m4a, root / "result.wav")
+            self.assertAlmostEqual(sf.info(str(result)).duration, 1, delta=0.1)
 
 
 class DeviceSelectionTests(unittest.TestCase):

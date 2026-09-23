@@ -34,6 +34,30 @@ final class PreparationTests: XCTestCase {
         XCTFail("Preparation did not finish")
     }
 
+    func testNarrationPersistsChapterAndBookTimingsAndStillPlays() async throws {
+        let book = try await seed()
+        let shelf = BookshelfModel(directories: directories, generator: ImmediateGenerator())
+        await shelf.load()
+        shelf.narrate(book.id, useMPS: false)
+        try await finish(shelf)
+        let narrated = try XCTUnwrap(shelf.book(id: book.id))
+        let audio = try XCTUnwrap(narrated.audioURL)
+        XCTAssertTrue(narrated.hasBookAudio)
+        XCTAssertEqual(try AVAudioFile(forReading: audio).length, 4800)
+        let timings = try XCTUnwrap(NarrationTimings.load(beside: audio))
+        XCTAssertEqual(timings.segments.map(\.text), ["one", "two"])
+        XCTAssertEqual(timings.segments[1].start, narrated.chapters[1].startTime)
+        XCTAssertFalse(timings.segments[0].words.isEmpty)
+        let folder = directories.narrations.appendingPathComponent(book.id.uuidString)
+        let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        let chapters = children.filter { $0.lastPathComponent.hasPrefix("chapter-") }
+        XCTAssertEqual(chapters.count, 2)
+        for chapter in chapters {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: chapter.appendingPathComponent("timings.json").path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: chapter.appendingPathComponent("segments/seg-00000.wav").path))
+        }
+    }
+
     func testFailedSecondChapterResumesFromCheckpointAfterRelaunch() async throws {
         let book = try await seed()
         let generator = CheckpointGenerator()
