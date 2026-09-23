@@ -102,17 +102,16 @@ struct GlobalPlayer: View {
             .padding(.horizontal, isCollapsed ? 10 : (compact ? 12 : 18))
             .frame(height: isCollapsed ? 48 : (compact ? 54 : 72))
             .background(AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.player, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.player, style: .continuous)
+                RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
                     .strokeBorder(AttenColor.separator, lineWidth: 1)
             }
             .shadow(
-                color: .black.opacity(AttenElevation.raised.shadowOpacity),
+                color: AttenColor.shadow.opacity(AttenElevation.raised.shadowOpacity),
                 radius: AttenElevation.raised.shadowRadius,
                 y: AttenElevation.raised.shadowY
             )
-            .environment(\.attenMutedControls, true)
             .tint(PlayerColor.text)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .contain)
@@ -137,7 +136,6 @@ struct GlobalPlayer: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
         .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
     }
@@ -155,7 +153,6 @@ struct GlobalPlayer: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .help(isCollapsed ? "Expand player" : "Collapse player")
         .accessibilityLabel(isCollapsed ? "Expand player" : "Collapse player")
     }
@@ -169,7 +166,6 @@ struct GlobalPlayer: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .help("Queue and playback controls")
         .accessibilityLabel("Queue and playback controls")
         .accessibilityHint("Opens seek, skip, speed and the queue")
@@ -199,7 +195,6 @@ private struct TransportButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
         .onHover { isHovering = $0 }
@@ -252,7 +247,7 @@ struct ScrubBar: View {
                         .fill(neutral ? AttenColor.textMuted : AttenColor.progress)
                         .frame(width: 11, height: 11)
                         .offset(x: width * fraction - 5.5)
-                        .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
+                        .shadow(color: AttenColor.shadow.opacity(0.22), radius: 2, y: 1)
                 }
             }
             .frame(maxHeight: .infinity)

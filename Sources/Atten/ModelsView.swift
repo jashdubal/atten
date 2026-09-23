@@ -135,7 +135,7 @@ struct ModelsView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(AttenTertiaryButtonStyle())
             .disabled(self.library.isSearching)
             .help("Refresh")
             .accessibilityLabel("Refresh")
@@ -228,14 +228,11 @@ private struct ModelRow: View {
         switch download?.phase {
         case .downloading:
             Button("Pause", systemImage: "pause.fill", action: onPause)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(AttenSecondaryButtonStyle())
             cancelButton
         case .paused, .failed:
             Button("Resume", systemImage: "arrow.down.circle", action: onDownload)
-                .buttonStyle(.borderedProminent)
-                .tint(AttenColor.accent)
-                .controlSize(.small)
+                .buttonStyle(AttenSecondaryButtonStyle())
             cancelButton
         case nil:
             if isBundled {
@@ -254,9 +251,7 @@ private struct ModelRow: View {
                 .accessibilityLabel("Delete \(model.id)")
             } else {
                 Button("Download", systemImage: "arrow.down.circle", action: onDownload)
-                    .buttonStyle(.borderedProminent)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
             }
         }
     }

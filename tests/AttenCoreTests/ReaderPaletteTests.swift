@@ -9,9 +9,9 @@ final class ReaderPaletteTests: XCTestCase {
     /// Quiet theme was kept for, and the one part of it the new palette keeps
     /// verbatim. Warmth belongs in the ink; warming the ground as well is what
     /// made every old theme look alike.
-    func testTheDarkPageUsesTheSameNeutralCharcoalAsTheApp() {
+    func testTheDarkPageUsesTheSameGroundAsTheApp() {
         let page = ReaderPagePalette.of(dark: true)
-        XCTAssertEqual(page.background, 0x1E1E1E)
+        XCTAssertEqual(page.background, AttenPalette.atten.bg.dark)
         let ink = channels(page.ink)
         XCTAssertEqual(ink.red, ink.green)
         XCTAssertEqual(ink.green, ink.blue)

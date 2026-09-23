@@ -399,7 +399,7 @@ struct StudioView: View {
                 Label("Try Again", systemImage: "arrow.clockwise")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(AttenPrimaryButtonStyle())
+            .buttonStyle(AttenPrimaryButtonStyle(disabledReason: generateDisabledReason))
             .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .keyboardShortcut(.return, modifiers: [.command])
         case .idle, .empty, .ready:
@@ -409,7 +409,7 @@ struct StudioView: View {
                 Label("Generate Speech", systemImage: "waveform")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(AttenPrimaryButtonStyle())
+            .buttonStyle(AttenPrimaryButtonStyle(disabledReason: generateDisabledReason))
             .keyboardShortcut(.return, modifiers: [.command])
             .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityHint(
@@ -418,6 +418,14 @@ struct StudioView: View {
                     : "Generates speech locally with the selected voice"
             )
         }
+    }
+
+    /// Why Generate cannot be pressed, said beside it.
+    private var generateDisabledReason: String? {
+        if model.isImportingText { return "Importing text…" }
+        if model.synthesis.isBusy { return "Another narration is running" }
+        if model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Add text first" }
+        return nil
     }
 
     private var studioState: StudioState {
@@ -519,11 +527,11 @@ struct StudioView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: AttenSpacing.sm) {
                     Button("Try Again") { model.generate() }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(AttenSecondaryButtonStyle())
                         .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if message.localizedCaseInsensitiveContains("model") {
                         Button("Open Models") { model.section = .models }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(AttenSecondaryButtonStyle())
                     }
                     Button("Dismiss") { model.dismissStatus() }
                         .buttonStyle(.plain)

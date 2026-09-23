@@ -202,6 +202,15 @@ private struct ContinueHero: View {
         .frame(minHeight: 28, alignment: .top)
     }
 
+    private var readButton: some View {
+        Button {
+            model.section = .library
+            model.openInLibrary(.reader(book.id))
+        } label: {
+            Label("Read", systemImage: "text.alignleft")
+        }
+    }
+
     @ViewBuilder private var controls: some View {
         HStack(spacing: AttenSpacing.xs) {
             if isLoaded {
@@ -227,15 +236,11 @@ private struct ContinueHero: View {
                 .accessibilityHint("Play the narrated \(noun.lowercased())s of this book")
             }
 
-            Button {
-                model.section = .library
-                model.openInLibrary(.reader(book.id))
-            } label: {
-                Label("Read", systemImage: "text.alignleft")
+            if narratedCount > 0 || isLoaded {
+                readButton.buttonStyle(AttenSecondaryButtonStyle())
+            } else {
+                readButton.buttonStyle(AttenPrimaryButtonStyle())
             }
-            .buttonStyle(narratedCount > 0 || isLoaded
-                ? AnyButtonStyle(AttenSecondaryButtonStyle())
-                : AnyButtonStyle(AttenPrimaryButtonStyle()))
 
             Button {
                 model.section = .library
@@ -368,7 +373,6 @@ private struct ShelfTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .accessibilityLabel(book.title)
         .accessibilityValue(narrated > 0
             ? "\(narrated) of \(book.chapters.count) narrated"
@@ -416,7 +420,6 @@ private struct AddBookTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(isImporting)
         .onHover { isHovering = $0 }
         .accessibilityLabel("Add a book")
@@ -450,23 +453,9 @@ struct BookJacket: View {
         .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.5)
+                .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: AttenColor.shadow.opacity(0.15), radius: 6, y: 2)
         .accessibilityHidden(true)
-    }
-}
-
-/// Lets one button pick between two styles without the two branches of an
-/// `if` each rebuilding the button and losing its press.
-struct AnyButtonStyle: ButtonStyle {
-    private let make: (Configuration) -> AnyView
-
-    init<S: ButtonStyle>(_ style: S) {
-        make = { AnyView(style.makeBody(configuration: $0)) }
-    }
-
-    func makeBody(configuration: Configuration) -> some View {
-        make(configuration)
     }
 }

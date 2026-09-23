@@ -171,7 +171,7 @@ struct LibraryView: View {
         } label: {
             Label("Add to Library", systemImage: "plus")
         }
-        .buttonStyle(LibraryAddButtonStyle())
+        .buttonStyle(AttenSecondaryButtonStyle())
         .disabled(shelf.isImporting)
         .fixedSize()
     }
@@ -203,7 +203,7 @@ struct LibraryView: View {
                         .padding(.horizontal, 16)
                         .frame(height: 32)
                 }
-                .buttonStyle(LibraryFilterButtonStyle(selected: selectedFilter == filter))
+                .buttonStyle(AttenTertiaryButtonStyle(isSelected: selectedFilter == filter))
                 .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
             }
         }
@@ -244,7 +244,7 @@ struct LibraryView: View {
         Button { showsList = list } label: {
             Image(systemName: icon).frame(width: 38, height: 32)
         }
-        .buttonStyle(LibraryFilterButtonStyle(selected: showsList == list))
+        .buttonStyle(AttenTertiaryButtonStyle(isSelected: showsList == list))
         .help(title)
         .accessibilityLabel(title)
         .accessibilityAddTraits(showsList == list ? .isSelected : [])
@@ -282,7 +282,7 @@ struct LibraryView: View {
             )
             if !isFiltering {
                 Button("Add a Book") { model.openBookImportPanel() }
-                    .buttonStyle(LibraryAddButtonStyle())
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .fixedSize()
                     .padding(.bottom, AttenSpacing.lg)
             }
@@ -570,43 +570,6 @@ private struct BookCard: View {
         .padding(.top, isList ? 0 : 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AttenColor.surfaceElevated)
-    }
-}
-
-private struct LibraryFilterButtonStyle: ButtonStyle {
-    let selected: Bool
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(selected ? AttenColor.textPrimary : AttenColor.textSecondary)
-            .background(selected || isHovering || configuration.isPressed ? AttenColor.surfaceElevated : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(selected ? AttenColor.border : .clear, lineWidth: 1)
-            }
-            .onHover { isHovering = $0 }
-    }
-}
-
-private struct LibraryAddButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(AttenColor.textPrimary)
-            .padding(.horizontal, 18)
-            .frame(height: 40)
-            .background(isHovering || configuration.isPressed ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7).strokeBorder(AttenColor.accent, lineWidth: 1)
-            }
-            .opacity(isEnabled ? 1 : 0.45)
-            .onHover { isHovering = $0 }
     }
 }
 

@@ -1,24 +1,35 @@
 import AVFoundation
 import SwiftUI
 
-private struct AttenMutedControlsKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var attenMutedControls: Bool {
-        get { self[AttenMutedControlsKey.self] }
-        set { self[AttenMutedControlsKey.self] = newValue }
-    }
-}
-
 /// The semantic colours every view draws with.
 ///
 /// Each role carries a light and a dark value, and resolves against whichever
 /// appearance the window is drawn in. There is nothing to observe: appearance
 /// is handled underneath by AppKit's dynamic colours, so a view that names a
 /// role gets the right side of the pair for free.
+///
+/// The roles are the ones ``AttenPalette`` is built from — `bg` through
+/// `signalInk`. The older names below them are what the screens were written
+/// against, and resolve to those roles until each screen is moved over.
 enum AttenColor {
+    static var bg: Color { palette.bg.color }
+    static var surface1: Color { palette.surface1.color }
+    static var glass: Color { palette.glass.color }
+    static var hairline: Color { palette.hairline.color }
+    static var text1: Color { palette.text1.color }
+    static var text2: Color { palette.text2.color }
+    static var text3: Color { palette.text3.color }
+    /// Voice that is live: playing, generating, the current word, the primary
+    /// button, a focus ring. Nothing else is drawn in it.
+    static var signal: Color { palette.signal.color }
+    static var signalInk: Color { palette.signalInk.color }
+    static var glassHighlight: Color { palette.glassHighlight.color }
+    static var glassShadow: Color { palette.glassShadow.color }
+    /// Apply with the opacity the elevation asks for.
+    static var shadow: Color { palette.shadow.color }
+    /// The tint taken from what is playing. Set it through ``AttenAmbient``.
+    @MainActor static var ambient: Color { AttenAmbient.shared.color }
+
     static var appBackground: Color { palette.appBackground.color }
     static var sidebar: Color { palette.sidebar.color }
     static var surface: Color { palette.surface.color }
@@ -28,15 +39,15 @@ enum AttenColor {
 
     static var textPrimary: Color { palette.textPrimary.color }
     static var textSecondary: Color { palette.textSecondary.color }
-    static var textMuted: Color { Color(light: 0x626873, dark: 0x979797) }
-    static var border: Color { Color.primary.opacity(0.10) }
+    static var textMuted: Color { palette.textMuted.color }
+    static var border: Color { palette.hairline.color }
     static var accent: Color { palette.accent.color }
     static var accentHover: Color { palette.accentHover.color }
     static var accentSecondary: Color { palette.accentSecondary.color }
     static var success: Color { palette.success.color }
     static var warning: Color { palette.warning.color }
     static var destructive: Color { palette.destructive.color }
-    static var focus: Color { palette.accentHover.color }
+    static var focus: Color { palette.signal.color }
     static var onAccent: Color { palette.onAccent.color }
     /// The filled part of any progress line — import, narration, download,
     /// playback — and the groove it runs in.
@@ -141,7 +152,7 @@ struct AttenElevatedSurface: ViewModifier {
                     .strokeBorder(AttenColor.separator.opacity(scheme == .dark ? 0.75 : 0.55), lineWidth: 1)
             }
             .shadow(
-                color: .black.opacity(elevation.shadowOpacity),
+                color: AttenColor.shadow.opacity(elevation.shadowOpacity),
                 radius: elevation.shadowRadius,
                 y: elevation.shadowY
             )
@@ -160,6 +171,8 @@ extension View {
 
 }
 
+/// The only distances Atten lays things out with: 4, 8, 12, 16, 24, 32, 48
+/// and 64. A gap that is not one of these is a gap nobody chose.
 enum AttenSpacing {
     static let xxs: CGFloat = 4
     static let xs: CGFloat = 8
@@ -167,23 +180,36 @@ enum AttenSpacing {
     static let md: CGFloat = 16
     static let lg: CGFloat = 24
     static let xl: CGFloat = 32
-    static let xxl: CGFloat = 40
+    static let xxl: CGFloat = 48
+    static let xxxl: CGFloat = 64
     /// The gutter a page of content keeps from the window edge when there is
     /// room for it. The wireframe's calm comes mostly from this number.
-    static let page: CGFloat = 56
+    static let page: CGFloat = xxl
 }
 
 enum AttenRadius {
     static let small: CGFloat = 6
-    static let control: CGFloat = 8
-    static let card: CGFloat = 12
+    static let control: CGFloat = 10
+    static let card: CGFloat = 14
+    static let panel: CGFloat = 20
     /// Book and project artwork. Softer than a control so a grid of covers
     /// reads as objects rather than as buttons.
     static let cover: CGFloat = 8
-    /// The compact player in the top chrome and its expanded panel.
-    static let player: CGFloat = 14
     /// Fully rounded — segmented filters, chapter pills, the transport ring.
     static let pill: CGFloat = 999
+    /// The compact player in the top chrome and its expanded panel.
+    @available(*, deprecated, renamed: "card")
+    static let player: CGFloat = card
+
+    /// The radius of a shape nested inside another.
+    ///
+    /// Nested corners are concentric: the inner radius is the outer radius
+    /// minus the padding between them, so the gap between the two curves is
+    /// the same all the way round. Giving both the same radius is what makes a
+    /// button look pinched inside its card.
+    static func concentric(outer: CGFloat, padding: CGFloat) -> CGFloat {
+        max(outer - padding, 0)
+    }
 }
 
 /// How long things take, and what they are allowed to do while they take it.
@@ -199,6 +225,48 @@ enum AttenMotion {
     static let panel = 0.22
     /// Section changes and Zen enter/exit.
     static let transition = 0.20
+
+    /// A fade under the pointer.
+    static let hover = 0.12
+    /// A fade between two states of the same thing.
+    static let state = 0.2
+    /// The ambient tint changing behind the player. Slow on purpose: it is
+    /// light moving, not an event.
+    static let ambient = 0.8
+    /// What every spring becomes under Reduce Motion.
+    static let reducedFade = 0.15
+
+    /// The two springs anything that moves uses. Animate transform, opacity
+    /// and blur with them; never layout.
+    enum Spring {
+        /// A control, a chip, a row: quick and without bounce.
+        case small
+        /// A panel, a sheet, the player opening.
+        case large
+
+        var stiffness: Double {
+            switch self {
+            case .small: 400
+            case .large: 260
+            }
+        }
+
+        var damping: Double {
+            switch self {
+            case .small: 34
+            case .large: 30
+            }
+        }
+    }
+
+    static func spring(_ spring: Spring) -> Animation {
+        .interpolatingSpring(stiffness: spring.stiffness, damping: spring.damping)
+    }
+
+    /// The spring, or a short fade when the reader has asked for less motion.
+    static func animation(_ spring: Spring, reduceMotion: Bool) -> Animation {
+        reduceMotion ? .easeInOut(duration: reducedFade) : self.spring(spring)
+    }
 
     /// A brief crossfade shared by destination and overlay changes. Nothing
     /// slides — a panel never moves the reader's page underneath it, and a
@@ -245,29 +313,6 @@ enum AttenMotion {
     }
 }
 
-/// A shared press cue for controls that intentionally use a custom visual
-/// rather than one of Atten's filled button styles.
-private struct AttenPressFeedback: ViewModifier {
-    let isPressed: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(isPressed ? AttenState.pressedOpacity : 1)
-            .animation(
-                AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
-                value: isPressed
-            )
-    }
-}
-
-struct AttenFeedbackButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .modifier(AttenPressFeedback(isPressed: configuration.isPressed))
-    }
-}
-
 /// What a control looks like under the pointer, under the finger, and when it
 /// is the one selected.
 ///
@@ -281,9 +326,11 @@ enum AttenState {
     /// A pressed control dims to this opacity.
     static let pressedOpacity = 0.85
     /// Everything disabled fades to here rather than greying its own colours.
-    static let disabledOpacity = 0.42
-    /// The ring drawn around whatever has keyboard focus.
-    static let focusRingWidth: CGFloat = 2.5
+    static let disabledOpacity = 0.4
+    /// The ring drawn around whatever has keyboard focus…
+    static let focusRingWidth: CGFloat = 2
+    /// …and how far clear of the control it sits.
+    static let focusRingOffset: CGFloat = 2
 }
 
 /// Sizes the player and the cover grid are built from, so the compact player
@@ -304,26 +351,156 @@ enum AttenMetrics {
     static let coverAspectRatio: CGFloat = 2.0 / 3.0
 }
 
+/// One step of Atten's type scale: size, line height, weight and tracking.
+///
+/// UI text is the system face. `label` is the one monospaced style — small
+/// caps-height metadata, uppercased, with digits that do not jitter as they
+/// count — and `reading` is New York, for prose a person reads rather than
+/// scans.
+enum AttenTextStyle: CaseIterable {
+    case display
+    case title1
+    case title2
+    case body
+    case callout
+    case label
+    case reading
+
+    var size: CGFloat {
+        switch self {
+        case .display: 34
+        case .title1: 28
+        case .title2: 22
+        case .body: 15
+        case .callout: 13
+        case .label: 11
+        case .reading: 18
+        }
+    }
+
+    var lineHeight: CGFloat {
+        switch self {
+        case .display: 40
+        case .title1: 34
+        case .title2: 28
+        case .body: 22
+        case .callout: 18
+        case .label: 14
+        case .reading: 29
+        }
+    }
+
+    var weight: Font.Weight {
+        switch self {
+        case .display, .title1: .bold
+        case .title2: .semibold
+        case .body, .reading: .regular
+        case .callout, .label: .medium
+        }
+    }
+
+    /// Letter spacing in ems; multiplied by the size to get points.
+    var tracking: CGFloat {
+        switch self {
+        case .display: -0.022
+        case .title1: -0.02
+        case .title2: -0.015
+        case .body: -0.005
+        case .callout, .reading: 0
+        case .label: 0.08
+        }
+    }
+
+    var isUppercased: Bool { self == .label }
+
+    var font: Font {
+        switch self {
+        case .label: .system(size: size, weight: weight, design: .monospaced).monospacedDigit()
+        case .reading: .system(size: size, weight: weight, design: .serif)
+        default: .system(size: size, weight: weight)
+        }
+    }
+
+    /// The leading SwiftUI adds on top of the face's own line height to land
+    /// on ``lineHeight``.
+    var lineSpacing: CGFloat {
+        let face: NSFont = switch self {
+        case .label: .monospacedSystemFont(ofSize: size, weight: nsWeight)
+        case .reading:
+            NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
+                .flatMap { NSFont(descriptor: $0, size: size) } ?? .systemFont(ofSize: size)
+        default: .systemFont(ofSize: size, weight: nsWeight)
+        }
+        let natural = face.ascender - face.descender + face.leading
+        return max(lineHeight - natural, 0)
+    }
+
+    private var nsWeight: NSFont.Weight {
+        switch weight {
+        case .bold: .bold
+        case .semibold: .semibold
+        case .medium: .medium
+        default: .regular
+        }
+    }
+}
+
 /// Atten's type.
 ///
-/// The app used to be set entirely in monospace, which read as a terminal —
-/// the one thing a long-form reading app should not look like. UI text is the
-/// system face now, at deliberate weights; monospace is kept for the two
-/// places it carries meaning, a timecode that must not jitter as it counts and
-/// a numeric readout beside a slider.
+/// The fonts of ``AttenTextStyle``, for the places that only take a `Font`.
+/// Anything that sets text on its own should use ``SwiftUI/View/attenText(_:)``
+/// instead, which also applies the style's tracking, line height and case.
+///
+/// The names below the scale are what screens were written against. They
+/// resolve to the nearest step of the scale until each screen is moved over.
 enum AttenTypography {
-    static let displayTitle = Font.system(size: 30, weight: .semibold)
-    static let pageTitle = Font.system(size: 22, weight: .semibold)
-    static let sectionTitle = Font.system(size: 15, weight: .semibold)
-    static let body = Font.system(size: 13)
-    static let control = Font.system(size: 13, weight: .medium)
-    static let metadata = Font.system(size: 11)
-    static let caption = Font.system(size: 11)
-    /// Elapsed and remaining time. Monospaced digits so the line does not
-    /// twitch once a second.
-    static let timecode = Font.system(size: 11, weight: .medium).monospacedDigit()
+    static let display = AttenTextStyle.display.font
+    static let title1 = AttenTextStyle.title1.font
+    static let title2 = AttenTextStyle.title2.font
+    static let body = AttenTextStyle.body.font
+    static let callout = AttenTextStyle.callout.font
+    static let label = AttenTextStyle.label.font
+    static let reading = AttenTextStyle.reading.font
+
+    @available(*, deprecated, renamed: "display")
+    static let displayTitle = display
+    @available(*, deprecated, renamed: "title2")
+    static let pageTitle = title2
+    /// Body size at the weight a section heading had.
+    @available(*, deprecated, message: "Use .attenText(.body) with a weight")
+    static let sectionTitle = body.weight(.semibold)
+    @available(*, deprecated, renamed: "callout")
+    static let control = callout
+    @available(*, deprecated, renamed: "callout")
+    static let metadata = callout
+    @available(*, deprecated, renamed: "callout")
+    static let caption = callout
+    /// Elapsed and remaining time.
+    @available(*, deprecated, renamed: "label")
+    static let timecode = label
     /// A number that sits next to the control that changes it — 1.1×, 120%.
-    static let readout = Font.system(size: 12, weight: .medium).monospacedDigit()
+    @available(*, deprecated, renamed: "label")
+    static let readout = label
+}
+
+private struct AttenTextModifier: ViewModifier {
+    let style: AttenTextStyle
+
+    func body(content: Content) -> some View {
+        content
+            .font(style.font)
+            .tracking(style.tracking * style.size)
+            .lineSpacing(style.lineSpacing)
+            .textCase(style.isUppercased ? .uppercase : nil)
+    }
+}
+
+extension View {
+    /// Set text in one step of the scale: its font, tracking, line height,
+    /// and — for `label` — upper case and tabular digits.
+    func attenText(_ style: AttenTextStyle) -> some View {
+        modifier(AttenTextModifier(style: style))
+    }
 }
 
 struct AttenBackdrop: View {
@@ -358,128 +535,20 @@ extension View {
 
 }
 
-struct AttenPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        AttenPrimaryButtonBody(
-            label: AnyView(configuration.label),
-            isPressed: configuration.isPressed
-        )
-    }
-}
-
-private struct AttenPrimaryButtonBody: View {
-    let label: AnyView
-    let isPressed: Bool
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.attenMutedControls) private var muted
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isHovering = false
-
-    var body: some View {
-        label
-            .font(AttenTypography.control.weight(.semibold))
-            .foregroundStyle((muted ? AttenColor.textSecondary : AttenColor.onAccent).opacity(isEnabled ? 1 : 0.55))
-            .padding(.horizontal, AttenSpacing.md)
-            .frame(minHeight: 38)
-            .background {
-                RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
-                    .fill(muted
-                        ? (isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
-                        : (isHovering ? AttenColor.accentHover : AttenColor.accent))
-                    .brightness(isPressed ? -0.05 : 0)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous))
-            .overlay {
-                if muted {
-                    RoundedRectangle(cornerRadius: AttenRadius.control)
-                        .strokeBorder(AttenColor.separator.opacity(0.65), lineWidth: 1)
-                }
-            }
-            .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
-            .modifier(AttenPressFeedback(isPressed: isPressed))
-            .animation(AttenMotion.animation(AttenMotion.standard, reduceMotion: reduceMotion), value: isHovering)
-            .onHover { isHovering = $0 }
-    }
-}
-
-struct AttenSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        AttenSecondaryButtonBody(
-            label: AnyView(configuration.label),
-            isPressed: configuration.isPressed
-        )
-    }
-}
-
-private struct AttenControlSurface: ViewModifier {
-    let muted: Bool
-    let background: Color
-
-    func body(content: Content) -> some View {
-        if muted {
-            content
-                .background(background, in: RoundedRectangle(cornerRadius: AttenRadius.control))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AttenRadius.control)
-                        .strokeBorder(AttenColor.separator.opacity(0.65), lineWidth: 1)
-                }
-        } else {
-            content.attenElevated(.flush, radius: AttenRadius.control, fill: background)
-        }
-    }
-}
-
-private struct AttenSecondaryButtonBody: View {
-    let label: AnyView
-    let isPressed: Bool
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.attenMutedControls) private var muted
-    @State private var isHovering = false
-
-    var body: some View {
-        label
-            .font(AttenTypography.control)
-            .foregroundStyle((muted ? AttenColor.textSecondary : AttenColor.textPrimary).opacity(isEnabled ? 1 : 0.45))
-            .padding(.horizontal, AttenSpacing.sm)
-            .frame(minHeight: 34)
-            .modifier(AttenControlSurface(muted: muted, background: background))
-            .modifier(AttenPressFeedback(isPressed: isPressed))
-            .onHover { isHovering = $0 }
-    }
-
-    private var background: Color {
-        if isPressed { return AttenColor.surfaceMuted.opacity(0.72) }
-        return isHovering ? AttenColor.surfaceMuted : AttenColor.surface
-    }
-}
-
 struct ToolbarIconButton: View {
     let title: String
     let systemImage: String
     let action: () -> Void
     var isEnabled = true
-    @Environment(\.attenMutedControls) private var muted
-
-    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(AttenTypography.control)
+                .font(AttenTypography.callout)
                 .frame(width: 30, height: 30)
-                .foregroundStyle(muted ? AttenColor.textSecondary : (isHovering ? AttenColor.accentHover : AttenColor.textPrimary))
-                .background(isHovering ? AttenColor.surfaceMuted : Color.clear)
-                .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AttenRadius.small)
-                        .stroke(isHovering ? AttenColor.separator : Color.clear, lineWidth: 1)
-                }
         }
-        .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
+        .buttonStyle(AttenTertiaryButtonStyle())
         .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : 0.42)
-        .onHover { isHovering = $0 }
         .help(title)
         .accessibilityLabel(title)
     }
@@ -491,62 +560,26 @@ struct ToolbarIconButton: View {
 /// detail column that could no longer be changed from the sidebar. The button
 /// is worth keeping; the trap is not.
 ///
-/// It draws as a button at rest rather than only under the pointer. It used to
-/// be secondary-coloured text on nothing at all, which meant the one control
-/// that gets someone out of a screen was the least visible thing on it — and
-/// worst in the themes that are deliberately low contrast, where secondary
-/// text is dim by design. The ink is primary, the fill and the border are
-/// there before anyone goes looking, and hovering moves it to the accent
-/// rather than being what reveals it.
+/// It draws as a button at rest rather than only under the pointer: the one
+/// control that gets someone out of a screen should not be the least visible
+/// thing on it.
 struct AttenBackButton: View {
     let title: String
     let action: () -> Void
-
-    @State private var isHovering = false
-    @Environment(\.attenMutedControls) private var muted
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private var foreground: Color {
-        muted ? AttenColor.textSecondary : (isHovering ? AttenColor.onAccent : AttenColor.textPrimary)
-    }
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: AttenSpacing.xxs) {
                 Image(systemName: "chevron.backward")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(muted ? AttenColor.textSecondary : (isHovering ? AttenColor.onAccent : AttenColor.accent))
+                    .font(.system(size: 12, weight: .semibold))
                 Text(title)
-                    .font(AttenTypography.control)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .foregroundStyle(foreground)
             }
-            .padding(.horizontal, AttenSpacing.sm)
             .frame(maxWidth: 190)
-            .frame(height: 28)
             .fixedSize(horizontal: true, vertical: false)
-            .background(muted
-                ? (isHovering ? AttenColor.surfaceElevated : AttenColor.surface)
-                : (isHovering ? AttenColor.accent : AttenColor.surfaceElevated))
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.control)
-                    // The accent rather than the separator: every theme keeps
-                    // its accent at 3:1 against its surfaces, which is the bar
-                    // WCAG sets for the edge of a control, and the separator
-                    // sits at 1.4:1 — a hairline nobody is going to find.
-                    .strokeBorder(muted ? AttenColor.separator.opacity(0.65) : AttenColor.accent, lineWidth: muted ? 1 : 1.5)
-            }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
-        .onHover { isHovering = $0 }
-        .animation(
-            AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion),
-            value: isHovering
-        )
+        .buttonStyle(AttenSecondaryButtonStyle())
         .help("Back to \(title) (⌘[)")
         .accessibilityLabel("Back to \(title)")
     }
@@ -570,18 +603,18 @@ struct AttenSearchField: View {
     var body: some View {
         HStack(spacing: AttenSpacing.xs) {
             Image(systemName: "magnifyingglass")
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
                 .accessibilityHidden(true)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
-                .font(AttenTypography.metadata)
+                .font(AttenTypography.callout)
                 .focused($isFocused)
                 .accessibilityLabel(prompt)
             if !text.isEmpty {
                 Button { text = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -593,7 +626,7 @@ struct AttenSearchField: View {
         .attenInput()
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.control)
-                .stroke(isFocused ? AttenColor.accent : .clear, lineWidth: 1)
+                .stroke(isFocused ? AttenColor.focus : .clear, lineWidth: 1)
         }
         .onExitCommand { text = "" }
     }
@@ -601,7 +634,6 @@ struct AttenSearchField: View {
 
 struct AttenLogo: View {
     var compact = false
-    @Environment(\.attenMutedControls) private var muted
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
@@ -614,7 +646,7 @@ struct AttenLogo: View {
 
             }
         }
-        .foregroundStyle(muted ? AttenColor.textSecondary : AttenColor.textPrimary)
+        .foregroundStyle(AttenColor.textPrimary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Atten")
     }
@@ -632,7 +664,7 @@ struct PageHeader: View {
                 .tracking(1.4)
                 .foregroundStyle(AttenColor.accent)
             Text(title)
-                .font(AttenTypography.pageTitle)
+                .font(AttenTypography.title2)
                 .foregroundStyle(AttenColor.textPrimary)
             Text(detail)
                 .font(AttenTypography.body)
@@ -654,7 +686,7 @@ struct InspectorSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.sm) {
             Text(title.uppercased())
-                .font(AttenTypography.metadata.weight(.semibold))
+                .font(AttenTypography.callout.weight(.semibold))
                 .tracking(1.4)
                 .foregroundStyle(AttenColor.textSecondary)
             content
@@ -788,10 +820,10 @@ struct AttenProgressStatus: View {
 
             VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
                 Text(title)
-                    .font(AttenTypography.control.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.textPrimary)
                 Text(detail)
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -809,7 +841,7 @@ struct AttenProgressStatus: View {
                         if let progressLabel { Text(progressLabel) }
                         if let metadata { Text(metadata) }
                     }
-                    .font(AttenTypography.caption.monospacedDigit())
+                    .font(AttenTypography.callout.monospacedDigit())
                     .foregroundStyle(AttenColor.textSecondary)
                 }
             }
@@ -818,8 +850,7 @@ struct AttenProgressStatus: View {
 
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
             }
         }
         .padding(AttenSpacing.sm)
@@ -848,9 +879,9 @@ struct StatusIndicator: View {
                 .fill(isAvailable ? AttenColor.success : AttenColor.destructive)
                 .frame(width: 7, height: 7)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(AttenTypography.metadata.weight(.medium))
+                Text(title).font(AttenTypography.callout)
                 Text(detail)
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
             Spacer()
@@ -894,7 +925,7 @@ struct FormRow<Content: View>: View {
                 Text(label)
                 if let detail {
                     Text(detail)
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                 }
             }
