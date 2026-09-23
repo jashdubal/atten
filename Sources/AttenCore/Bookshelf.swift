@@ -171,6 +171,11 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     public var lastListenedAt: Date?
     /// Previous complete recording remains playable while replacement checkpoints are built.
     public var previousChapters: [BookChapter]?
+    /// SHA-256 of the book's normalized text (`ContentHash`), used to notice
+    /// the same book arriving under a different file name. Nil for a book
+    /// imported before this existed; the hash is filled in lazily in memory
+    /// when it is needed rather than by rewriting every shelf on launch.
+    public var contentHash: String?
     public var hasBookAudio: Bool {
         guard let audioPath, FileManager.default.fileExists(atPath: audioPath) else { return false }
         let timeline = previousChapters ?? chapters
@@ -199,7 +204,8 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         addedAt: Date = Date(),
         bookmarks: [Bookmark] = [],
         lastLocation: ReadingLocation? = nil,
-        lastOpenedAt: Date? = nil
+        lastOpenedAt: Date? = nil,
+        contentHash: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -214,6 +220,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         self.bookmarks = bookmarks
         self.lastLocation = lastLocation
         self.lastOpenedAt = lastOpenedAt
+        self.contentHash = contentHash
     }
 
     public var sourceURL: URL { URL(fileURLWithPath: sourcePath) }
@@ -265,6 +272,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         listeningPosition = max(0, (try? container.decode(Double.self, forKey: .listeningPosition)) ?? 0)
         lastListenedAt = try? container.decode(Date.self, forKey: .lastListenedAt)
         previousChapters = try? container.decode([BookChapter].self, forKey: .previousChapters)
+        contentHash = try container.decodeIfPresent(String.self, forKey: .contentHash)
     }
 }
 

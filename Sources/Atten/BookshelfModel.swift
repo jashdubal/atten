@@ -242,10 +242,19 @@ final class BookshelfModel {
 
     // MARK: - Import
 
+    /// What importing a book produced. `.alreadyInLibrary` means nothing was
+    /// added — the shelf already has this text under some book, which may
+    /// have a different title, author or file name.
+    enum ImportResult: Equatable {
+        case imported(BookRecord)
+        case alreadyInLibrary(UUID)
+    }
+
     /// Copies the book into Atten's own library folder and reads it into
     /// chapters. Extraction walks every page, so it runs off the main actor.
-    func importBook(from url: URL, defaults: AppSettings) async {
-        guard !isImporting else { return }
+    @discardableResult
+    func importBook(from url: URL, defaults: AppSettings) async -> ImportResult? {
+        guard !isImporting else { return nil }
         errorMessage = nil
         successMessage = nil
         cancelledMessage = nil
@@ -262,7 +271,7 @@ final class BookshelfModel {
                 .unsupportedFormat(url.pathExtension)
                 .localizedDescription
             errorMessage = importErrorMessage
-            return
+            return nil
         }
 
         do {
@@ -275,6 +284,17 @@ final class BookshelfModel {
                 let document = try await Task.detached(priority: .userInitiated) {
                     try DocumentImporter.extract(from: destination)
                 }.value
+                let hash = ContentHash.of(document.chapters.map(\.text).joined(separator: "\n"))
+                if let existingID = existingBook(withContentHash: hash) {
+                    // The text is already on the shelf, so the copy just made
+                    // was only ever temporary — discard it rather than
+                    // leaving a second file no book record points to.
+                    try? FileManager.default.removeItem(at: destination)
+                    let existingTitle = book(id: existingID)?.title ?? document.title
+                    importSuccessMessage = "\(existingTitle) is already in your library."
+                    successMessage = importSuccessMessage
+                    return .alreadyInLibrary(existingID)
+                }
                 let book = BookRecord(
                     id: bookID,
                     title: document.title,
@@ -286,13 +306,15 @@ final class BookshelfModel {
                     },
                     voiceID: defaults.selectedVoiceID,
                     speed: defaults.defaultSpeed,
-                    audioFormat: defaults.defaultFormat
+                    audioFormat: defaults.defaultFormat,
+                    contentHash: hash
                 )
                 books.insert(book, at: 0)
                 refreshNarrationCounts()
                 try await saveNow()
                 importSuccessMessage = "Added \(book.title) — \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters")."
                 successMessage = importSuccessMessage
+                return .imported(book)
             } catch {
                 // Roll back the visible import if its metadata could not be committed.
                 books.removeAll { $0.id == bookID }
@@ -304,7 +326,26 @@ final class BookshelfModel {
         } catch {
             importErrorMessage = error.localizedDescription
             errorMessage = importErrorMessage
+            return nil
         }
+    }
+
+    /// The id of a book already on the shelf with this content hash, if any.
+    /// A book saved before hashes existed has none stored, so it is computed
+    /// here and kept on the in-memory record — not written back to
+    /// `books.json` just for this, only when the book is next saved anyway.
+    private func existingBook(withContentHash hash: String) -> UUID? {
+        for index in books.indices {
+            let existing: String
+            if let stored = books[index].contentHash {
+                existing = stored
+            } else {
+                existing = ContentHash.of(books[index].chapters.map(\.text).joined(separator: "\n"))
+                books[index].contentHash = existing
+            }
+            if existing == hash { return books[index].id }
+        }
+        return nil
     }
 
     private nonisolated static func copyIntoLibrary(_ url: URL, directory: URL) throws -> URL {
@@ -326,6 +367,49 @@ final class BookshelfModel {
         }
         try FileManager.default.copyItem(at: url, to: destination)
         return destination
+    }
+
+    // MARK: - Drafts
+
+    /// Saves Create-flow text as a silent (not yet narrated) book, so
+    /// generation can reuse `narrate` — checkpointing, resuming, and
+    /// continuing if the view is left — instead of a separate draft path.
+    /// Passing the id of an existing draft updates it in place; removing a
+    /// draft is `remove(_:)`, which already deletes only that one book's own
+    /// source file.
+    @discardableResult
+    func saveDraft(id: UUID? = nil, title: String, text: String, voiceID: String, defaults: AppSettings) throws -> BookRecord {
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = resolvedTitle.isEmpty ? "Untitled" : resolvedTitle
+        let bookID = id ?? UUID()
+        let existingIndex = books.firstIndex { $0.id == bookID }
+
+        try FileManager.default.createDirectory(at: directories.bookSources, withIntermediateDirectories: true)
+        let destination = directories.bookSources.appendingPathComponent("\(bookID.uuidString).txt")
+        try text.write(to: destination, atomically: true, encoding: .utf8)
+
+        let chapterID = existingIndex.flatMap { books[$0].chapters.first?.id } ?? UUID()
+        var draft = BookRecord(
+            id: bookID,
+            title: displayTitle,
+            format: .document,
+            sourcePath: destination.path,
+            chapters: [BookChapter(id: chapterID, title: displayTitle, text: text)],
+            voiceID: voiceID,
+            speed: defaults.defaultSpeed,
+            audioFormat: defaults.defaultFormat,
+            addedAt: existingIndex.map { books[$0].addedAt } ?? Date()
+        )
+        draft.contentHash = ContentHash.of(text)
+
+        if let existingIndex {
+            books[existingIndex] = draft
+        } else {
+            books.insert(draft, at: 0)
+        }
+        refreshNarrationCounts()
+        persist()
+        return draft
     }
 
     // MARK: - Narration
