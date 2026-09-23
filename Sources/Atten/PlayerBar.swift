@@ -31,7 +31,6 @@ struct GlobalPlayer: View {
     @Binding var isCollapsed: Bool
     var compact = false
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -102,20 +101,17 @@ struct GlobalPlayer: View {
             }
             .padding(.horizontal, isCollapsed ? 10 : (compact ? 12 : 18))
             .frame(height: isCollapsed ? 48 : (compact ? 54 : 72))
-            .background(.regularMaterial)
-            .background(AttenColor.surface.opacity(0.8))
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .background(AttenColor.surface)
+            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.player, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [AttenColor.textPrimary.opacity(0.16), AttenColor.separator.opacity(0.35)],
-                            startPoint: .top, endPoint: .bottom
-                        ),
-                        lineWidth: 0.75
-                    )
+                RoundedRectangle(cornerRadius: AttenRadius.player, style: .continuous)
+                    .strokeBorder(AttenColor.separator, lineWidth: 1)
             }
-            .shadow(color: .black.opacity(colorScheme == .dark ? 0.25 : 0.10), radius: 16, y: 6)
+            .shadow(
+                color: .black.opacity(AttenElevation.raised.shadowOpacity),
+                radius: AttenElevation.raised.shadowRadius,
+                y: AttenElevation.raised.shadowY
+            )
             .environment(\.attenMutedControls, true)
             .tint(PlayerColor.text)
             .fixedSize(horizontal: false, vertical: true)

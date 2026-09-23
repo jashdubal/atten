@@ -334,22 +334,6 @@ struct AttenBackdrop: View {
 
 /// Light chrome fades into the same ground as the reading page.
 /// Dark chrome uses the darker charcoal sidebar surface.
-struct AttenChromeBackground: View {
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        if colorScheme == .light {
-            LinearGradient(
-                colors: [Color(hex: 0xEBEFF4), AttenColor.appBackground],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        } else {
-            AttenColor.sidebar
-        }
-    }
-}
-
 struct AttenSurfaceModifier: ViewModifier {
     var padding: CGFloat
     var elevated: Bool

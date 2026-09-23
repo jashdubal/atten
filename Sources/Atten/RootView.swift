@@ -271,9 +271,8 @@ struct RootView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             AttenLogo()
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
-                .padding(.bottom, 24)
+                .padding(.horizontal, AttenSpacing.lg)
+                .padding(.vertical, AttenSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -345,7 +344,7 @@ struct RootView: View {
             .padding(.horizontal, AttenSpacing.md)
             .padding(.vertical, AttenSpacing.sm)
         }
-        .background(AttenChromeBackground())
+        .background(AttenColor.sidebar)
     }
 
     /// How Atten looks, which is now one decision rather than two: there is a
@@ -484,6 +483,14 @@ private struct SidebarNavigationRow: View {
                 RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
             }
+            .overlay(alignment: .leading) {
+                if isSelected && !muted {
+                    Capsule()
+                        .fill(AttenColor.accent)
+                        .frame(width: 2, height: 16)
+                        .padding(.leading, 2)
+                }
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -499,9 +506,10 @@ private struct SidebarNavigationRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Selection uses a quiet tonal fill; keyboard focus keeps its own outline.
+    /// Selection uses a faint tint and a leading accent mark rather than a
+    /// strong tonal fill; keyboard focus keeps its own outline.
     private var background: Color {
-        if isSelected { return AttenColor.surfaceElevated }
+        if isSelected { return AttenColor.textPrimary.opacity(AttenState.hoverFill) }
         return isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
     }
 
@@ -604,7 +612,7 @@ private struct TopChrome: View {
                 .padding(.horizontal, AttenSpacing.lg)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AttenChromeBackground())
+                .background(AttenColor.appBackground)
                 .overlay(alignment: .bottom) {
                     Rectangle()
                         .fill(AttenColor.separator.opacity(0.5))
