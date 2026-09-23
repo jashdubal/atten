@@ -3,6 +3,13 @@ import XCTest
 @testable import AttenCore
 
 final class UpdateCheckerTests: XCTestCase {
+    func testUnsignedUpdateCannotPassPublisherValidation() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        XCTAssertThrowsError(try UpdateChecker.validateDistributionSignature(directory))
+    }
+
     func testVersionComparison() {
         XCTAssertTrue(UpdateChecker.isVersion("0.2.5", newerThan: "0.2.4"))
         XCTAssertTrue(UpdateChecker.isVersion("0.10.0", newerThan: "0.9.9"))

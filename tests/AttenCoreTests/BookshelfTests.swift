@@ -78,7 +78,7 @@ final class BookshelfTests: XCTestCase {
         try FileManager.default.removeItem(at: try XCTUnwrap(narrated.chapters[0].audioURL))
         shelf.refreshNarrationCounts()
 
-        XCTAssertEqual(shelf.narratedCount(of: narrated), 2)
+        XCTAssertEqual(shelf.narratedCount(of: narrated), 0)
         XCTAssertFalse(shelf.isFullyNarrated(narrated))
     }
 
@@ -136,7 +136,7 @@ final class BookshelfTests: XCTestCase {
         XCTAssertEqual(LibrarySort.title.sorted([second, first]), expected)
     }
 
-    func testNarratingABookWritesOneAudioFilePerChapter() async throws {
+    func testNarratingABookWritesOneAudioFileWithChapterTimestamps() async throws {
         await shelf.importBook(
             from: try makePDF(pages: (1...25).map { "Page \($0)." }),
             defaults: settings()
@@ -149,11 +149,11 @@ final class BookshelfTests: XCTestCase {
 
         let narrated = try XCTUnwrap(shelf.book(id: book.id))
         XCTAssertTrue(narrated.isFullyNarrated)
-        XCTAssertEqual(narrated.narrationQueue.count, 3)
-        // Numbered so the folder reads in chapter order.
+        XCTAssertEqual(narrated.narrationQueue.count, 1)
+        // All chapter markers refer to the same continuous recording.
         XCTAssertEqual(
             narrated.chapters.compactMap { $0.audioURL?.lastPathComponent },
-            ["001 Pages 1–10.wav", "002 Pages 11–20.wav", "003 Pages 21–25.wav"]
+            Array(repeating: try XCTUnwrap(narrated.audioURL).lastPathComponent, count: 3)
         )
         XCTAssertNil(shelf.errorMessage)
     }
@@ -173,11 +173,35 @@ final class BookshelfTests: XCTestCase {
         let reopened = BookshelfModel(directories: directories, generator: ImmediateGenerator())
         await reopened.load()
         let reloaded = try XCTUnwrap(reopened.book(id: book.id))
-        XCTAssertEqual(reloaded.narratedCount, 1)
-        XCTAssertFalse(reloaded.chapters[1].isNarrated)
+        XCTAssertEqual(reloaded.narratedCount, 2)
+        XCTAssertTrue(reloaded.hasBookAudio)
+        XCTAssertEqual(reloaded.chapters[1].startTime ?? -1, 0.1, accuracy: 0.0001)
     }
 
-    func testChangingTheVoiceClearsNarrationSoOneBookIsReadInOneVoice() async throws {
+    func testExistingChapterFilesAreCombinedOnlyOnRequest() async throws {
+        await shelf.importBook(from: try makePDF(pages: (1...12).map { "Page \($0)." }), defaults: settings())
+        var oldBook = try XCTUnwrap(shelf.books.first)
+        let generator = ImmediateGenerator()
+        let directory = directories.narrations.appendingPathComponent(oldBook.id.uuidString)
+        for index in oldBook.chapters.indices {
+            oldBook.chapters[index].audioPath = try await generator.generate(chapter: "Chapter \(index)", in: directory).path
+        }
+        let oldURLs = oldBook.chapters.compactMap(\.audioURL)
+        try await BookLibraryStore(fileURL: directories.booksFile).save([oldBook])
+        let reopened = BookshelfModel(directories: directories, generator: generator)
+        await reopened.load()
+        XCTAssertFalse(reopened.isNarrating)
+        XCTAssertFalse(try XCTUnwrap(reopened.books.first).hasBookAudio)
+        reopened.narrate(oldBook.id, useMPS: false)
+        for _ in 0..<200 where reopened.isNarrating { try await Task.sleep(for: .milliseconds(10)) }
+        let migrated = try XCTUnwrap(reopened.books.first)
+        XCTAssertTrue(migrated.hasBookAudio)
+        XCTAssertEqual(migrated.narrationTracks.count, 1)
+        XCTAssertEqual(migrated.chapters[1].startTime ?? -1, 0.1, accuracy: 0.0001)
+        XCTAssertTrue(oldURLs.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    func testChangingVoiceRetainsPlayableAudioUntilReplacementCommits() async throws {
         await shelf.importBook(
             from: try makePDF(pages: (1...12).map { "Page \($0)." }),
             defaults: settings()
@@ -192,9 +216,18 @@ final class BookshelfTests: XCTestCase {
         let changed = try XCTUnwrap(shelf.book(id: book.id))
         XCTAssertEqual(changed.voiceID, "bf_emma")
         XCTAssertEqual(changed.narratedCount, 0)
-        XCTAssertFalse(FileManager.default.fileExists(
-            atPath: directories.narrations.appendingPathComponent(book.id.uuidString).path
-        ))
+        XCTAssertTrue(changed.hasBookAudio)
+        XCTAssertTrue(changed.needsPreparation)
+        let previousURL = try XCTUnwrap(changed.audioURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: previousURL.path))
+        shelf.narrate(book.id, useMPS: false)
+        try await waitForNarration()
+        let replacement = try XCTUnwrap(shelf.book(id: book.id))
+        XCTAssertTrue(replacement.hasBookAudio)
+        XCTAssertFalse(replacement.needsPreparation)
+        XCTAssertNil(replacement.previousChapters)
+        XCTAssertNotEqual(replacement.audioURL, previousURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previousURL.path))
     }
 
     func testRemovingABookDeletesItsCopyAndItsNarration() async throws {

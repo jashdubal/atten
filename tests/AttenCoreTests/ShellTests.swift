@@ -18,11 +18,11 @@ final class ShellTests: XCTestCase {
         let grouped = SidebarItem.Group.allCases.flatMap(\.items)
 
         XCTAssertEqual(
-            Set(grouped), Set(SidebarItem.allCases),
+            Set(grouped), Set(SidebarItem.primaryItems),
             "a destination is missing from the sidebar, or one is in it twice"
         )
         XCTAssertEqual(
-            grouped.count, SidebarItem.allCases.count,
+            grouped.count, SidebarItem.primaryItems.count,
             "a destination appears in more than one group"
         )
     }
@@ -45,15 +45,23 @@ final class ShellTests: XCTestCase {
     func testKeyboardOrderMatchesTheOrderOnScreen() {
         XCTAssertEqual(
             SidebarItem.Group.allCases.flatMap(\.items),
-            SidebarItem.allCases,
+            SidebarItem.primaryItems,
             "arrow-key order and visual order have come apart"
         )
     }
 
-    func testAttenOpensOnHome() throws {
+    func testAttenOpensOnLibrary() throws {
         let model = try makeModel()
 
-        XCTAssertEqual(model.section, .home)
+        XCTAssertEqual(model.section, .library)
+    }
+
+    func testReturningToShelfFromCreateSelectsLibraryEvenWithEmptyPath() throws {
+        let model = try makeModel()
+        model.section = .studio
+        model.returnToShelf()
+        XCTAssertEqual(model.section, .library)
+        XCTAssertTrue(model.libraryPath.isEmpty)
     }
 
     // MARK: - The route survives the sidebar

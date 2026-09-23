@@ -183,14 +183,14 @@ final class ThemeTests: XCTestCase {
 
     func testLibraryPaletteUsesTheSpecifiedGroundAndRestrainedAccent() {
         let palette = AttenPalette.atten
-        XCTAssertEqual(palette.appBackground.dark, 0x06080F)
-        XCTAssertEqual(palette.sidebar.dark, palette.appBackground.dark)
-        XCTAssertEqual(palette.surface.dark, 0x0B0E14)
-        XCTAssertEqual(palette.surfaceElevated.dark, 0x121820)
-        XCTAssertEqual(palette.textPrimary.dark, 0xE8E9EB)
-        XCTAssertEqual(palette.textSecondary.dark, 0xA1A5AB)
-        XCTAssertEqual(palette.accent.dark, 0x2FBDF4)
-        XCTAssertEqual(palette.success.dark, 0x37DB8A)
+        XCTAssertEqual(palette.appBackground.dark, 0x1E1E1E)
+        XCTAssertEqual(palette.sidebar.dark, 0x141414)
+        XCTAssertEqual(palette.surface.dark, 0x222222)
+        XCTAssertEqual(palette.surfaceElevated.dark, 0x282828)
+        XCTAssertEqual(palette.textPrimary.dark, 0xE6E6E6)
+        XCTAssertEqual(palette.textSecondary.dark, 0xABABAB)
+        XCTAssertEqual(palette.accent.dark, 0xD4D4D4)
+        XCTAssertEqual(palette.success.dark, 0x73AC88)
     }
 
     /// The brand's colour survives as light rather than as paint, so it is
@@ -231,10 +231,11 @@ final class ThemeTests: XCTestCase {
     /// Dark is a cool near-black rather than the neutral grey it replaced —
     /// that is the brief, and it is the one thing about the new palette that a
     /// later well-meaning tidy could undo without noticing.
-    func testTheDarkAppearanceIsCoolRatherThanNeutral() {
+    func testTheDarkAppearanceUsesNeutralCharcoal() {
         for surface in [AttenPalette.atten.appBackground, AttenPalette.atten.sidebar] {
-            let (red, _, blue) = channels(surface.dark)
-            XCTAssertGreaterThan(blue, red, "the dark chrome has lost its cool cast")
+            let (red, green, blue) = channels(surface.dark)
+            XCTAssertEqual(red, green)
+            XCTAssertEqual(green, blue)
         }
     }
 

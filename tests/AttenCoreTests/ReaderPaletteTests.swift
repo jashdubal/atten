@@ -9,19 +9,12 @@ final class ReaderPaletteTests: XCTestCase {
     /// Quiet theme was kept for, and the one part of it the new palette keeps
     /// verbatim. Warmth belongs in the ink; warming the ground as well is what
     /// made every old theme look alike.
-    func testTheDarkPageIsWarmInkOnACoolGround() {
+    func testTheDarkPageUsesTheSameNeutralCharcoalAsTheApp() {
         let page = ReaderPagePalette.of(dark: true)
-
-        let ground = channels(page.background)
-        XCTAssertGreaterThan(ground.blue, ground.red, "the dark page's ground has lost its cool cast")
-        XCTAssertLessThanOrEqual(
-            luminance(page.background), luminance(0x0A0A0A),
-            "the dark page is no longer near-black"
-        )
-
+        XCTAssertEqual(page.background, 0x1E1E1E)
         let ink = channels(page.ink)
-        XCTAssertGreaterThan(ink.red, ink.blue, "the dark page's ink is not warm")
-        XCTAssertGreaterThanOrEqual(ink.green, ink.blue)
+        XCTAssertEqual(ink.red, ink.green)
+        XCTAssertEqual(ink.green, ink.blue)
     }
 
     /// A page with a warm ground and cold ink reads as a screen showing a

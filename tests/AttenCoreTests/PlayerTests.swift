@@ -10,6 +10,26 @@ import XCTest
 @MainActor
 final class PlayerTests: XCTestCase {
 
+    func testListeningSeeksWithinBookAndKeepsCurrentScreen() async throws {
+        let model = try makeModel()
+        let tracks = try await makeTracks(count: 1)
+        var book = BookRecord(title: "Book", format: .epub, sourcePath: "/book", chapters: [BookChapter(title: "First", text: "Text"), BookChapter(title: "Chapter", text: "Text")], voiceID: "af_heart", speed: 1, audioFormat: .wav)
+        book.audioPath = tracks[0].url.path
+        book.chapters[0].startTime = 0
+        book.chapters[0].endTime = 0.05
+        book.chapters[1].startTime = 0.05
+        book.chapters[1].endTime = 0.1
+        model.section = .library
+        model.listen(to: book, chapter: book.chapters[1])
+        XCTAssertEqual(model.section, .library)
+        XCTAssertEqual(model.queue.tracks.count, 1)
+        XCTAssertEqual(model.playbackPosition, 0.05, accuracy: 0.001)
+        model.listen(to: book)
+        XCTAssertFalse(model.isPlaying)
+        model.listen(to: book)
+        XCTAssertTrue(model.isPlaying)
+    }
+
     /// The expanded panel's queue list jumps by replaying the queue it is
     /// already showing. That must move the same queue rather than starting a
     /// second one beside it.
