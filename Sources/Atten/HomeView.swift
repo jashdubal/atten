@@ -36,6 +36,7 @@ struct HomeView: View {
             // the minimum window size overlapped the two route cards.
             .padding(.horizontal, AttenSpacing.page)
             .padding(.bottom, AttenSpacing.xl)
+            .attenScrollPadding()
             .frame(maxWidth: 980, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

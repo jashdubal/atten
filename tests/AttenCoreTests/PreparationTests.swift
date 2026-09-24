@@ -303,7 +303,7 @@ final class PreparationTests: XCTestCase {
         XCTAssertEqual(decoded.narrationState, .interrupted)
         XCTAssertEqual(SidebarItem.restored("home"), .library)
         XCTAssertEqual(SidebarItem.restored("unknown"), .library)
-        XCTAssertEqual(SidebarItem.restored("projects").workspace, .studio)
+        XCTAssertEqual(SidebarItem.restored("projects"), .library)
     }
 }
 

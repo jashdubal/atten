@@ -333,14 +333,12 @@ enum AttenState {
     static let focusRingOffset: CGFloat = 2
 }
 
-/// Sizes the player and the cover grid are built from, so the compact player
-/// in the top chrome and a cover on Home agree without either owning the
+/// Sizes the player and the cover grid are built from, so the mini player
+/// and the scroll views it floats over agree without either owning the
 /// other's file.
 enum AttenMetrics {
-    /// Height of the compact player's row in the top chrome.
-    static let compactPlayerHeight: CGFloat = 52
-    /// The artwork thumbnail inside it.
-    static let compactPlayerArtwork: CGFloat = 36
+    /// Height of the mini player's pill.
+    static let playerHeight: CGFloat = 64
     /// The expanded player panel's width when it opens as a popover.
     static let expandedPlayerWidth: CGFloat = 380
     /// A cover in a shelf grid, at its smallest. Grids size themselves in
@@ -629,26 +627,6 @@ struct AttenSearchField: View {
                 .stroke(isFocused ? AttenColor.focus : .clear, lineWidth: 1)
         }
         .onExitCommand { text = "" }
-    }
-}
-
-struct AttenLogo: View {
-    var compact = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            if compact {
-                Image(systemName: "waveform")
-                    .font(.system(size: 15, weight: .medium))
-            } else {
-                Text("Atten")
-                    .font(.system(size: 20, weight: .semibold))
-
-            }
-        }
-        .foregroundStyle(AttenColor.textPrimary)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Atten")
     }
 }
 

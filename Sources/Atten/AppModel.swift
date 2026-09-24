@@ -298,7 +298,21 @@ final class AppModel {
             if section != .library, isReaderFocused {
                 setReaderFocus(false)
             }
+            if section == .studio, oldValue != .studio { sectionBeforeCreate = oldValue }
         }
+    }
+
+    /// Where Create was opened from. Create is a flow over the window rather
+    /// than a place, so leaving it goes back there.
+    private(set) var sectionBeforeCreate = SidebarItem.library
+
+    /// Which Settings tab is showing, so a screen can send someone straight
+    /// to Models.
+    var settingsTab = "general"
+
+    func leaveCreate() {
+        guard section == .studio else { return }
+        section = sectionBeforeCreate
     }
 
     private(set) var libraryPath: [LibraryRoute] = []
@@ -410,15 +424,20 @@ final class AppModel {
             setReaderFocus(false)
             return
         }
+        if section == .studio {
+            leaveCreate()
+            return
+        }
         guard canGoBack else { return }
         libraryMovedForward = false
         libraryPath.removeLast()
     }
 
     /// Only the Library stacks screens, so only the Library has anywhere to go
-    /// back to. Focus mode counts wherever it is on.
+    /// back to — and Create, which goes back to wherever it was opened from.
+    /// Focus mode counts wherever it is on.
     var canGoBack: Bool {
-        isReaderFocused || (section == .library && !libraryPath.isEmpty)
+        isReaderFocused || section == .studio || (section == .library && !libraryPath.isEmpty)
     }
 
     var activeAudioURL: URL? { queue.current?.url }
@@ -854,12 +873,6 @@ final class AppModel {
         settings.selectedVoiceID = selectedVoiceID
         settings.defaultSpeed = speed
         settings.defaultFormat = format
-        saveSettings()
-    }
-
-    func selectAppearance(_ appearance: AppearancePreference) {
-        guard settings.appearance != appearance else { return }
-        settings.appearance = appearance
         saveSettings()
     }
 

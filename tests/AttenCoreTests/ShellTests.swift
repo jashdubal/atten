@@ -3,51 +3,80 @@ import Foundation
 import XCTest
 @testable import Atten
 
-/// The shell gained a Home destination and put its sections into groups. The
-/// risk in both is the same: a destination that quietly stops being reachable
-/// because it fell out of a list somebody re-ordered.
+/// The shell is three places — Library, Voices, Settings — and Create, a flow
+/// over them. The risk is a place that quietly stops being reachable, or a
+/// stored section from an older shell that restores to nowhere.
 @MainActor
 final class ShellTests: XCTestCase {
 
-    // MARK: - Every destination stays reachable
+    // MARK: - Library, Voices, Settings
 
-    /// The grouped sidebar draws from `Group.items`, not from `allCases`, so
-    /// a destination added to the enum and forgotten in a group would compile,
-    /// ship, and simply not exist.
-    func testEveryDestinationAppearsInExactlyOneSidebarGroup() {
-        let grouped = SidebarItem.Group.allCases.flatMap(\.items)
-
-        XCTAssertEqual(
-            Set(grouped), Set(SidebarItem.primaryItems),
-            "a destination is missing from the sidebar, or one is in it twice"
-        )
-        XCTAssertEqual(
-            grouped.count, SidebarItem.primaryItems.count,
-            "a destination appears in more than one group"
-        )
+    func testTheSidebarHoldsOnlyLibraryVoicesAndSettings() {
+        XCTAssertEqual(SidebarItem.primaryItems, [.library, .voices, .settings])
     }
 
-    /// Everything Atten could reach before this issue it can still reach.
-    func testTheDestinationsThatExistedBeforeStillExist() {
-        let before: Set<SidebarItem> = [
-            .studio, .playground, .library, .voices, .models, .projects, .exports,
+    /// `@SceneStorage("Atten.selectedSection")` holds whatever raw value an
+    /// earlier shell wrote. Every one of them has to land somewhere that
+    /// still exists, and none of them lands in Create, which only "+ New"
+    /// opens.
+    func testEveryLegacyStoredSectionRestoresToADestination() {
+        let expected: [String: SidebarItem] = [
+            "home": .library,
+            "library": .library,
+            "nowPlaying": .library,
+            "studio": .library,
+            "playground": .library,
+            "projects": .library,
+            "exports": .library,
+            "voices": .voices,
+            "models": .settings,
+            "settings": .settings,
+            "": .library,
+            "unknown": .library,
         ]
-
-        XCTAssertTrue(
-            before.isSubset(of: Set(SidebarItem.allCases)),
-            "the shell dropped a destination that used to be reachable"
-        )
+        for (raw, destination) in expected {
+            let restored = SidebarItem.restored(raw)
+            XCTAssertEqual(restored, destination, "restoring \"\(raw)\"")
+            XCTAssertTrue(SidebarItem.primaryItems.contains(restored), "\"\(raw)\" restored off the sidebar")
+        }
     }
 
-    /// Arrow keys walk the sidebar with `allCases`, and the sidebar draws with
-    /// groups. If those two orders disagree, keyboard focus jumps around the
-    /// list instead of moving down it.
-    func testKeyboardOrderMatchesTheOrderOnScreen() {
-        XCTAssertEqual(
-            SidebarItem.Group.allCases.flatMap(\.items),
-            SidebarItem.primaryItems,
-            "arrow-key order and visual order have come apart"
-        )
+    // MARK: - Create is a flow
+
+    func testLeavingCreateReturnsToWhereItWasOpened() throws {
+        let model = try makeModel()
+        model.section = .voices
+        model.section = .studio
+
+        XCTAssertTrue(model.canGoBack)
+        model.goBack()
+
+        XCTAssertEqual(model.section, .voices)
+    }
+
+    func testLeavingCreateKeepsTheOpenBook() throws {
+        let model = try makeModel()
+        let book = UUID()
+        model.openInLibrary(.book(book))
+        model.section = .studio
+
+        model.leaveCreate()
+
+        XCTAssertEqual(model.section, .library)
+        XCTAssertEqual(model.libraryPath, [.book(book)])
+    }
+
+    /// Create opened from inside Create (⌘N while drafting) must not forget
+    /// where the first one came from.
+    func testReopeningCreateKeepsTheOriginalOrigin() throws {
+        let model = try makeModel()
+        model.section = .settings
+        model.section = .studio
+        model.section = .studio
+
+        model.leaveCreate()
+
+        XCTAssertEqual(model.section, .settings)
     }
 
     func testAttenOpensOnLibrary() throws {
@@ -78,7 +107,7 @@ final class ShellTests: XCTestCase {
         model.openInLibrary(.reader(book))
 
         model.section = .studio
-        model.section = .home
+        model.section = .voices
         model.section = .library
 
         XCTAssertEqual(model.libraryPath, [.book(book), .reader(book)])
