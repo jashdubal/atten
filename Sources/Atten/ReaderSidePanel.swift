@@ -159,6 +159,7 @@ struct ReaderSidePanel: View {
                     }
                     .padding(.horizontal, AttenSpacing.xs)
                     .padding(.bottom, AttenSpacing.sm)
+                    .attenScrollPadding()
                 }
             }
         }
@@ -201,6 +202,7 @@ struct ReaderSidePanel: View {
                     }
                     .padding(.horizontal, AttenSpacing.xs)
                     .padding(.bottom, AttenSpacing.sm)
+                    .attenScrollPadding()
                 }
                 // Following the reader is the whole point of a contents list;
                 // one that has to be scrolled to find your place is not one.
@@ -241,6 +243,7 @@ struct ReaderSidePanel: View {
                     }
                     .padding(.horizontal, AttenSpacing.xs)
                     .padding(.bottom, AttenSpacing.sm)
+                    .attenScrollPadding()
                 }
             }
         }

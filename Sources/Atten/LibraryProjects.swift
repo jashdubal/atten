@@ -1,29 +1,55 @@
 import AttenCore
 import SwiftUI
 
-struct ProjectsView: View {
+/// Studio generations from before books, on the shelf with everything else.
+///
+/// They are `LibraryItem.project`s: read from `projects.json` and never
+/// migrated. This keeps them reachable and playable now that Projects and
+/// Exports are no longer places of their own; the Library's visual pass gives
+/// them their final look.
+struct LibraryProjectsSection: View {
     @Bindable var model: AppModel
-    let openStudio: () -> Void
-    @State private var query = ""
+    let items: [AttenCore.LibraryItem]
+    let isWide: Bool
+
     @State private var projectToDelete: ProjectRecord?
+    @State private var projectToRename: ProjectRecord?
+    @State private var name = ""
 
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                    header
-                    statusArea
-
-                    if filteredProjects.isEmpty {
-                        emptyState
-                    } else {
-                        projectList(isWide: proxy.size.width >= 820)
+        VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+            Text("Projects")
+                .attenText(.label)
+                .foregroundStyle(AttenColor.text3)
+                .accessibilityAddTraits(.isHeader)
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    if case let .project(project) = item {
+                        ProjectRow(
+                            model: model,
+                            project: project,
+                            isWide: isWide,
+                            duplicate: {
+                                model.duplicate(project)
+                                model.section = .studio
+                            },
+                            regenerate: {
+                                model.regenerate(project)
+                                model.section = .studio
+                            },
+                            rename: {
+                                name = project.title
+                                projectToRename = project
+                            },
+                            delete: { projectToDelete = project }
+                        )
+                        if item.id != items.last?.id {
+                            Divider()
+                                .padding(.leading, 52)
+                                .overlay(AttenColor.separator.opacity(0.8))
+                        }
                     }
                 }
-                .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
-                .padding(.vertical, AttenSpacing.lg)
-                .frame(maxWidth: 1120, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .top)
             }
         }
         .confirmationDialog(
@@ -48,107 +74,19 @@ struct ProjectsView: View {
         } message: {
             Text("Choose whether the generated audio should remain on disk.")
         }
-    }
-
-    private var header: some View {
-        HStack(alignment: .bottom) {
-            PageHeader(
-                eyebrow: "Projects",
-                title: "Project library",
-                detail: "Return to previous generations or make another take."
+        .alert(
+            "Rename audio file",
+            isPresented: Binding(
+                get: { projectToRename != nil },
+                set: { if !$0 { projectToRename = nil } }
             )
-            Spacer()
-            AttenSearchField(prompt: "Search projects", text: $query)
-                .frame(maxWidth: 240)
-            Text("\(filteredProjects.count) projects")
-                .font(AttenTypography.metadata)
-                .foregroundStyle(AttenColor.textSecondary)
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: AttenSpacing.md) {
-            AttenEmptyState(
-                title: query.isEmpty ? "No projects yet" : "No matching projects",
-                systemImage: "doc.on.doc",
-                detail: query.isEmpty
-                    ? "Completed Studio generations will appear here."
-                    : "Try a different search term."
-            )
-            if query.isEmpty {
-                Button("Open Studio", action: openStudio)
-                    .buttonStyle(AttenPrimaryButtonStyle())
-                    .fixedSize()
-                    .padding(.bottom, AttenSpacing.lg)
+        ) {
+            TextField("Name", text: $name)
+            Button("Rename") {
+                if let projectToRename { model.rename(projectToRename, to: name) }
+                projectToRename = nil
             }
-        }
-        .attenSurface()
-    }
-
-    @ViewBuilder private var statusArea: some View {
-        if let success = model.successMessage {
-            StatusBanner(kind: .success, message: success, dismiss: model.dismissStatus)
-        }
-        if case let .failed(message) = model.generationState {
-            StatusBanner(kind: .error, message: message, dismiss: model.dismissStatus)
-        }
-    }
-
-    private func projectList(isWide: Bool) -> some View {
-        VStack(spacing: 0) {
-            if isWide {
-                HStack(spacing: AttenSpacing.sm) {
-                    Text("Project").frame(maxWidth: .infinity, alignment: .leading)
-                    Text("Voice").frame(width: 120, alignment: .leading)
-                    Text("Updated").frame(width: 135, alignment: .leading)
-                    Text("Details").frame(width: 100, alignment: .leading)
-                    Color.clear.frame(width: 70)
-                }
-                .font(AttenTypography.caption.weight(.semibold))
-                .foregroundStyle(AttenColor.textSecondary)
-                .padding(.horizontal, AttenSpacing.sm)
-                .frame(height: 34)
-                Divider().overlay(AttenColor.separator)
-            }
-
-            LazyVStack(spacing: 0) {
-                ForEach(filteredProjects) { project in
-                    ProjectRow(
-                        model: model,
-                        project: project,
-                        isWide: isWide,
-                        duplicate: {
-                            model.duplicate(project)
-                            openStudio()
-                        },
-                        regenerate: {
-                            model.regenerate(project)
-                            openStudio()
-                        },
-                        delete: { projectToDelete = project }
-                    )
-                    if project.id != filteredProjects.last?.id {
-                        Divider()
-                            .padding(.leading, 52)
-                            .overlay(AttenColor.separator.opacity(0.8))
-                    }
-                }
-            }
-        }
-        .background(AttenColor.surface)
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.card))
-        .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.card)
-                .stroke(AttenColor.separator.opacity(0.72), lineWidth: 1)
-        }
-    }
-
-    private var filteredProjects: [ProjectRecord] {
-        guard !query.isEmpty else { return model.projects }
-        return model.projects.filter { project in
-            let voice = VoiceCatalog.voice(id: project.voiceID)?.name ?? project.voiceID
-            return "\(project.title) \(project.text) \(voice)"
-                .localizedCaseInsensitiveContains(query)
+            Button("Cancel", role: .cancel) { projectToRename = nil }
         }
     }
 }
@@ -159,6 +97,7 @@ private struct ProjectRow: View {
     let isWide: Bool
     let duplicate: () -> Void
     let regenerate: () -> Void
+    let rename: () -> Void
     let delete: () -> Void
 
     @State private var isHovering = false
@@ -268,6 +207,8 @@ private struct ProjectRow: View {
             Button("Regenerate", systemImage: "arrow.clockwise", action: regenerate)
             Divider()
         }
+        Button("Rename…", systemImage: "pencil", action: rename)
+            .disabled(!fileExists)
         Button("Export…", systemImage: "square.and.arrow.up") { model.export(project) }
             .disabled(!fileExists)
         Button("Reveal in Finder", systemImage: "folder") { model.reveal(project) }

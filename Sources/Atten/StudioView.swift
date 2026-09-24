@@ -42,6 +42,7 @@ struct StudioView: View {
                 }
                 .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
                 .padding(.vertical, AttenSpacing.lg)
+                .attenScrollPadding()
                 .frame(maxWidth: 1180, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
@@ -530,7 +531,10 @@ struct StudioView: View {
                         .buttonStyle(AttenSecondaryButtonStyle())
                         .disabled(model.isImportingText || model.synthesis.isBusy || model.draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     if message.localizedCaseInsensitiveContains("model") {
-                        Button("Open Models") { model.section = .models }
+                        Button("Open Models") {
+                            model.settingsTab = "models"
+                            model.section = .settings
+                        }
                             .buttonStyle(AttenSecondaryButtonStyle())
                     }
                     Button("Dismiss") { model.dismissStatus() }

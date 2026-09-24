@@ -3,99 +3,68 @@ import AttenCore
 import SwiftUI
 
 enum SidebarItem: String, CaseIterable, Identifiable {
-    case home
-    case nowPlaying
     case library
-    case studio
-    case playground
     case voices
-    case models
-    case projects
-    case exports
+    case settings
+    /// Create is a verb, not a place: it opens full-window from "+ New" or
+    /// ⌘N and is never a row in the sidebar.
+    case studio
+    /// Opened from the player, over whichever place it was opened from.
+    case nowPlaying
 
     var id: String { rawValue }
     var label: String { self == .studio ? "Create" : (self == .nowPlaying ? "Now Playing" : rawValue.capitalized) }
-    static let primaryItems: [SidebarItem] = [.library, .studio]
+    static let primaryItems: [SidebarItem] = [.library, .voices, .settings]
+    /// The sidebar row that stands for this screen.
     var workspace: SidebarItem {
         switch self {
-        case .home, .library, .nowPlaying: .library
-        default: .studio
+        case .studio, .nowPlaying: .library
+        default: self
         }
     }
+
+    /// Scene storage from every earlier shell lands somewhere that still
+    /// exists. Home, Now Playing, Draft, Projects, Exports and the playground
+    /// all live in the Library now, and Models is a tab in Settings. Create is
+    /// never restored: it opens only through "+ New".
     static func restored(_ raw: String) -> SidebarItem {
-        guard let item = SidebarItem(rawValue: raw) else { return .library }
-        return item == .home || item == .nowPlaying ? .library : item
+        switch raw {
+        case "voices": .voices
+        case "settings", "models": .settings
+        default: .library
+        }
     }
 
     var icon: String {
         switch self {
-        case .home: "house"
-        case .nowPlaying: "waveform.circle"
         case .library: "books.vertical"
-        case .studio: "waveform"
-        case .playground: "flask"
         case .voices: "person.2"
-        case .models: "shippingbox"
-        case .projects: "doc.on.doc"
-        case .exports: "waveform.badge.magnifyingglass"
-        }
-    }
-
-    /// Where a destination sits in the sidebar.
-    ///
-    /// The wireframe's calm comes partly from a short list. Every destination
-    /// Atten had is still here and still one click away — the ones you reach
-    /// for while listening are simply not mixed in with the ones you reach for
-    /// while managing voices and files.
-    enum Group: String, CaseIterable, Identifiable {
-        case read
-        case create
-        case manage
-
-        var id: String { rawValue }
-
-        /// The places you go while reading need no heading — they are the top
-        /// of the list and there are two of them. The rest are shelves, and a
-        /// shelf is easier to skip past when it is named.
-        var title: String? {
-            switch self {
-            case .read: nil
-            case .create: nil
-            case .manage: nil
-            }
-        }
-
-        var items: [SidebarItem] {
-            switch self {
-            case .read: [.library]
-            case .create: [.studio]
-            case .manage: []
-            }
+        case .settings: "gearshape"
+        case .studio: "waveform"
+        case .nowPlaying: "waveform.circle"
         }
     }
 }
 
 extension Notification.Name {
     static let attenOpenStudio = Notification.Name("Atten.openStudio")
-    static let attenOpenPlayground = Notification.Name("Atten.openPlayground")
 }
 
 struct RootView: View {
     @Bindable var model: AppModel
     @SceneStorage("Atten.selectedSection") private var restoredSection = SidebarItem.library.rawValue
     @SceneStorage("Atten.studioDraft") private var restoredDraft = ""
-    @SceneStorage("Atten.playerCollapsed") private var isPlayerCollapsed = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var showsModelSettings = false
-    @State private var lastWorkspace = SidebarItem.library
     @State private var screenTitle: AttenScreenTitle?
+    @Namespace private var playerNamespace
     @FocusState private var focusedSidebarItem: SidebarItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 196, ideal: 224, max: 250)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+                .toolbar(removing: model.section == .studio ? .sidebarToggle : nil)
         } detail: {
             ZStack(alignment: .top) {
                 AttenBackdrop()
@@ -128,19 +97,17 @@ struct RootView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            // Floats over the content column rather than taking a strip of
+            // it; every scroll view leaves room under its last row with
+            // `attenScrollPadding()`.
+            .overlay(alignment: .bottom) {
                 if model.playerTitle != nil {
-                    ViewThatFits(in: .horizontal) {
-                        GlobalPlayer(model: model, isCollapsed: $isPlayerCollapsed)
-                            .frame(minWidth: isPlayerCollapsed ? 100 : 460, maxWidth: isPlayerCollapsed ? 100 : 680)
-                        GlobalPlayer(model: model, isCollapsed: $isPlayerCollapsed, compact: true)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
-                    .padding(.bottom, 14)
-                    .frame(maxWidth: .infinity)
+                    GlobalPlayer(model: model, isCompact: model.section == .studio, namespace: playerNamespace)
+                        .padding(.horizontal, AttenSpacing.lg)
+                        .padding(.bottom, AttenSpacing.sm)
                 }
             }
+            .animation(AttenMotion.animation(.large, reduceMotion: reduceMotion), value: model.section == .studio)
         }
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
@@ -149,39 +116,21 @@ struct RootView: View {
         .foregroundStyle(AttenColor.textPrimary)
         .background(WindowTitleHider())
         .toolbarBackground(AttenColor.appBackground, for: .windowToolbar)
-        .toolbar {
-            if !model.isReaderFocused {
-                ToolbarItem(placement: .primaryAction) {
-                    ToolbarIconButton(
-                        title: model.section.workspace == .library ? "Add to Library (⌘O)" : "New draft (⌘N)",
-                        systemImage: model.section.workspace == .library ? "plus" : "square.and.pencil"
-                    ) {
-                        if model.section.workspace == .library { model.openBookImportPanel() }
-                        else { openNewDraft() }
-                    }
-                }
-            }
-        }
         .task {
             model.section = SidebarItem.restored(restoredSection)
             if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
         }
-        .onChange(of: model.section) { _, section in
-            if section == .models {
-                showsModelSettings = true
-                model.section = lastWorkspace
-            } else {
-                lastWorkspace = section.workspace
-                restoredSection = section.rawValue
-            }
+        .onChange(of: model.section) { oldSection, section in
+            restoredSection = section.rawValue
             screenTitle = nil
-        }
-        .sheet(isPresented: $showsModelSettings) {
-            VStack(spacing: 0) {
-                HStack { Spacer(); Button("Done") { showsModelSettings = false }.keyboardShortcut(.cancelAction) }.padding(12)
-                SettingsView(model: model, initialTab: "models")
-            }.frame(width: 780, height: 600)
+            // Create takes the whole window, and gives the sidebar back on
+            // the way out.
+            if section == .studio || oldSection == .studio {
+                withAnimation(AttenMotion.animation(AttenMotion.transition, reduceMotion: reduceMotion)) {
+                    columnVisibility = section == .studio ? .detailOnly : .all
+                }
+            }
         }
         // A scene-storage write goes to disk, and this one carried up to
         // 100 KB. Running it on every keystroke made typing in Studio stutter,
@@ -200,9 +149,6 @@ struct RootView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .attenOpenStudio)) { _ in
             model.section = .studio
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .attenOpenPlayground)) { _ in
-            model.section = .playground
         }
         .onChange(of: model.isReaderFocused) { _, isFocused in
             withAnimation(AttenMotion.animation(AttenMotion.transition, reduceMotion: reduceMotion)) {
@@ -268,134 +214,47 @@ struct RootView: View {
     }
 
     private var sidebar: some View {
-        VStack(spacing: 0) {
-            AttenLogo()
-                .padding(.horizontal, AttenSpacing.lg)
-                .padding(.vertical, AttenSpacing.lg)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Atten")
+                .attenText(.label)
+                .foregroundStyle(AttenColor.text3)
+                .padding(.horizontal, AttenSpacing.sm)
+                .padding(.top, AttenSpacing.md)
+                .padding(.bottom, AttenSpacing.xxs)
+                .accessibilityAddTraits(.isHeader)
 
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(SidebarItem.primaryItems) { item in
-                    SidebarNavigationRow(item: item, isSelected: model.section.workspace == item) {
-                        if item == .library { model.returnToShelf() }
-                        else { model.section = item }
-                        focusedSidebarItem = item
-                    }
-                    .focused($focusedSidebarItem, equals: item)
+            ForEach(SidebarItem.primaryItems) { item in
+                SidebarNavigationRow(item: item, isSelected: model.section.workspace == item) {
+                    if item == .library { model.returnToShelf() }
+                    else { model.section = item }
+                    focusedSidebarItem = item
                 }
+                .focused($focusedSidebarItem, equals: item)
             }
-            .padding(.horizontal, AttenSpacing.xs)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .onMoveCommand(perform: moveSidebarSelection)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Sections")
-
-            Divider()
-                .overlay(AttenColor.separator)
-
-            SettingsLink {
-                Label("Settings", systemImage: "gearshape")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.plain)
-            .padding(AttenSpacing.md)
-
-            HStack(spacing: AttenSpacing.sm) {
-                Link(destination: UpdateChecker.repositoryURL) {
-                    Image(nsImage: GitHubMark.image)
-                        .resizable()
-                        .frame(width: 14, height: 14)
-                }
-                .help("View source code on GitHub")
-                .accessibilityLabel("Source code on GitHub")
-
-                Button {
-                    Task { await model.checkForUpdate(manual: true) }
-                } label: {
-                    if model.isCheckingForUpdate {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                }
-                .disabled(model.isCheckingForUpdate || model.isInstallingUpdate)
-                .help("Check for updates")
-                .accessibilityLabel("Check for updates")
-
-                appearanceMenu
-
-                Button {
-                    model.openSaveFolder()
-                } label: {
-                    Image(systemName: "folder")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .help("Open the folder Atten saves into")
-                .accessibilityLabel("Open save folder")
-
-                Spacer(minLength: 0)
-                Text(model.isInstallingUpdate ? "UPDATING…" : "v\(model.appVersion)")
-                    .font(AttenTypography.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(AttenColor.textSecondary)
-            .padding(.horizontal, AttenSpacing.md)
-            .padding(.vertical, AttenSpacing.sm)
         }
+        .padding(.horizontal, AttenSpacing.xs)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onMoveCommand(perform: moveSidebarSelection)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Sections")
         // No background of its own: the system's sidebar material shows
         // through, which is the only vibrancy the chrome needs.
     }
 
-    /// How Atten looks, which is now one decision rather than two: there is a
-    /// single palette, and this picks which side of it the window is drawn in.
-    /// Here rather than only in Settings because it is a choice people make by
-    /// trying it.
-    private var appearanceMenu: some View {
-        Menu {
-            Picker("Appearance", selection: appearanceSelection) {
-                ForEach(AppearancePreference.allCases) { appearance in
-                    Label(appearance.displayName, systemImage: appearance.icon)
-                        .tag(appearance)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: model.settings.appearance.icon)
-                .font(.system(size: 12, weight: .medium))
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help("Appearance: \(appearanceSummary)")
-        .accessibilityLabel("Appearance")
-        .accessibilityValue(appearanceSummary)
-    }
-
-    private var appearanceSummary: String {
-        model.settings.appearance.displayName
-    }
-
-    private var appearanceSelection: Binding<AppearancePreference> {
-        Binding(
-            get: { model.settings.appearance },
-            set: { model.selectAppearance($0) }
-        )
-    }
-
     @ViewBuilder private var detail: some View {
         switch model.section {
-        case .home:
-            LibraryView(model: model)
-        case .nowPlaying:
-            NowPlayingView(model: model)
         case .library:
             LibraryView(model: model)
-        case .models:
-            SettingsView(model: model, initialTab: "models")
-        case .studio, .playground, .voices, .projects, .exports:
-            CreateWorkspace(model: model)
-
+        case .voices:
+            VoicesView(model: model) { model.section = .studio }
+        case .settings:
+            SettingsView(model: model)
+        case .studio:
+            CreateWorkspace(model: model, backTitle: model.sectionBeforeCreate.label) {
+                model.leaveCreate()
+            }
+        case .nowPlaying:
+            NowPlayingView(model: model)
         }
     }
 
@@ -433,11 +292,6 @@ struct RootView: View {
             get: { model.updateError != nil },
             set: { if !$0 { model.updateError = nil } }
         )
-    }
-
-    private func openNewDraft() {
-        model.newDraft()
-        model.section = .studio
     }
 
     private func moveSidebarSelection(_ direction: MoveCommandDirection) {
@@ -482,14 +336,6 @@ private struct SidebarNavigationRow: View {
                 RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     .stroke(borderColor, lineWidth: AttenState.focusRingWidth)
             }
-            .overlay(alignment: .leading) {
-                if isSelected {
-                    Capsule()
-                        .fill(AttenColor.accent)
-                        .frame(width: 2, height: 16)
-                        .padding(.leading, 2)
-                }
-            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -504,8 +350,8 @@ private struct SidebarNavigationRow: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    /// Selection uses a faint tint and a leading accent mark rather than a
-    /// strong tonal fill; keyboard focus keeps its own outline.
+    /// Selection is a faint tint and nothing more: chrome carries no colour
+    /// of its own. Keyboard focus keeps its own outline.
     private var background: Color {
         if isSelected { return AttenColor.textPrimary.opacity(AttenState.hoverFill) }
         return isHovering ? AttenColor.textPrimary.opacity(AttenState.hoverFill / 2) : .clear
@@ -532,18 +378,6 @@ private final class WindowTitleHidingView: NSView {
         super.viewDidMoveToWindow()
         window?.titleVisibility = .hidden
     }
-}
-
-@MainActor
-private enum GitHubMark {
-    static let image: NSImage = {
-        let svg = """
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-        """
-        let image = NSImage(data: Data(svg.utf8)) ?? NSImage()
-        image.isTemplate = true
-        return image
-    }()
 }
 
 /// The back and forward buttons on a mouse arrive as `otherMouseDown`, and
@@ -628,12 +462,6 @@ private struct TopChrome: View {
                     .foregroundStyle(AttenColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if let subtitle = title.subtitle {
-                    Text(subtitle)
-                        .font(AttenTypography.metadata)
-                        .foregroundStyle(AttenColor.textSecondary)
-                        .lineLimit(1)
-                }
             }
         }
     }

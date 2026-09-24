@@ -59,6 +59,7 @@ struct VoicesView: View {
                 }
                 .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
                 .padding(.vertical, AttenSpacing.lg)
+                .attenScrollPadding()
                 .frame(maxWidth: 1120, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }

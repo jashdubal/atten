@@ -110,19 +110,27 @@ struct LibraryView: View {
                        let book = continueBook {
                         ContinueListeningCard(model: model, book: book)
                     }
-                    if !shelf.books.isEmpty {
+                    if !shelf.books.isEmpty || !model.projects.isEmpty {
                         searchAndFilters
                     }
 
-                    if filteredBooks.isEmpty {
+                    if filteredBooks.isEmpty && projectItems.isEmpty {
                         emptyState
-                    } else {
+                    } else if !filteredBooks.isEmpty {
                         collection(availableWidth: geometry.size.width)
+                    }
+                    if !projectItems.isEmpty {
+                        LibraryProjectsSection(
+                            model: model,
+                            items: projectItems,
+                            isWide: geometry.size.width >= 820
+                        )
                     }
                     importHint
                 }
                 .padding(.horizontal, 28)
                 .padding(.vertical, 24)
+                .attenScrollPadding()
                 .frame(maxWidth: 1440, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
@@ -143,11 +151,11 @@ struct LibraryView: View {
             HStack(alignment: .top) {
                 pageHeader
                 Spacer(minLength: AttenSpacing.md)
-                addBookButton
+                actions
             }
             VStack(alignment: .leading, spacing: AttenSpacing.md) {
                 pageHeader
-                addBookButton
+                actions
             }
         }
     }
@@ -173,6 +181,26 @@ struct LibraryView: View {
         }
         .buttonStyle(AttenSecondaryButtonStyle())
         .disabled(shelf.isImporting)
+        .fixedSize()
+    }
+
+    private var actions: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            addBookButton
+            newButton
+        }
+    }
+
+    /// Create is a verb, so it starts here rather than living in the sidebar.
+    private var newButton: some View {
+        Button {
+            model.newDraft()
+            model.section = .studio
+        } label: {
+            Label("New", systemImage: "plus")
+        }
+        .buttonStyle(AttenPrimaryButtonStyle())
+        .help("New (⌘N)")
         .fixedSize()
     }
 
@@ -335,6 +363,15 @@ struct LibraryView: View {
 
     private var filteredBooks: [BookRecord] {
         shelf.books(for: selectedFilter, query: query, sort: sortOrder)
+    }
+
+    /// Legacy projects are voiced, so they sit under All and Audiobooks.
+    private var projectItems: [AttenCore.LibraryItem] {
+        guard selectedFilter != .recentlyAdded else { return [] }
+        let items = model.projects.map(AttenCore.LibraryItem.project)
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return items }
+        return items.filter { $0.title.localizedCaseInsensitiveContains(term) }
     }
 
     /// Dropping a book onto the shelf is the same import as the panel. Books

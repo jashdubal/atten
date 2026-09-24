@@ -24,15 +24,9 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @Bindable var model: AppModel
-    @State private var selectedTab: String
-
-    init(model: AppModel, initialTab: String = "general") {
-        self.model = model
-        _selectedTab = State(initialValue: initialTab)
-    }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: $model.settingsTab) {
             SettingsPane(title: "General", detail: "Speech stays on this Mac.") {
                 providerForm
             }
@@ -106,9 +100,27 @@ struct SettingsView: View {
                 Toggle("Check GitHub for new versions at launch", isOn: $model.settings.checksForUpdates)
                     .help("Turn this off to keep this version indefinitely and never use the network")
 
-                Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually from the sidebar.")
+                Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually here.")
                     .font(AttenTypography.metadata)
                     .foregroundStyle(AttenColor.textSecondary)
+
+                LabeledContent("Version") {
+                    HStack(spacing: AttenSpacing.sm) {
+                        Text(model.isInstallingUpdate ? "Updating…" : model.appVersion)
+                            .foregroundStyle(AttenColor.textSecondary)
+                        if model.isCheckingForUpdate {
+                            ProgressView().controlSize(.small)
+                        }
+                        Button("Check for Updates") {
+                            Task { await model.checkForUpdate(manual: true) }
+                        }
+                        .disabled(model.isCheckingForUpdate || model.isInstallingUpdate)
+                    }
+                }
+
+                LabeledContent("Source code") {
+                    Link("View on GitHub", destination: UpdateChecker.repositoryURL)
+                }
             }
         }
         .formStyle(.grouped)
@@ -167,6 +179,7 @@ struct SettingsView: View {
                             .truncationMode(.middle)
                             .frame(width: 290, alignment: .trailing)
                         Button("Choose…") { model.chooseOutputDirectory() }
+                        Button("Show in Finder") { model.openSaveFolder() }
                     }
                 }
             }
@@ -201,7 +214,7 @@ struct SettingsView: View {
     private var shortcutsForm: some View {
         Form {
             Section("Create") {
-                ShortcutRow(action: "New draft", keys: "⌘N")
+                ShortcutRow(action: "New", keys: "⌘N")
                 ShortcutRow(action: "Add to Library", keys: "⌘O")
                 ShortcutRow(action: "Import text into draft", keys: "⇧⌘O")
                 ShortcutRow(action: "Generate speech", keys: "⌘↩")
@@ -209,7 +222,8 @@ struct SettingsView: View {
             }
             Section("Navigation and playback") {
                 ShortcutRow(action: "Open Library", keys: "⌘1")
-                ShortcutRow(action: "Open Create", keys: "⌘2")
+                ShortcutRow(action: "Open Voices", keys: "⌘2")
+                ShortcutRow(action: "Open Settings", keys: "⌘,")
                 ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
                 ShortcutRow(action: "Play or pause", keys: "⌥Space")
                 ShortcutRow(action: "Cancel generation", keys: "Esc")
@@ -245,6 +259,7 @@ private struct SettingsPane<Content: View>: View {
 
             // The form's own grey would cut the pane in two under its header.
             content.scrollContentBackground(.hidden)
+                .attenFormScrollPadding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AttenColor.appBackground)

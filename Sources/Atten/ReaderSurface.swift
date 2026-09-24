@@ -371,6 +371,7 @@ struct ReaderTextView: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, AttenSpacing.md)
             .padding(.top, AttenSpacing.xxl)
+            .attenScrollPadding()
         }
         .scrollPosition(id: $position, anchor: .top)
         .background(Color(hex: palette.background))

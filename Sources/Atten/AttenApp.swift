@@ -33,7 +33,7 @@ struct AttenApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Draft") {
+                Button("New") {
                     model.newDraft()
                     NotificationCenter.default.post(name: .attenOpenStudio, object: nil)
                 }
@@ -88,14 +88,14 @@ struct AttenApp: App {
                 Divider()
                 Button("Library") { model.returnToShelf() }
                 .keyboardShortcut("1")
-                Button("Create") { model.section = .studio }
+                Button("Voices") { model.section = .voices }
                 .keyboardShortcut("2")
             }
-        }
-
-        Settings {
-            SettingsView(model: model)
-                .frame(width: 680, height: 520)
+            // Settings is a place in the window now, not a second window.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { model.section = .settings }
+                    .keyboardShortcut(",")
+            }
         }
     }
 }
