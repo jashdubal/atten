@@ -77,7 +77,7 @@ struct VoicesView: View {
             AttenSearchField(prompt: "Search voices", text: $query)
                 .frame(maxWidth: 240)
             Text("\(filteredVoices.count) voices")
-                .font(AttenTypography.metadata)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
         }
     }
@@ -158,7 +158,7 @@ private struct VoiceRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: AttenSpacing.xs) {
                     Text(voice.name)
-                        .font(AttenTypography.control.weight(.semibold))
+                        .font(AttenTypography.callout.weight(.semibold))
                         .foregroundStyle(AttenColor.textPrimary)
                     if isSelected {
                         Label("Selected", systemImage: "checkmark")
@@ -171,7 +171,7 @@ private struct VoiceRow: View {
                     requiredModelID.map { "\(voice.language) · Needs \($0)" }
                         ?? "\(voice.language) · \(voice.gender) · \(voice.provider)"
                 )
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(
                     requiredModelID == nil ? AttenColor.textSecondary : AttenColor.accentSecondary
                 )
@@ -183,7 +183,7 @@ private struct VoiceRow: View {
                 HStack(spacing: AttenSpacing.xs) {
                     ForEach(voice.traits.prefix(2), id: \.self) { trait in
                         Text(trait.capitalized)
-                            .font(AttenTypography.caption)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)

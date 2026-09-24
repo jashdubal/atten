@@ -29,6 +29,7 @@ struct LibraryView: View {
     /// The item a dedupe toast points at: shown while non-nil, and where the
     /// shelf scrolls to and briefly highlights.
     @State private var duplicateBookID: UUID?
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -54,6 +55,12 @@ struct LibraryView: View {
                         reduceMotion: reduceMotion
                     )
                 )
+            if model.libraryPath.isEmpty {
+                Button("Search Library") { isSearchFocused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
         }
         .animation(
             AttenMotion.transitionAnimation(
@@ -210,7 +217,7 @@ struct LibraryView: View {
 
     private var pageHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Library").font(AttenTypography.pageTitle)
+            Text("Library").font(AttenTypography.title2)
             Text("Your books and documents, ready when you are.")
                 .font(AttenTypography.body).foregroundStyle(AttenColor.textSecondary)
         }
@@ -270,7 +277,7 @@ struct LibraryView: View {
             ForEach(AttenCore.LibraryItemFilter.allCases, id: \.rawValue) { filter in
                 Button { selectedFilter = filter } label: {
                     Text(filter.title)
-                        .font(AttenTypography.control)
+                        .font(AttenTypography.callout)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
                 }
@@ -300,7 +307,7 @@ struct LibraryView: View {
                 .fixedSize()
                 .help("Sort books")
             }
-            .font(AttenTypography.metadata)
+            .font(AttenTypography.callout)
             Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
             HStack(spacing: 4) {
                 layoutButton(list: false, icon: "square.grid.2x2.fill", title: "Grid view")
@@ -324,7 +331,7 @@ struct LibraryView: View {
             Image(systemName: "arrow.down.doc")
                 .foregroundStyle(AttenColor.textMuted)
             Text("Drop a PDF, EPUB, Kindle, Word, RTF, Markdown, HTML or text file here")
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
             Spacer(minLength: 0)
         }
@@ -334,8 +341,13 @@ struct LibraryView: View {
     }
 
     private var searchField: some View {
-        AttenSearchField(prompt: "Search your library…", text: $model.libraryQuery, height: 34)
-            .frame(maxWidth: 640)
+        AttenSearchField(
+            prompt: "Search your library…",
+            text: $model.libraryQuery,
+            height: 34,
+            externalFocus: $isSearchFocused
+        )
+        .frame(maxWidth: 640)
     }
 
     private var emptyState: some View {
@@ -544,11 +556,11 @@ private struct BookCard: View {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(book.title)
-                            .font(AttenTypography.control.weight(.semibold))
+                            .font(AttenTypography.callout.weight(.semibold))
                             .foregroundStyle(AttenColor.textPrimary)
                             .lineLimit(2)
                         Text(book.author ?? book.format.displayName)
-                            .font(AttenTypography.metadata)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                     }
@@ -558,7 +570,7 @@ private struct BookCard: View {
                         NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
                     } else if isFullyNarrated {
                         Label("Ready to listen", systemImage: "headphones")
-                            .font(AttenTypography.caption)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                     }
                     }
@@ -676,7 +688,7 @@ struct NarrationMeter: View {
                 Text("\(Int(fraction * 100))%")
                     .monospacedDigit()
             }
-            .font(AttenTypography.caption)
+            .font(AttenTypography.callout)
             .foregroundStyle(AttenColor.textSecondary)
             .padding(.top, 4)
         }

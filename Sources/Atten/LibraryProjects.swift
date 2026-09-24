@@ -136,7 +136,7 @@ private struct ProjectRow: View {
                 )
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(fileExists ? AttenColor.accent : AttenColor.textSecondary)
                     .frame(width: 30, height: 30)
                     .background(AttenColor.accent.opacity(fileExists ? 0.10 : 0.04))
@@ -150,27 +150,27 @@ private struct ProjectRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: AttenSpacing.xs) {
                     Text(project.title)
-                        .font(AttenTypography.control.weight(.semibold))
+                        .font(AttenTypography.callout.weight(.semibold))
                         .foregroundStyle(AttenColor.textPrimary)
                         .lineLimit(1)
                     if project.isLegacyImport {
                         Text("Imported")
-                            .font(AttenTypography.caption)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.warning)
                     }
                     if !fileExists {
                         Label("Missing", systemImage: "exclamationmark.triangle")
-                            .font(AttenTypography.caption)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.destructive)
                     }
                 }
                 Text(project.text)
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
                 if !isWide {
                     Text("\(voice.name) · \(project.format.displayName) · \(durationText) · \(project.updatedAt.formatted(date: .abbreviated, time: .omitted))")
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
                 }
@@ -194,7 +194,7 @@ private struct ProjectRow: View {
             .frame(width: 30)
             .accessibilityLabel("Actions for \(project.title)")
         }
-        .font(AttenTypography.metadata)
+        .font(AttenTypography.callout)
         .foregroundStyle(AttenColor.textSecondary)
         .padding(.horizontal, AttenSpacing.sm)
         .frame(minHeight: isWide ? 64 : 72)

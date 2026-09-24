@@ -101,7 +101,7 @@ struct SettingsView: View {
                     .help("Turn this off to keep this version indefinitely and never use the network")
 
                 Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually here.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
 
                 LabeledContent("Version") {
@@ -143,9 +143,12 @@ struct SettingsView: View {
                     HStack {
                         Slider(value: $model.speed, in: 0.5...2, step: 0.05)
                             .frame(width: 190)
+                            .accessibilityLabel("Speech speed")
+                            .accessibilityValue(String(format: "%.2f×", model.speed))
                         Text(String(format: "%.2f×", model.speed))
                             .monospacedDigit()
                             .frame(width: 48, alignment: .trailing)
+                            .accessibilityHidden(true)
                     }
                 }
 
@@ -173,7 +176,7 @@ struct SettingsView: View {
                 ) {
                     HStack(spacing: AttenSpacing.xs) {
                         Text(model.settings.outputDirectory)
-                            .font(AttenTypography.metadata)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -186,7 +189,7 @@ struct SettingsView: View {
 
             Section {
                 Text("Existing audio in the original outputs folder is discovered without being moved.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
@@ -204,7 +207,7 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 Text("Atten has one palette, drawn light or dark. Motion and transparency follow your macOS accessibility preferences.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
@@ -216,16 +219,22 @@ struct SettingsView: View {
             Section("Create") {
                 ShortcutRow(action: "New", keys: "⌘N")
                 ShortcutRow(action: "Add to Library", keys: "⌘O")
-                ShortcutRow(action: "Import text into draft", keys: "⇧⌘O")
+                ShortcutRow(action: "Import into Create", keys: "⌘I")
                 ShortcutRow(action: "Generate speech", keys: "⌘↩")
                 ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
             }
-            Section("Navigation and playback") {
+            Section("Library and reader") {
                 ShortcutRow(action: "Open Library", keys: "⌘1")
                 ShortcutRow(action: "Open Voices", keys: "⌘2")
                 ShortcutRow(action: "Open Settings", keys: "⌘,")
-                ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
-                ShortcutRow(action: "Play or pause", keys: "⌥Space")
+                ShortcutRow(action: "Search the Library", keys: "⌘F")
+                ShortcutRow(action: "Find in book", keys: "⌘F")
+            }
+            Section("Playback") {
+                ShortcutRow(action: "Play or pause", keys: "Space")
+                ShortcutRow(action: "Play or pause (anywhere)", keys: "⌥Space")
+                ShortcutRow(action: "Skip back 15 seconds", keys: "←")
+                ShortcutRow(action: "Skip forward 15 seconds", keys: "→")
                 ShortcutRow(action: "Cancel generation", keys: "Esc")
             }
         }
@@ -248,7 +257,7 @@ private struct SettingsPane<Content: View>: View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
                 Text(title)
-                    .font(AttenTypography.pageTitle)
+                    .font(AttenTypography.title2)
                     .foregroundStyle(AttenColor.textPrimary)
                 Text(detail)
                     .font(AttenTypography.body)
@@ -273,7 +282,7 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent(action) {
             Text(keys)
-                .font(AttenTypography.readout)
+                .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.textSecondary)
                 .padding(.horizontal, AttenSpacing.xs)
                 .padding(.vertical, AttenSpacing.xxs)

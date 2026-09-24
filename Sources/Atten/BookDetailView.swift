@@ -106,12 +106,12 @@ struct BookDetailView: View {
                         .font(.system(size: 26))
                         .foregroundStyle(AttenColor.accent.opacity(0.8))
                     Text(book.format.displayName)
-                        .font(AttenTypography.caption.weight(.semibold))
+                        .font(AttenTypography.callout.weight(.semibold))
                         .foregroundStyle(AttenColor.textSecondary)
                 }
             }
         }
-        .frame(width: 132, height: 198)
+        .frame(width: AttenMetrics.coverGridMinimum, height: AttenMetrics.coverGridMinimum / AttenMetrics.coverAspectRatio)
         .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
@@ -171,10 +171,10 @@ struct BookDetailView: View {
                 .foregroundStyle(AttenColor.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Source file unavailable")
-                    .font(AttenTypography.control.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.textPrimary)
                 Text("Reading and revealing the original file are disabled. Narration already on disk remains available.")
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
             Spacer(minLength: 0)
@@ -244,11 +244,11 @@ struct BookDetailView: View {
             } else {
                 if let failure = book.narrationFailure {
                     Text("Preparation stopped: \(failure) Resume to retry. Completed chapters are saved.")
-                        .font(AttenTypography.caption).foregroundStyle(AttenColor.destructive)
+                        .font(AttenTypography.callout).foregroundStyle(AttenColor.destructive)
                 }
                 Label(shelf.isFullyNarrated(book) ? "Audiobook ready" : "\(narratedCount) of \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters") prepared",
                       systemImage: shelf.isFullyNarrated(book) ? "checkmark.circle" : "waveform")
-                    .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
+                    .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
             }
 
             Divider().overlay(AttenColor.separator)
@@ -282,7 +282,7 @@ struct BookDetailView: View {
             }
             Spacer(minLength: 0)
         }
-        .font(AttenTypography.metadata)
+        .font(AttenTypography.callout)
         .foregroundStyle(AttenColor.textSecondary)
         .disabled(progress != nil)
     }
@@ -368,18 +368,18 @@ private struct ChapterRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(number). \(chapter.title)")
-                    .font(AttenTypography.control)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textPrimary)
                     .lineLimit(1)
                 Text(chapter.text.prefix(120))
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(detail)
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
                 .frame(width: 96, alignment: .trailing)
         }
@@ -411,7 +411,7 @@ private struct ChapterRow: View {
                 if isPlaying { model.toggleActivePlayback() } else { model.listen(to: book, chapter: chapter) }
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.accent)
                     .frame(width: 30, height: 30)
                     .background(AttenColor.accent.opacity(0.10))
@@ -421,7 +421,7 @@ private struct ChapterRow: View {
             .accessibilityLabel(isPlaying ? "Pause \(chapter.title)" : "Play \(chapter.title)")
         } else {
             Image(systemName: "text.alignleft")
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
                 .frame(width: 30, height: 30)
                 .accessibilityHidden(true)

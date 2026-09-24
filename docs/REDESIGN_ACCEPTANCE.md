@@ -40,6 +40,70 @@ release gates below (spoken VoiceOver, keyboard-only acceptance, reduced-motion
 visual inspection, physical media keys, light/dark screenshot capture) were not
 performed for this addendum.
 
+## Addendum — 2026-09-24: UI overhaul P7 — final pass (#55)
+
+Closes #55. The last phase of the UI overhaul (`docs/design-system.md` covers
+the token/component reference this phase adds):
+
+- **Dead code:** `HomeView.swift` (480 lines, zero references outside its own
+  file; its one reusable piece, `BookJacket`, moved into
+  `ContinueListeningHero.swift`, its sole consumer) and AppModel's Playground
+  sample API and separate text-import API (`importText`/`openImportPanel`,
+  distinct from `CreateFlowModel`'s own live import) are removed, along with
+  the tests that only exercised them. `ProjectsView`, `ExportsView` and
+  `PlaygroundView` no longer existed under those names by the start of this
+  phase. The ~130 deprecated typography call sites were already migrated to
+  the P1 type scale; the now-unreferenced deprecated aliases
+  (`AttenTypography.caption`/`.control`/etc., `AttenRadius.player`) and two
+  unused `AttenMetrics` fields are removed (`coverGridMinimum` was in fact
+  still needed — `BookDetailView`'s cover frame now uses it instead of a
+  duplicated magic number).
+- **OKLCH consolidation:** `CoverPalette`'s own sRGB↔OKLab conversion is
+  replaced with a thin bridge onto P1's `OKLCH` in `AttenCore`, so the
+  gamut-mapping math exists once. `OKLCHColor.srgb()` now preserves hue on an
+  out-of-gamut colour instead of naively clamping each channel.
+  `OKLCHTests`/`CoverPaletteTests` stay green, unchanged.
+- **Contrast:** `PaletteAmbientContrastTests` extends the palette's contrast
+  coverage from the fixed palette (`ThemeTests`) to the runtime ambient field —
+  `AmbientContrast`'s opacity search is verified to hold `text1` at 4.5:1
+  against an adversarial sample set, the calmed samples the field actually
+  draws from, and the raw composite blend, in both appearances.
+- **Keyboard:** *Import into Create* moves from the conflicting ⇧⌘O onto ⌘I,
+  matching Create's own local import button. The Library gets its own ⌘F
+  (through a new optional external-focus binding on `AttenSearchField`,
+  mounted only on the shelf page so it can never contend with the Reader's
+  own ⌘F). Space play/pause and arrow-key 15s skip already existed, scoped to
+  the Read-Along player. Settings → Shortcuts is rewritten to match what's
+  actually bound and drops the row for the removed Playground sample.
+- **Focus ring:** fixed showing on the first sidebar control at launch under
+  system Keyboard Navigation — a new `attenHasUsedKeyboard` environment
+  value, published from one `NSEvent` keyDown monitor at the window root,
+  gates both `AttenFocusRing` and the sidebar's own focus border so a ring
+  only appears once a key has actually been pressed.
+- **Accessibility:** the Settings speed `Slider` gets an explicit
+  accessibility label and value (it had none; `LabeledContent`'s row label
+  doesn't substitute for the control's own). Reduce Motion's "static level"
+  requirement was already centralized in `VoiceLevel` (holds at 0.5 rather
+  than sampling per frame); a `ReadAlongPlayButton` property that duplicated
+  and never read that check is removed. Reduce Transparency was already
+  centralized in `Glass.swift`/`Buttons.swift`.
+
+`swift build -c release`, `swift test` (357 tests, up from 354 — 3 new
+ambient-contrast tests), and `uv run python -m unittest discover -s tests -p
+'test_*.py'` all pass. This is automated evidence only.
+
+**Not done in this pass, and left for a coordinator with the live app:**
+Reduce Motion/Reduce Transparency visual inspection per screen, full
+keyboard-only navigation acceptance of Create and the Library, spoken
+VoiceOver acceptance beyond the one control fixed above, and the Instruments
+(Animation Hitches / Core Animation FPS) trace scrolling a 500-item Library
+with playback and the ambient field active. These all need the GUI, which
+this pass was explicitly asked not to launch; the code paths they'd exercise
+(reduceMotion/reduceTransparency environment reads, accessibility labels,
+the focus-ring gate) are in place and covered where `swift test` can reach
+them — the `Atten` executable target's views themselves are outside
+`AttenCoreTests`' coverage, same as the rest of the app.
+
 ## Implemented
 
 - Library and Create are the primary workspaces. Library opens by default and

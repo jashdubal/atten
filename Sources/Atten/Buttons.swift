@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Atten has three kinds of button and no others.
@@ -131,11 +132,60 @@ private struct AttenTertiaryButtonBody: View {
 
 // MARK: - Focus
 
+/// Whether a key has been pressed yet this launch.
+///
+/// With system Keyboard Navigation on, macOS gives some control focus before
+/// the reader has touched a key, which made a ring appear on the first button
+/// at launch as if it had been reached on purpose. Gating every ring on this
+/// keeps it for keyboard use only, not whatever focus a window opens with.
+private struct AttenKeyboardInteractionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var attenHasUsedKeyboard: Bool {
+        get { self[AttenKeyboardInteractionKey.self] }
+        set { self[AttenKeyboardInteractionKey.self] = newValue }
+    }
+}
+
+/// Watches for the first key press and publishes it down as
+/// `attenHasUsedKeyboard`. One instance, at the root of the window.
+private struct AttenKeyboardInteractionTracking: ViewModifier {
+    @State private var hasUsedKeyboard = false
+    @State private var monitor: Any?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.attenHasUsedKeyboard, hasUsedKeyboard)
+            .onAppear {
+                guard monitor == nil else { return }
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    hasUsedKeyboard = true
+                    return event
+                }
+            }
+            .onDisappear {
+                if let monitor { NSEvent.removeMonitor(monitor) }
+                monitor = nil
+            }
+    }
+}
+
+extension View {
+    /// Marks the root of a window so its focus rings only show once the
+    /// reader has actually used a key.
+    func attenKeyboardInteractionTracking() -> some View {
+        modifier(AttenKeyboardInteractionTracking())
+    }
+}
+
 /// The keyboard focus ring: a 2pt `signal` outline, 2pt clear of the control,
 /// with corners concentric to it.
 private struct AttenFocusRing: ViewModifier {
     let cornerRadius: CGFloat
     @FocusState private var isFocused: Bool
+    @Environment(\.attenHasUsedKeyboard) private var hasUsedKeyboard
 
     func body(content: Content) -> some View {
         let inset = AttenState.focusRingOffset + AttenState.focusRingWidth / 2
@@ -143,7 +193,7 @@ private struct AttenFocusRing: ViewModifier {
             .focused($isFocused)
             .focusEffectDisabled()
             .overlay {
-                if isFocused {
+                if isFocused, hasUsedKeyboard {
                     RoundedRectangle(cornerRadius: cornerRadius + inset, style: .continuous)
                         .stroke(AttenColor.focus, lineWidth: AttenState.focusRingWidth)
                         .padding(-inset)

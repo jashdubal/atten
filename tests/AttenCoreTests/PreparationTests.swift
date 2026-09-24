@@ -106,9 +106,7 @@ final class PreparationTests: XCTestCase {
         model.draftText = "A competing narration"
         model.generate()
         model.previewVoice(VoiceCatalog.defaultVoice)
-        model.generatePlaygroundSample(text: "sample", voiceID: "af_heart", speed: 1, format: .wav, useMPS: false)
         XCTAssertFalse(model.isGenerating)
-        XCTAssertFalse(model.isPlaygroundGenerating)
         XCTAssertNil(model.voicePreviewID)
         model.bookshelf.cancelNarration()
         try await finish(model.bookshelf)

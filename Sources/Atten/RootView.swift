@@ -84,7 +84,7 @@ struct RootView: View {
                     if let activity = model.synthesis.activity, model.section != .studio {
                         HStack {
                             ProgressView().controlSize(.small)
-                            Text(activity).font(AttenTypography.caption)
+                            Text(activity).font(AttenTypography.callout)
                             Spacer()
                             Button("Stop") {
                                 if model.bookshelf.isNarrating { model.bookshelf.cancelNarration() }
@@ -98,7 +98,7 @@ struct RootView: View {
                     if model.isExportingBook {
                         HStack {
                             ProgressView().controlSize(.small)
-                            Text("Exporting audiobook…").font(AttenTypography.caption)
+                            Text("Exporting audiobook…").font(AttenTypography.callout)
                             Spacer()
                         }.padding(.horizontal, 24).padding(.vertical, 8)
                     }
@@ -172,6 +172,7 @@ struct RootView: View {
             model.readerWindowDidExitFullScreen()
         }
         .mouseNavigationButtons(back: model.goBack)
+        .attenKeyboardInteractionTracking()
         .alert("Atten could not finish starting", isPresented: startupAlert) {
             Button("OK", role: .cancel) { model.startupError = nil }
         } message: {
@@ -317,6 +318,7 @@ private struct SidebarNavigationRow: View {
     let action: () -> Void
 
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.attenHasUsedKeyboard) private var hasUsedKeyboard
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
@@ -327,7 +329,7 @@ private struct SidebarNavigationRow: View {
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 18)
                 Text(item.label)
-                    .font(AttenTypography.control)
+                    .font(AttenTypography.callout)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -363,7 +365,7 @@ private struct SidebarNavigationRow: View {
 
     /// Keyboard focus adds a visible outline without changing the selection.
     private var borderColor: Color {
-        isFocused ? AttenColor.focus : .clear
+        isFocused && hasUsedKeyboard ? AttenColor.focus : .clear
     }
 }
 
@@ -462,7 +464,7 @@ private struct TopChrome: View {
         VStack(alignment: .leading, spacing: 3) {
             if let title {
                 Text(title.title)
-                    .font(title.isProminent ? AttenTypography.displayTitle : AttenTypography.sectionTitle)
+                    .font(title.isProminent ? AttenTypography.display : AttenTypography.body.weight(.semibold))
                     .foregroundStyle(AttenColor.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
