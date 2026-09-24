@@ -18,6 +18,10 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
     private var server: ServeProcess?
     private var current: Job?
     private var waiting: [Job] = []
+    /// Every job still in flight, keyed by the id a sharing owner cancels by
+    /// — including one not yet current or waiting, so a cancel that lands in
+    /// that gap is not lost.
+    private var jobsByID: [String: Job] = [:]
     private var usesFallback = false
     private var idleToken = 0
 
@@ -37,6 +41,15 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
     }
 
     public func generateStream(_ request: GenerationRequest) -> AsyncThrowingStream<GenerationEvent, Error> {
+        generateStream(request, id: UUID().uuidString)
+    }
+
+    /// `id` names this request on the wire, so a caller sharing this client
+    /// with another owner can cancel its own request without reaching theirs.
+    public func generateStream(
+        _ request: GenerationRequest,
+        id: String
+    ) -> AsyncThrowingStream<GenerationEvent, Error> {
         var request = request
         if request.segmentsDirectory == nil {
             request.segmentsDirectory = request.outputDirectory
@@ -46,7 +59,7 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
-                    let output = try await generate(streamingRequest) { line in
+                    let output = try await generate(streamingRequest, id: id) { line in
                         guard let event = try? JSONDecoder().decode(ProcessBackendClient.Event.self, from: line)
                         else { return }
                         if let value = event.generationEvent { continuation.yield(value) }
@@ -67,7 +80,13 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
     }
 
     public func generate(_ request: GenerationRequest) async throws -> GenerationOutput {
-        try await generate(request, onLine: nil)
+        try await generate(request, id: UUID().uuidString)
+    }
+
+    /// `id` names this request on the wire, so a caller sharing this client
+    /// with another owner can cancel its own request without reaching theirs.
+    public func generate(_ request: GenerationRequest, id: String) async throws -> GenerationOutput {
+        try await generate(request, id: id, onLine: nil)
     }
 
     /// Stops the request in progress and every request waiting behind it.
@@ -94,6 +113,7 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
 
     private func generate(
         _ request: GenerationRequest,
+        id: String,
         onLine: (@Sendable (Data) -> Void)?
     ) async throws -> GenerationOutput {
         guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -101,7 +121,9 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
         }
         guard let installation else { throw BackendError.backendNotFound }
 
-        let job = Job()
+        let job = Job(id: id)
+        lock.withLock { jobsByID[id] = job }
+        defer { lock.withLock { _ = jobsByID.removeValue(forKey: id) } }
         try await waitForTurn(job)
         defer { finishTurn() }
         if lock.withLock({ usesFallback }) {
@@ -131,7 +153,7 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
                 throw BackendError.cancelled
             }
         } onCancel: {
-            self.cancel(job)
+            self.cancel(id: job.id)
         }
     }
 
@@ -178,7 +200,7 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
                 }
             }
         } onCancel: {
-            self.cancel(job)
+            self.cancel(id: job.id)
         }
     }
 
@@ -207,19 +229,25 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
         }
     }
 
-    /// Cancels one request: a waiting one never reaches the engine, and the
-    /// running one is asked to stop.
-    private func cancel(_ job: Job) {
-        let (turn, isCurrent, server) = lock.withLock { () -> (CheckedContinuation<Void, Error>?, Bool, ServeProcess?) in
+    /// Cancels one request by id: a waiting one never reaches the engine, and
+    /// the running one is asked to stop. A request submitted by another owner
+    /// sharing this client is untouched, since its id is never matched.
+    public func cancel(id: String) {
+        guard let (turn, isCurrent, server, usesFallback) = lock.withLock({
+            () -> (CheckedContinuation<Void, Error>?, Bool, ServeProcess?, Bool)? in
+            guard let job = jobsByID[id] else { return nil }
             job.cancelled = true
             if let index = waiting.firstIndex(where: { $0 === job }) {
                 waiting.remove(at: index)
-                return (job.turn, false, nil)
+                return (job.turn, false, nil, false)
             }
-            return (nil, current === job, self.server)
-        }
+            return (nil, current === job, self.server, self.usesFallback)
+        }) else { return }
         turn?.resume(throwing: BackendError.cancelled)
-        if isCurrent { server?.cancel(job.id) }
+        if isCurrent {
+            server?.cancel(id)
+            if usesFallback { fallback.cancel() }
+        }
     }
 
     private func isCancelled(_ job: Job) -> Bool {
@@ -247,9 +275,11 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
 
     /// One request's place in line. Its fields are guarded by the client's lock.
     private final class Job: @unchecked Sendable {
-        let id = UUID().uuidString
+        let id: String
         var cancelled = false
         var turn: CheckedContinuation<Void, Error>?
+
+        init(id: String) { self.id = id }
     }
 }
 
