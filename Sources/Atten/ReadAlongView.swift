@@ -562,7 +562,6 @@ private struct ReadAlongTransport: View {
 /// Play and pause, with a glow that breathes with the voice while it plays.
 private struct ReadAlongPlayButton: View {
     @Bindable var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: model.toggleActivePlayback) {

@@ -143,9 +143,12 @@ struct SettingsView: View {
                     HStack {
                         Slider(value: $model.speed, in: 0.5...2, step: 0.05)
                             .frame(width: 190)
+                            .accessibilityLabel("Speech speed")
+                            .accessibilityValue(String(format: "%.2f×", model.speed))
                         Text(String(format: "%.2f×", model.speed))
                             .monospacedDigit()
                             .frame(width: 48, alignment: .trailing)
+                            .accessibilityHidden(true)
                     }
                 }
 
