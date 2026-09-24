@@ -9,7 +9,7 @@ struct BookDetailView: View {
 
     @State private var pendingVoice: Voice?
     @State private var confirmRemoval = false
-    @State private var pendingSpeed: Double?
+    @State private var pendingExport: ExportTarget?
 
     private var shelf: BookshelfModel { model.bookshelf }
 
@@ -55,17 +55,6 @@ struct BookDetailView: View {
         } message: {
             Text("Prepare the book again to use this voice. Your existing audiobook remains available until its replacement is ready.")
         }
-        .confirmationDialog("Change narration speed?", isPresented: Binding(
-            get: { pendingSpeed != nil }, set: { if !$0 { pendingSpeed = nil } }
-        ), titleVisibility: .visible) {
-            Button("Change Speed") {
-                if let pendingSpeed { shelf.updateSpeed(pendingSpeed, for: book.id) }
-                pendingSpeed = nil
-            }
-            Button("Cancel", role: .cancel) { pendingSpeed = nil }
-        } message: {
-            Text("Prepare the book again to apply this change. The existing audiobook remains playable. Use the player speed control to change listening speed immediately.")
-        }
         .confirmationDialog(
             "Remove \(book.title) from your library?",
             isPresented: $confirmRemoval,
@@ -75,6 +64,9 @@ struct BookDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Atten's copy of the book and every chapter it narrated are deleted. The original file is untouched.")
+        }
+        .sheet(item: $pendingExport) { target in
+            ExportSheet(model: model, target: target)
         }
     }
 
@@ -151,10 +143,10 @@ struct BookDetailView: View {
 
     private var actionsMenu: some View {
         Menu {
-            Button(model.isExportingBook ? "Exporting Audiobook…" : "Export Audiobook…", systemImage: "square.and.arrow.up") {
-                model.exportBook(book)
+            Button("Export…", systemImage: "square.and.arrow.up") {
+                pendingExport = ExportTarget(book: book)
             }
-            .disabled(!book.hasBookAudio || model.isExportingBook)
+            .disabled(!book.hasBookAudio)
             Divider()
             Button("Reveal Source in Finder", systemImage: "folder") {
                 model.revealBookSource(book)
@@ -278,22 +270,14 @@ struct BookDetailView: View {
                 .labelsHidden()
                 .frame(width: 220)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Narration speed")
-                Picker("Narration speed", selection: speedBinding) {
-                    ForEach([0.75, 0.9, 1.0, 1.15, 1.3, 1.5], id: \.self) { value in
-                        Text(String(format: "%.2g×", value)).tag(value)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 90)
-            }
             if let required = model.requiredModelID(for: book.voiceID) {
                 Button("Download Voice Model") { model.library.download(required) }
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .disabled(model.library.downloads[required] != nil)
                     .help("Download once; this voice then works offline")
             } else if let voice = VoiceCatalog.voice(id: book.voiceID) {
                 Button("Preview") { model.previewVoice(voice) }
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .disabled(model.synthesis.isBusy)
             }
             Spacer(minLength: 0)
@@ -320,16 +304,6 @@ struct BookDetailView: View {
                 } else {
                     shelf.updateVoice(newValue, for: book.id)
                 }
-            }
-        )
-    }
-
-    private var speedBinding: Binding<Double> {
-        Binding(
-            get: { book.speed },
-            set: { value in
-                if narratedCount > 0 || book.hasBookAudio { pendingSpeed = value }
-                else { shelf.updateSpeed(value, for: book.id) }
             }
         )
     }
