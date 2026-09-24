@@ -233,6 +233,36 @@ Closes #75.
 and `swift build -c release` all pass. No GUI: the live on-screen check is
 the coordinator's, same as the addendum above.
 
+## Addendum — 2026-09-24: the cover halo, still there after capping at 0.25 (#75)
+
+A coordinator review of PR #76's own render found the previous entry's fix
+insufficient: `library-qa-shelf-dark.jpg` still showed a ~25px band along
+each cover's right edge and a thin one below, dense enough on the JPEG to
+read as a hard-edged rectangle rather than a fading shadow — plausibly a
+grid cell or background sized wider than the cover, not a shadow at all.
+Re-rendering with the shadow's opacity forced to `0` settled it either way:
+the band vanished completely, so `AttenCoverFrame`'s shadow was always the
+whole cause — `LibraryView`'s grid sizes the jacket and its column correctly,
+and the sharp-looking edge was just how a lightness-0.25 shadow, still five
+times brighter than the near-black page, degrades under JPEG's quantizing of
+a low-contrast gradient. Every other shadow in the app is cast in
+`AttenColor.shadow` — pure black in both appearances, so it all but
+disappears against a dark page and only ever darkens a light one; this
+shadow, tinted by the cover's own hue for the reason `attenCoverFrame`'s own
+doc comment gives, now pins that tint's lightness at 0.05 rather than 0.25 —
+close enough to black to do the same disappearing act in dark appearance
+while keeping its hue in light appearance, where the lower lightness reads
+as a slightly more present but still ordinary shadow. Re-rendered
+`library-qa-shelf-{dark,light}.jpg` and `library-qa-toast-{dark,light}.jpg`
+again; this addendum's own pre-fix renders are kept as
+`library-qa-{shelf,toast}-before-cover-box-fix-{dark,light}.jpg`, and
+`library-qa-cover-edge-zoom-{dark,light}.jpg` crops a cover's right edge
+from both side by side.
+
+`swift test` (382 tests, 4 skipped), `uv run python -m unittest discover -s
+tests -p 'test_*.py'` (40 tests) and `swift build -c release` all pass. No
+GUI: the live on-screen check is the coordinator's.
+
 ## Implemented
 
 - Library and Create are the primary workspaces. Library opens by default and

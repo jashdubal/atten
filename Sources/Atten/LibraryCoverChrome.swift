@@ -42,14 +42,24 @@ extension View {
 private struct AttenCoverFrame: ViewModifier {
     let tint: OKLCHColor
 
-    // `AttenColor.cover` keeps a cover's own colours fixed across appearances,
-    // but `tint`'s lightness (~0.6, for the glow a cover's dominant colour or
-    // seed hue is drawn at) is a mid tone meant to be seen, not cast — used
-    // as-is, it reads as a solid rectangle offset to the shadow's lower right
-    // against a dark appearance's near-black backdrop, where a light mode
-    // background is close enough to it that the same offset just fades.
+    // Every other shadow in the app is cast in `AttenColor.shadow` — pure
+    // black in both appearances, so it all but disappears against a dark
+    // appearance's near-black page and only ever darkens a light one. This
+    // shadow is tinted by the cover's own hue instead, but `tint` itself
+    // carries a mid lightness (~0.6, meant to be seen at, not cast a shadow
+    // in) — used as-is, that reads as a solid lighter rectangle wherever the
+    // shadow's `y: 2` offset carries it past the cover's own edge, on a dark
+    // appearance's near-black backdrop; a light mode background is close
+    // enough to that lightness that the same offset just fades. Confirmed by
+    // re-rendering with the shadow's opacity forced to 0: the band vanishes
+    // completely, so the shadow is the whole cause, not a background or
+    // frame sized to the grid cell rather than the cover. Keeping the hue
+    // and chroma but pinning lightness near black keeps the "tinted by the
+    // art" character in light mode while making dark mode's version close
+    // enough to the page to read as no shadow at all, same as everywhere
+    // else.
     private var shadowTint: OKLCHColor {
-        OKLCHColor(lightness: min(tint.lightness, 0.25), chroma: tint.chroma, hue: tint.hue)
+        OKLCHColor(lightness: 0.05, chroma: tint.chroma, hue: tint.hue)
     }
 
     func body(content: Content) -> some View {
