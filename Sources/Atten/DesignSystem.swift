@@ -589,8 +589,12 @@ struct AttenSearchField: View {
     let prompt: String
     @Binding var text: String
     var height: CGFloat = 30
+    /// Lets a page focus the field itself — from a keyboard shortcut, say —
+    /// instead of only tracking whether it happens to be focused.
+    var externalFocus: FocusState<Bool>.Binding?
 
-    @FocusState private var isFocused: Bool
+    @FocusState private var ownedFocus: Bool
+    private var focus: FocusState<Bool>.Binding { externalFocus ?? $ownedFocus }
 
     var body: some View {
         HStack(spacing: AttenSpacing.xs) {
@@ -601,7 +605,7 @@ struct AttenSearchField: View {
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
                 .font(AttenTypography.callout)
-                .focused($isFocused)
+                .focused(focus)
                 .accessibilityLabel(prompt)
             if !text.isEmpty {
                 Button { text = "" } label: {
@@ -618,7 +622,7 @@ struct AttenSearchField: View {
         .attenInput()
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.control)
-                .stroke(isFocused ? AttenColor.focus : .clear, lineWidth: 1)
+                .stroke(focus.wrappedValue ? AttenColor.focus : .clear, lineWidth: 1)
         }
         .onExitCommand { text = "" }
     }

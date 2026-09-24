@@ -45,7 +45,7 @@ struct AttenApp: App {
                 Button("Import into Create…") {
                     model.section = .studio
                     model.createFlow.openImportPanel()
-                }.keyboardShortcut("o", modifiers: [.command, .shift])
+                }.keyboardShortcut("i", modifiers: [.command])
                 Button("Export Current Audio…") { model.exportCurrent() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
                     .disabled(model.currentAudioURL == nil && model.playingBook?.hasBookAudio != true)

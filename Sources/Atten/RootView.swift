@@ -172,6 +172,7 @@ struct RootView: View {
             model.readerWindowDidExitFullScreen()
         }
         .mouseNavigationButtons(back: model.goBack)
+        .attenKeyboardInteractionTracking()
         .alert("Atten could not finish starting", isPresented: startupAlert) {
             Button("OK", role: .cancel) { model.startupError = nil }
         } message: {
@@ -317,6 +318,7 @@ private struct SidebarNavigationRow: View {
     let action: () -> Void
 
     @Environment(\.isFocused) private var isFocused
+    @Environment(\.attenHasUsedKeyboard) private var hasUsedKeyboard
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
@@ -363,7 +365,7 @@ private struct SidebarNavigationRow: View {
 
     /// Keyboard focus adds a visible outline without changing the selection.
     private var borderColor: Color {
-        isFocused ? AttenColor.focus : .clear
+        isFocused && hasUsedKeyboard ? AttenColor.focus : .clear
     }
 }
 

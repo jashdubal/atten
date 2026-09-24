@@ -29,6 +29,7 @@ struct LibraryView: View {
     /// The item a dedupe toast points at: shown while non-nil, and where the
     /// shelf scrolls to and briefly highlights.
     @State private var duplicateBookID: UUID?
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -54,6 +55,12 @@ struct LibraryView: View {
                         reduceMotion: reduceMotion
                     )
                 )
+            if model.libraryPath.isEmpty {
+                Button("Search Library") { isSearchFocused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
         }
         .animation(
             AttenMotion.transitionAnimation(
@@ -334,8 +341,13 @@ struct LibraryView: View {
     }
 
     private var searchField: some View {
-        AttenSearchField(prompt: "Search your library…", text: $model.libraryQuery, height: 34)
-            .frame(maxWidth: 640)
+        AttenSearchField(
+            prompt: "Search your library…",
+            text: $model.libraryQuery,
+            height: 34,
+            externalFocus: $isSearchFocused
+        )
+        .frame(maxWidth: 640)
     }
 
     private var emptyState: some View {

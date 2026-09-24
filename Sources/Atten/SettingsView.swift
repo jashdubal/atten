@@ -216,16 +216,22 @@ struct SettingsView: View {
             Section("Create") {
                 ShortcutRow(action: "New", keys: "⌘N")
                 ShortcutRow(action: "Add to Library", keys: "⌘O")
-                ShortcutRow(action: "Import text into draft", keys: "⇧⌘O")
+                ShortcutRow(action: "Import into Create", keys: "⌘I")
                 ShortcutRow(action: "Generate speech", keys: "⌘↩")
                 ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
             }
-            Section("Navigation and playback") {
+            Section("Library and reader") {
                 ShortcutRow(action: "Open Library", keys: "⌘1")
                 ShortcutRow(action: "Open Voices", keys: "⌘2")
                 ShortcutRow(action: "Open Settings", keys: "⌘,")
-                ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
-                ShortcutRow(action: "Play or pause", keys: "⌥Space")
+                ShortcutRow(action: "Search the Library", keys: "⌘F")
+                ShortcutRow(action: "Find in book", keys: "⌘F")
+            }
+            Section("Playback") {
+                ShortcutRow(action: "Play or pause", keys: "Space")
+                ShortcutRow(action: "Play or pause (anywhere)", keys: "⌥Space")
+                ShortcutRow(action: "Skip back 15 seconds", keys: "←")
+                ShortcutRow(action: "Skip forward 15 seconds", keys: "→")
                 ShortcutRow(action: "Cancel generation", keys: "Esc")
             }
         }
