@@ -624,10 +624,10 @@ private struct BookCard: View {
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .clipped()
                     } else {
-                        GeneratedCoverView(
+                        GeneratedCover(
                             title: book.title,
+                            contentHash: libraryItem.coverSeedKey,
                             sourceLabel: book.author ?? book.format.displayName,
-                            seed: CoverSeed(contentHash: libraryItem.coverSeedKey),
                             state: libraryItem.state,
                             isPlaying: isPlaying
                         )

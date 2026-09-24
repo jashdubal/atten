@@ -21,7 +21,7 @@ struct ContinueListeningHero: View {
     private var rawTint: OKLCHColor {
         shelf.covers.dominantColor(for: book.id) ?? OKLCHColor(lightness: 0.6, chroma: 0.12, hue: seed.hue)
     }
-    private var ambientColor: Color { Color(CoverPalette.ambientColor(from: rawTint)) }
+    private var ambientColor: Color { AttenColor.cover(CoverPalette.ambientColor(from: rawTint)) }
 
     private var progress: Double {
         guard let total = book.playbackChapters.last?.endTime, total > 0 else { return 0 }

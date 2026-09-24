@@ -464,10 +464,10 @@ struct BookJacket: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                GeneratedCoverView(
+                GeneratedCover(
                     title: book.title,
+                    contentHash: AttenCore.LibraryItem.book(book).coverSeedKey,
                     sourceLabel: book.author ?? book.format.displayName,
-                    seed: seed,
                     state: AttenCore.LibraryItem.book(book).state,
                     isPlaying: isPlaying
                 )

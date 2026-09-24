@@ -93,11 +93,29 @@ struct GenerationWaveform: View {
     }
 }
 
-/// The cover a draft is given: soft colour fields seeded from its text, and
-/// its title set in the reading face.
+/// The cover anything in the Library with no art of its own is given: soft
+/// colour fields seeded from its text, and its title set in the reading
+/// face. Create's finished stage draws one at full colour; the Library draws
+/// the same view desaturated for a silent draft, rising back to full colour
+/// as narration completes, with a small waveform glyph while it plays — the
+/// two have to agree, since a freshly finished book's cover flies from one
+/// into its slot in the other via `attenMatchedCover`.
 struct GeneratedCover: View {
     let title: String
     let contentHash: String
+    var sourceLabel: String?
+    var state: AttenCore.LibraryItemState = .voiced
+    var isPlaying = false
+
+    /// How far the cover has risen out of silence: 0 while silent, 1 once
+    /// voiced, and whatever `.generating` reports in between.
+    private var colorProgress: Double {
+        switch state {
+        case .silent: 0
+        case .generating(let progress): max(0, min(1, progress))
+        case .voiced: 1
+        }
+    }
 
     var body: some View {
         let seed = CoverSeed(contentHash: contentHash)
@@ -113,15 +131,30 @@ struct GeneratedCover: View {
                         .opacity(0.75)
                         .blur(radius: size.width * 0.12)
                 }
-                Text(title)
-                    .font(.system(size: max(12, size.width * 0.1), weight: .regular, design: .serif))
-                    .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)))
-                    .lineLimit(4)
-                    .padding(size.width * 0.09)
+                VStack(alignment: .leading, spacing: size.width * 0.02) {
+                    Text(title)
+                        .font(.system(size: max(12, size.width * 0.1), weight: .regular, design: .serif))
+                        .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)))
+                        .lineLimit(4)
+                    if let sourceLabel {
+                        Text(sourceLabel.uppercased())
+                            .attenText(.label)
+                            .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)).opacity(0.72))
+                            .lineLimit(1)
+                    }
+                }
+                .padding(size.width * 0.09)
             }
         }
         .aspectRatio(AttenMetrics.coverAspectRatio, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if isPlaying { PlayingGlyph().padding(8) }
+        }
+        // 0.35/-0.2 at rest for silent work, full colour once voiced; a
+        // generation in progress eases between the two as it completes.
+        .saturation(0.35 + 0.65 * colorProgress)
+        .brightness(-0.2 + 0.2 * colorProgress)
         .accessibilityHidden(true)
     }
 }
