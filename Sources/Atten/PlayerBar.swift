@@ -6,7 +6,7 @@ private enum PlayerColor {
 
 /// How playback times and rates are written, wherever they are written.
 enum PlaybackFormat {
-    static let rates: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+    static let rates: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 
     /// %g rather than %.2g: two significant digits turn 1.25 into "1.2" and
     /// 1.75 into "1.8".
@@ -24,100 +24,210 @@ enum PlaybackFormat {
     }
 }
 
-/// A floating bottom transport with chapter metadata and direct seeking. The queue,
-/// expanded controls open the shared Now Playing destination.
+/// The mini player: a glass pill floating at the foot of the content column,
+/// with chapter metadata and direct seeking. The title opens Now Playing.
+///
+/// While Create has the window it shrinks to a ring — play or pause and how
+/// far through — so it never sits over the thing being made.
 struct GlobalPlayer: View {
     @Bindable var model: AppModel
-    @Binding var isCollapsed: Bool
-    var compact = false
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Create is showing.
+    let isCompact: Bool
+    let namespace: Namespace.ID
 
     var body: some View {
         if let title = model.playerTitle {
-            HStack(spacing: 14) {
-                HStack(spacing: 0) {
-                    if !compact && !isCollapsed {
-                        TransportButton(
-                            systemImage: "backward.end.fill", size: 12,
-                            help: "Previous chapter", label: "Previous chapter",
-                            isEnabled: model.hasPreviousChapter || model.playbackPosition > 3,
-                            action: model.playPrevious
-                        )
-                    }
-                    playPause
-                    if !compact && !isCollapsed {
-                        TransportButton(
-                            systemImage: "forward.end.fill", size: 12,
-                            help: "Next chapter", label: "Next chapter",
-                            isEnabled: model.hasNextChapter,
-                            action: model.playNext
-                        )
-                    }
-                }
-
-                if !isCollapsed {
-                    Rectangle().fill(AttenColor.separator.opacity(0.6))
-                        .frame(width: 1, height: 30)
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        Button { model.openNowPlaying() } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(title)
-                                    .font(AttenTypography.control.weight(.semibold))
-                                    .foregroundStyle(AttenColor.textPrimary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                if !compact, !subtitle.isEmpty {
-                                    Text(subtitle)
-                                        .font(AttenTypography.caption)
-                                        .foregroundStyle(AttenColor.textMuted)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                }
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .help("Open Now Playing")
-                        .accessibilityLabel("Open Now Playing for \(title)")
-                        ScrubBar(
-                            position: model.playbackPosition,
-                            duration: model.playbackDuration,
-                            seek: model.seek(to:),
-                            neutral: true
-                        )
-                    }
-                    .frame(minWidth: compact ? 100 : 160, maxWidth: .infinity)
-
-                    Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
-                        .font(AttenTypography.timecode)
-                        .foregroundStyle(AttenColor.textMuted)
-                        .accessibilityLabel("\(PlaybackFormat.timeText(model.playbackRemaining)) remaining")
-
-                    expandButton
-                }
-                collapseButton
+            if isCompact {
+                indicator(title: title)
+            } else {
+                pill(title: title)
             }
-            .padding(.horizontal, isCollapsed ? 10 : (compact ? 12 : 18))
-            .frame(height: isCollapsed ? 48 : (compact ? 54 : 72))
-            .background(AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.player, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: AttenRadius.player, style: .continuous)
-                    .strokeBorder(AttenColor.separator, lineWidth: 1)
+        } else if let bookID = model.progressivePlayer.bookID, let book = model.bookshelf.book(id: bookID) {
+            // Nothing has finished yet to hand the ordinary player, but a
+            // narration in progress can already be heard.
+            if isCompact {
+                progressiveIndicator(title: book.title)
+            } else {
+                progressivePill(title: book.title)
             }
-            .shadow(
-                color: .black.opacity(AttenElevation.raised.shadowOpacity),
-                radius: AttenElevation.raised.shadowRadius,
-                y: AttenElevation.raised.shadowY
-            )
-            .environment(\.attenMutedControls, true)
-            .tint(PlayerColor.text)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityElement(children: .contain)
-            .accessibilityLabel("Player: \(title), \(subtitle)")
         }
+    }
+
+    private func pill(title: String) -> some View {
+        HStack(spacing: 14) {
+            if PlayingArtwork.Source(model: model) != nil {
+                Button { model.openNowPlaying() } label: {
+                    PlayingArtwork(model: model, height: 44)
+                        .matchedGeometryEffect(id: PlayerMatch.cover, in: namespace)
+                }
+                .buttonStyle(.plain)
+                .help("Open Now Playing")
+                .accessibilityLabel("Open Now Playing")
+            }
+            HStack(spacing: 0) {
+                TransportButton(
+                    systemImage: "backward.end.fill", size: 12,
+                    help: "Previous chapter", label: "Previous chapter",
+                    isEnabled: model.hasPreviousChapter || model.playbackPosition > 3,
+                    action: model.playPrevious
+                )
+                playPause
+                    .matchedGeometryEffect(id: PlayerMatch.play, in: namespace)
+                TransportButton(
+                    systemImage: "forward.end.fill", size: 12,
+                    help: "Next chapter", label: "Next chapter",
+                    isEnabled: model.hasNextChapter,
+                    action: model.playNext
+                )
+            }
+
+            Rectangle().fill(AttenColor.hairline)
+                .frame(width: 1, height: 30)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Button { model.openNowPlaying() } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(AttenTypography.callout.weight(.semibold))
+                            .foregroundStyle(AttenColor.text1)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .matchedGeometryEffect(id: PlayerMatch.title, in: namespace)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(AttenTypography.callout)
+                                .foregroundStyle(AttenColor.text2)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Open Now Playing")
+                .accessibilityLabel("Open Now Playing for \(title)")
+                ScrubBar(
+                    position: model.playbackPosition,
+                    duration: model.playbackDuration,
+                    seek: model.seek(to:),
+                    neutral: true
+                )
+            }
+            .frame(minWidth: 120, maxWidth: .infinity)
+
+            Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+                .font(AttenTypography.label)
+                .foregroundStyle(AttenColor.text2)
+                .accessibilityLabel("\(PlaybackFormat.timeText(model.playbackRemaining)) remaining")
+
+            expandButton
+        }
+        .padding(.leading, AttenSpacing.sm)
+        .padding(.trailing, AttenSpacing.md)
+        .frame(height: AttenMetrics.playerHeight)
+        .frame(maxWidth: 640)
+        .attenGlass(cornerRadius: AttenMetrics.playerHeight / 2)
+        .matchedGeometryEffect(id: "player", in: namespace)
+        .tint(PlayerColor.text)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Player: \(title), \(subtitle)")
+    }
+
+    private func indicator(title: String) -> some View {
+        playPause
+            .overlay {
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(
+                        model.isPlaying ? AttenColor.signal : AttenColor.text3,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .padding(1)
+                    .allowsHitTesting(false)
+            }
+            .padding(AttenSpacing.xxs)
+            .attenGlass(cornerRadius: 24)
+            .matchedGeometryEffect(id: "player", in: namespace)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Player: \(title)")
+            .accessibilityValue("\(PlaybackFormat.timeText(model.playbackRemaining)) remaining")
+    }
+
+    private var fraction: Double {
+        guard model.playbackDuration > 0 else { return 0 }
+        return min(1, max(0, model.playbackPosition / model.playbackDuration))
+    }
+
+    /// The same pill, while a narration has nothing finished yet to hand the
+    /// ordinary player but already has something to listen to.
+    private func progressivePill(title: String) -> some View {
+        let player = model.progressivePlayer
+        return HStack(spacing: 14) {
+            progressivePlayPause
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(AttenTypography.callout.weight(.semibold))
+                    .foregroundStyle(AttenColor.text1)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ScrubBar(position: player.position, duration: player.duration, seek: player.seek(to:), neutral: true)
+            }
+            .frame(minWidth: 120, maxWidth: .infinity)
+
+            Text(player.state == .catchingUp ? "Catching up…" : PlaybackFormat.timeText(player.position))
+                .font(AttenTypography.label)
+                .foregroundStyle(AttenColor.text2)
+        }
+        .padding(.leading, AttenSpacing.sm)
+        .padding(.trailing, AttenSpacing.md)
+        .frame(height: AttenMetrics.playerHeight)
+        .frame(maxWidth: 640)
+        .attenGlass(cornerRadius: AttenMetrics.playerHeight / 2)
+        .matchedGeometryEffect(id: "player", in: namespace)
+        .tint(PlayerColor.text)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Player: \(title), narrating")
+    }
+
+    private func progressiveIndicator(title: String) -> some View {
+        let player = model.progressivePlayer
+        let fraction = player.duration > 0 ? min(1, max(0, player.position / player.duration)) : 0
+        return progressivePlayPause
+            .overlay {
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(
+                        player.isPlaying ? AttenColor.signal : AttenColor.text3,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .padding(1)
+                    .allowsHitTesting(false)
+            }
+            .padding(AttenSpacing.xxs)
+            .attenGlass(cornerRadius: 24)
+            .matchedGeometryEffect(id: "player", in: namespace)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Player: \(title), narrating")
+    }
+
+    private var progressivePlayPause: some View {
+        let player = model.progressivePlayer
+        return Button(action: player.toggle) {
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(AttenColor.text1)
+                .frame(width: 40, height: 40)
+                .background(AttenColor.text1.opacity(AttenState.hoverFill), in: Circle())
+                .contentShape(Circle())
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .help(player.isPlaying ? "Pause" : "Listen as it narrates")
+        .accessibilityLabel(player.isPlaying ? "Pause" : "Play narration so far")
     }
 
     private var subtitle: String {
@@ -130,34 +240,15 @@ struct GlobalPlayer: View {
         Button(action: model.toggleActivePlayback) {
             Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(AttenColor.textPrimary)
+                .foregroundStyle(AttenColor.text1)
                 .frame(width: 40, height: 40)
-                .background(AttenColor.textPrimary.opacity(0.08), in: Circle())
-                .contentShape(Rectangle())
+                .background(AttenColor.text1.opacity(AttenState.hoverFill), in: Circle())
+                .contentShape(Circle())
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .help(model.isPlaying ? "Pause (⌥Space)" : "Play (⌥Space)")
         .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
-    }
-
-    private var collapseButton: some View {
-        Button {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: AttenMotion.standard)) {
-                isCollapsed.toggle()
-            }
-        } label: {
-            Image(systemName: isCollapsed ? "chevron.up" : "chevron.down")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(PlayerColor.text)
-                .frame(width: 26, height: 26)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
-        .help(isCollapsed ? "Expand player" : "Collapse player")
-        .accessibilityLabel(isCollapsed ? "Expand player" : "Collapse player")
     }
 
     private var expandButton: some View {
@@ -169,7 +260,6 @@ struct GlobalPlayer: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .help("Queue and playback controls")
         .accessibilityLabel("Queue and playback controls")
         .accessibilityHint("Opens seek, skip, speed and the queue")
@@ -199,7 +289,6 @@ private struct TransportButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .buttonStyle(AttenFeedbackButtonStyle())
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
         .onHover { isHovering = $0 }
@@ -252,7 +341,7 @@ struct ScrubBar: View {
                         .fill(neutral ? AttenColor.textMuted : AttenColor.progress)
                         .frame(width: 11, height: 11)
                         .offset(x: width * fraction - 5.5)
-                        .shadow(color: .black.opacity(0.22), radius: 2, y: 1)
+                        .shadow(color: AttenColor.shadow.opacity(0.22), radius: 2, y: 1)
                 }
             }
             .frame(maxHeight: .infinity)

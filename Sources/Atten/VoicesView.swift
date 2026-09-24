@@ -59,6 +59,7 @@ struct VoicesView: View {
                 }
                 .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
                 .padding(.vertical, AttenSpacing.lg)
+                .attenScrollPadding()
                 .frame(maxWidth: 1120, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
@@ -76,7 +77,7 @@ struct VoicesView: View {
             AttenSearchField(prompt: "Search voices", text: $query)
                 .frame(maxWidth: 240)
             Text("\(filteredVoices.count) voices")
-                .font(AttenTypography.metadata)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
         }
     }
@@ -157,7 +158,7 @@ private struct VoiceRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: AttenSpacing.xs) {
                     Text(voice.name)
-                        .font(AttenTypography.control.weight(.semibold))
+                        .font(AttenTypography.callout.weight(.semibold))
                         .foregroundStyle(AttenColor.textPrimary)
                     if isSelected {
                         Label("Selected", systemImage: "checkmark")
@@ -170,7 +171,7 @@ private struct VoiceRow: View {
                     requiredModelID.map { "\(voice.language) · Needs \($0)" }
                         ?? "\(voice.language) · \(voice.gender) · \(voice.provider)"
                 )
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(
                     requiredModelID == nil ? AttenColor.textSecondary : AttenColor.accentSecondary
                 )
@@ -182,7 +183,7 @@ private struct VoiceRow: View {
                 HStack(spacing: AttenSpacing.xs) {
                     ForEach(voice.traits.prefix(2), id: \.self) { trait in
                         Text(trait.capitalized)
-                            .font(AttenTypography.caption)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -221,15 +222,11 @@ private struct VoiceRow: View {
 
             if isSelected {
                 Button("Open", action: select)
-                    .buttonStyle(.bordered)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .frame(minWidth: 58)
             } else {
                 Button("Use", action: select)
-                    .buttonStyle(.borderedProminent)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .frame(minWidth: 58)
             }
         }
@@ -252,5 +249,34 @@ private struct VoiceRow: View {
             )
         }
         .accessibilityElement(children: .contain)
+    }
+}
+
+struct VoiceAvatar: View {
+    let voice: Voice
+    var size: CGFloat = 40
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: AttenRadius.small)
+                .fill(AttenColor.surfaceMuted)
+                .overlay {
+                    RoundedRectangle(cornerRadius: AttenRadius.small)
+                        .stroke(avatarColor.opacity(0.7), lineWidth: 1)
+                }
+            Image(systemName: voice.gender == "Female" ? "person.fill" : "person.fill")
+                .font(.system(size: size * 0.40, weight: .medium))
+                .foregroundStyle(avatarColor)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private var avatarColor: Color {
+        switch voice.languageCode {
+        case "b", "f": AttenColor.accentSecondary
+        case "e", "i", "p": AttenColor.warning
+        default: AttenColor.accent
+        }
     }
 }

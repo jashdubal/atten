@@ -1,4 +1,5 @@
 import AVFoundation
+import AttenCore
 import Foundation
 
 /// Streams decoded samples to one file without holding a book in memory.
@@ -9,12 +10,17 @@ enum BookAudioAssembler {
     }
 
     static func assemble(_ urls: [URL], in directory: URL) throws -> Result {
-        let destination = directory.appendingPathComponent("Audiobook-\(UUID().uuidString).caf")
-        let temporary = directory.appendingPathComponent("\(UUID().uuidString).caf")
+        let recordingDirectory = directory.appendingPathComponent("Audiobook-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: recordingDirectory, withIntermediateDirectories: true)
+        var published = false
+        defer { if !published { try? FileManager.default.removeItem(at: recordingDirectory) } }
+        let destination = recordingDirectory.appendingPathComponent("Audiobook.caf")
+        let temporary = recordingDirectory.appendingPathComponent("\(UUID().uuidString).caf")
         defer { try? FileManager.default.removeItem(at: temporary) }
         guard let first = urls.first else { throw CocoaError(.fileReadUnknown) }
         let format = try AVAudioFile(forReading: first).processingFormat
         var ranges: [(Double, Double)] = []
+        var segments: [TimedSegment] = []
         var frames: AVAudioFramePosition = 0
         do {
             let output = try AVAudioFile(forWriting: temporary, settings: format.settings)
@@ -34,6 +40,9 @@ enum BookAudioAssembler {
                     frames += AVAudioFramePosition(buffer.frameLength)
                 }
                 ranges.append((start, Double(frames) / format.sampleRate))
+                if let timings = try NarrationTimings.load(beside: url) {
+                    segments += timings.offset(by: start, startingAt: segments.count).segments
+                }
             }
         }
         try Task.checkCancellation()
@@ -42,6 +51,8 @@ enum BookAudioAssembler {
         } else {
             try FileManager.default.moveItem(at: temporary, to: destination)
         }
+        if !segments.isEmpty { try NarrationTimings(segments: segments).save(beside: destination) }
+        published = true
         return Result(url: destination, ranges: ranges)
     }
 }

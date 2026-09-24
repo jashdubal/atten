@@ -54,6 +54,7 @@ struct ModelsView: View {
                 }
                 .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
                 .padding(.vertical, AttenSpacing.lg)
+                .attenScrollPadding()
                 .frame(maxWidth: 1120, alignment: .topLeading)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
@@ -93,7 +94,7 @@ struct ModelsView: View {
                 ProgressView().controlSize(.small)
             }
             Text("\(library.installed.count) installed")
-                .font(AttenTypography.metadata)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
         }
     }
@@ -135,7 +136,7 @@ struct ModelsView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(AttenTertiaryButtonStyle())
             .disabled(self.library.isSearching)
             .help("Refresh")
             .accessibilityLabel("Refresh")
@@ -169,15 +170,15 @@ private struct ModelRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: AttenSpacing.xs) {
                         Text(model.name)
-                            .font(AttenTypography.control.weight(.semibold))
+                            .font(AttenTypography.callout.weight(.semibold))
                         if !model.author.isEmpty {
                             Text(model.author)
-                                .font(AttenTypography.caption)
+                                .font(AttenTypography.callout)
                                 .foregroundStyle(AttenColor.textSecondary)
                         }
                     }
                     Text(model.languages)
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
                 }
@@ -219,7 +220,7 @@ private struct ModelRow: View {
             Text(model.sizeText)
                 .frame(minWidth: 70, alignment: .trailing)
         }
-        .font(AttenTypography.caption)
+        .font(AttenTypography.callout)
         .foregroundStyle(AttenColor.textSecondary)
         .labelStyle(.titleAndIcon)
     }
@@ -228,23 +229,20 @@ private struct ModelRow: View {
         switch download?.phase {
         case .downloading:
             Button("Pause", systemImage: "pause.fill", action: onPause)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(AttenSecondaryButtonStyle())
             cancelButton
         case .paused, .failed:
             Button("Resume", systemImage: "arrow.down.circle", action: onDownload)
-                .buttonStyle(.borderedProminent)
-                .tint(AttenColor.accent)
-                .controlSize(.small)
+                .buttonStyle(AttenSecondaryButtonStyle())
             cancelButton
         case nil:
             if isBundled {
                 Text("BUNDLED")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.success)
             } else if isInstalled {
                 Text("INSTALLED")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.success)
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")
@@ -254,9 +252,7 @@ private struct ModelRow: View {
                 .accessibilityLabel("Delete \(model.id)")
             } else {
                 Button("Download", systemImage: "arrow.down.circle", action: onDownload)
-                    .buttonStyle(.borderedProminent)
-                    .tint(AttenColor.accent)
-                    .controlSize(.small)
+                    .buttonStyle(AttenSecondaryButtonStyle())
             }
         }
     }

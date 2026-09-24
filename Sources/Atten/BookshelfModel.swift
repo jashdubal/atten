@@ -3,34 +3,6 @@ import AttenCore
 import Foundation
 import Observation
 
-/// The views available in the Library shelf. These are intentionally derived
-/// from the records Atten already owns: an audiobook is a book with at least
-/// one narration on disk, and Recently Added is the import date, not a made-up
-/// folder or category.
-enum LibraryFilter: String, CaseIterable, Identifiable, Sendable {
-    case books
-    case audiobooks
-    case recentlyAdded
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .books: "Books"
-        case .audiobooks: "Audiobooks"
-        case .recentlyAdded: "Recently Added"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .books: "books.vertical"
-        case .audiobooks: "headphones"
-        case .recentlyAdded: "clock"
-        }
-    }
-}
-
 /// Presentation order only; records and their persisted import order are unchanged.
 enum LibrarySort: String, CaseIterable, Identifiable {
     case recentlyAdded = "Recently added"
@@ -78,13 +50,26 @@ final class BookshelfModel {
         let total: Int
         var eta: String = "Estimating time remaining…"
         var isCombining: Bool = false
+        /// Words of the current chapter the engine has finished speaking, so
+        /// Create can show narration reaching through the text.
+        var spokenWords = 0
 
         var fraction: Double { total > 0 ? min(0.95, Double(completed) / Double(total) * 0.95) : 0 }
+    }
+
+    /// An import that turned out to already be on the shelf, under whatever
+    /// title it was first added as. A struct rather than a bare `UUID` so
+    /// importing the same duplicate twice in a row is still a change the
+    /// Library's dedupe toast can observe.
+    struct DuplicateImportEvent: Equatable {
+        private let token = UUID()
+        let bookID: UUID
     }
 
     private(set) var books: [BookRecord] = []
     private(set) var progress: NarrationProgress?
     private(set) var isImporting = false
+    private(set) var duplicateImport: DuplicateImportEvent?
     /// How many chapters of each book have narration on disk.
     ///
     /// Answering means asking the file system once per chapter, and the shelf
@@ -115,6 +100,16 @@ final class BookshelfModel {
     /// now. Only the app model knows which models are installed.
     @ObservationIgnored var missingModelID: (String) -> String? = { _ in nil }
     @ObservationIgnored var isAudioInUse: (URL) -> Bool = { _ in false }
+    /// Called with each segment as soon as its audio is on disk: book id,
+    /// chapter index, segment. Progressive playback during generation (P5)
+    /// attaches here.
+    @ObservationIgnored var onSegmentReady: ((UUID, Int, SegmentReady) -> Void)?
+    /// Called once a narration has been published as one recording.
+    @ObservationIgnored var onNarrationFinished: ((NarrationRun) -> Void)?
+    /// Called when a narration task ends, however it ends — finished,
+    /// cancelled, or failed — so anything following it (progressive
+    /// playback) can let go.
+    @ObservationIgnored var onNarrationEnded: ((UUID) -> Void)?
     @ObservationIgnored private var retiredAudio: Set<URL> = []
 
     init(directories: AppDirectories, generator: any TTSGenerating,
@@ -130,6 +125,17 @@ final class BookshelfModel {
         self.generator = generator
     }
 
+    /// What one completed narration took, for calibrating estimates. Counts
+    /// only the chapters generated in this run, so a resumed book does not
+    /// credit the engine with audio it made on an earlier day.
+    struct NarrationRun: Equatable {
+        let bookID: UUID
+        let voiceID: String
+        let words: Int
+        let audioSeconds: TimeInterval
+        let wallSeconds: TimeInterval
+    }
+
     var isNarrating: Bool { progress != nil }
 
     func book(id: UUID) -> BookRecord? { books.first { $0.id == id } }
@@ -139,21 +145,12 @@ final class BookshelfModel {
     }
 
     /// Applies the shelf filter and the Library search in one place so their
-    /// combinations remain truthful. In particular, Audiobooks is based on
-    /// narration files that still exist, rather than a book's file format.
-    func filteredBooks(for filter: LibraryFilter, query: String = "") -> [BookRecord] {
-        let candidates: [BookRecord]
-        switch filter {
-        case .books:
-            candidates = books
-        case .audiobooks:
-            candidates = books.filter { narratedCount(of: $0) > 0 }
-        case .recentlyAdded:
-            candidates = books.sorted { lhs, rhs in
-                if lhs.addedAt == rhs.addedAt { return lhs.id.uuidString < rhs.id.uuidString }
-                return lhs.addedAt > rhs.addedAt
-            }
-        }
+    /// combinations remain truthful. The filter itself is `LibraryItem`'s —
+    /// the same one the Library's chips and its dedupe toast use — applied to
+    /// each book wrapped as a `LibraryItem` so a book's drafts/audiobooks
+    /// state is decided in exactly one place.
+    func filteredBooks(for filter: AttenCore.LibraryItemFilter, query: String = "") -> [BookRecord] {
+        let candidates = books.filter { AttenCore.LibraryItem.filter([.book($0)], by: filter).count == 1 }
 
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return candidates }
@@ -171,13 +168,9 @@ final class BookshelfModel {
     }
 
     /// `filteredBooks(for:query:)` plus the shelf's sort order, in one place
-    /// so the Library view and its tests agree on the combination — in
-    /// particular that Recently Added, already newest-first, is never
-    /// re-sorted underneath itself.
-    func books(for filter: LibraryFilter, query: String = "", sort: LibrarySort) -> [BookRecord] {
-        let candidates = filteredBooks(for: filter, query: query)
-        guard filter != .recentlyAdded else { return candidates }
-        return sort.sorted(candidates)
+    /// so the Library view and its tests agree on the combination.
+    func books(for filter: AttenCore.LibraryItemFilter, query: String = "", sort: LibrarySort) -> [BookRecord] {
+        sort.sorted(filteredBooks(for: filter, query: query))
     }
 
     func isFullyNarrated(_ book: BookRecord) -> Bool {
@@ -242,10 +235,19 @@ final class BookshelfModel {
 
     // MARK: - Import
 
+    /// What importing a book produced. `.alreadyInLibrary` means nothing was
+    /// added — the shelf already has this text under some book, which may
+    /// have a different title, author or file name.
+    enum ImportResult: Equatable {
+        case imported(BookRecord)
+        case alreadyInLibrary(UUID)
+    }
+
     /// Copies the book into Atten's own library folder and reads it into
     /// chapters. Extraction walks every page, so it runs off the main actor.
-    func importBook(from url: URL, defaults: AppSettings) async {
-        guard !isImporting else { return }
+    @discardableResult
+    func importBook(from url: URL, defaults: AppSettings) async -> ImportResult? {
+        guard !isImporting else { return nil }
         errorMessage = nil
         successMessage = nil
         cancelledMessage = nil
@@ -262,7 +264,7 @@ final class BookshelfModel {
                 .unsupportedFormat(url.pathExtension)
                 .localizedDescription
             errorMessage = importErrorMessage
-            return
+            return nil
         }
 
         do {
@@ -275,6 +277,18 @@ final class BookshelfModel {
                 let document = try await Task.detached(priority: .userInitiated) {
                     try DocumentImporter.extract(from: destination)
                 }.value
+                let hash = ContentHash.of(document.chapters.map(\.text).joined(separator: "\n"))
+                if let existingID = existingBook(withContentHash: hash) {
+                    // The text is already on the shelf, so the copy just made
+                    // was only ever temporary — discard it rather than
+                    // leaving a second file no book record points to.
+                    try? FileManager.default.removeItem(at: destination)
+                    let existingTitle = book(id: existingID)?.title ?? document.title
+                    importSuccessMessage = "\(existingTitle) is already in your library."
+                    successMessage = importSuccessMessage
+                    duplicateImport = DuplicateImportEvent(bookID: existingID)
+                    return .alreadyInLibrary(existingID)
+                }
                 let book = BookRecord(
                     id: bookID,
                     title: document.title,
@@ -286,13 +300,15 @@ final class BookshelfModel {
                     },
                     voiceID: defaults.selectedVoiceID,
                     speed: defaults.defaultSpeed,
-                    audioFormat: defaults.defaultFormat
+                    audioFormat: defaults.defaultFormat,
+                    contentHash: hash
                 )
                 books.insert(book, at: 0)
                 refreshNarrationCounts()
                 try await saveNow()
                 importSuccessMessage = "Added \(book.title) — \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters")."
                 successMessage = importSuccessMessage
+                return .imported(book)
             } catch {
                 // Roll back the visible import if its metadata could not be committed.
                 books.removeAll { $0.id == bookID }
@@ -304,7 +320,26 @@ final class BookshelfModel {
         } catch {
             importErrorMessage = error.localizedDescription
             errorMessage = importErrorMessage
+            return nil
         }
+    }
+
+    /// The id of a book already on the shelf with this content hash, if any.
+    /// A book saved before hashes existed has none stored, so it is computed
+    /// here and kept on the in-memory record — not written back to
+    /// `books.json` just for this, only when the book is next saved anyway.
+    private func existingBook(withContentHash hash: String) -> UUID? {
+        for index in books.indices {
+            let existing: String
+            if let stored = books[index].contentHash {
+                existing = stored
+            } else {
+                existing = ContentHash.of(books[index].chapters.map(\.text).joined(separator: "\n"))
+                books[index].contentHash = existing
+            }
+            if existing == hash { return books[index].id }
+        }
+        return nil
     }
 
     private nonisolated static func copyIntoLibrary(_ url: URL, directory: URL) throws -> URL {
@@ -326,6 +361,81 @@ final class BookshelfModel {
         }
         try FileManager.default.copyItem(at: url, to: destination)
         return destination
+    }
+
+    // MARK: - Drafts
+
+    /// Saves Create-flow text as a silent (not yet narrated) book, so
+    /// generation can reuse `narrate` — checkpointing, resuming, and
+    /// continuing if the view is left — instead of a separate draft path.
+    /// Passing the id of an existing draft updates it in place; removing a
+    /// draft is `remove(_:)`, which already deletes only that one book's own
+    /// source file.
+    ///
+    /// `chapters`, when given, is how the text is divided for narration;
+    /// without it a draft is one chapter. Chapters whose text has not changed
+    /// are kept as they are, so narration that was stopped resumes.
+    @discardableResult
+    func saveDraft(
+        id: UUID? = nil,
+        title: String,
+        text: String,
+        voiceID: String,
+        defaults: AppSettings,
+        chapters: [DocumentChapter]? = nil
+    ) throws -> BookRecord {
+        let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = resolvedTitle.isEmpty ? "Untitled" : resolvedTitle
+        let bookID = id ?? UUID()
+        let existingIndex = books.firstIndex { $0.id == bookID }
+
+        try FileManager.default.createDirectory(at: directories.bookSources, withIntermediateDirectories: true)
+        let destination = directories.bookSources.appendingPathComponent("\(bookID.uuidString).txt")
+        try text.write(to: destination, atomically: true, encoding: .utf8)
+
+        let hash = ContentHash.of(text)
+        let draft: BookRecord
+        if let existingIndex {
+            // Update in place so narration, bookmarks and listening position
+            // survive an autosave; only what the writer controls changes.
+            var updated = books[existingIndex]
+            updated.title = displayTitle
+            updated.sourcePath = destination.path
+            updated.voiceID = voiceID
+            if let chapters {
+                if updated.chapters.map(\.text) != chapters.map(\.text) {
+                    updated.chapters = chapters.map { BookChapter(title: $0.title, text: $0.text) }
+                }
+            } else if updated.chapters.count == 1 {
+                updated.chapters[0].title = displayTitle
+                updated.chapters[0].text = text
+            } else {
+                updated.chapters = [BookChapter(title: displayTitle, text: text)]
+            }
+            updated.contentHash = hash
+            books[existingIndex] = updated
+            draft = updated
+        } else {
+            // New narration always generates at 1.0×; listening speed belongs
+            // to the player.
+            var created = BookRecord(
+                id: bookID,
+                title: displayTitle,
+                format: .document,
+                sourcePath: destination.path,
+                chapters: chapters?.map { BookChapter(title: $0.title, text: $0.text) }
+                    ?? [BookChapter(title: displayTitle, text: text)],
+                voiceID: voiceID,
+                speed: 1.0,
+                audioFormat: defaults.defaultFormat
+            )
+            created.contentHash = hash
+            books.insert(created, at: 0)
+            draft = created
+        }
+        refreshNarrationCounts()
+        persist()
+        return draft
     }
 
     // MARK: - Narration
@@ -369,6 +479,7 @@ final class BookshelfModel {
                 synthesis.release(lease)
                 narrationTask = nil
                 progress = nil
+                onNarrationEnded?(bookID)
             }
             do {
                 try FileManager.default.createDirectory(
@@ -376,6 +487,8 @@ final class BookshelfModel {
                     withIntermediateDirectories: true
                 )
                 let started = Date()
+                var generatedWords = 0
+                var generatedSeconds = 0.0
                 var completedWords = 0
                 let totalWords = pending.reduce(0) { $0 + book.chapters[$1].text.count }
                 for index in pending {
@@ -394,30 +507,74 @@ final class BookshelfModel {
                         let remaining = Date().timeIntervalSince(started) * Double(totalWords - completedWords) / Double(completedWords)
                         progress?.eta = "About \(max(1, Int(ceil(remaining / 60)))) min remaining"
                     }
-                    let output = try await generator.generate(
+                    let chapterDirectory = directory.appendingPathComponent(
+                        "chapter-\(index)-\(UUID().uuidString)", isDirectory: true
+                    )
+                    var checkpointed = false
+                    defer {
+                        if !checkpointed { try? FileManager.default.removeItem(at: chapterDirectory) }
+                    }
+                    // Segment WAVs only matter while the chapter is being made; the
+                    // chapter file holds the same audio once it is checkpointed.
+                    let segmentsDirectory = chapterDirectory.appendingPathComponent("segments", isDirectory: true)
+                    var segments: [TimedSegment] = []
+                    var audioURL: URL?
+                    let events = generator.generateStream(
                         GenerationRequest(
                             text: chapter.text,
                             voiceID: current.voiceID,
                             speed: current.speed,
                             format: current.audioFormat,
-                            outputDirectory: directory,
+                            outputDirectory: chapterDirectory,
                             filename: Self.chapterFilename(index: index, title: chapter.title),
                             useMPS: useMPS,
-                            modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID
+                            modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID,
+                            segmentsDirectory: segmentsDirectory
                         )
                     )
+                    for try await event in events {
+                        try Task.checkCancellation()
+                        switch event {
+                        case let .segment(segment):
+                            segments.append(segment.timing.estimatingMissingWords())
+                            progress?.spokenWords += segment.timing.text.split(whereSeparator: \.isWhitespace).count
+                            onSegmentReady?(bookID, index, segment)
+                        case let .completed(url): audioURL = url
+                        case .failed, .progress: break
+                        }
+                    }
+                    try Task.checkCancellation()
+                    guard let audioURL else { throw BackendError.malformedResponse }
+                    if segments.isEmpty {
+                        let audio = try AVAudioFile(forReading: audioURL)
+                        segments = [TimedSegment(index: 0, text: chapter.text, start: 0,
+                            duration: Double(audio.length) / audio.processingFormat.sampleRate, words: [])
+                            .estimatingMissingWords()]
+                    }
+                    try NarrationTimings(segments: segments).save(beside: audioURL)
                     try Task.checkCancellation()
                     completedWords += chapter.text.count
+                    generatedWords += chapter.text.split(whereSeparator: \.isWhitespace).count
+                    generatedSeconds += segments.last.map { $0.start + $0.duration } ?? 0
                     // The shelf may have changed while the engine was running.
                     guard let updated = books.firstIndex(where: { $0.id == bookID }),
                           books[updated].chapters.indices.contains(index) else { return }
-                    books[updated].chapters[index].audioPath = output.url.path
+                    books[updated].chapters[index].audioPath = audioURL.path
                     refreshNarrationCounts()
                     // Saved after every chapter, so a crash or a quit costs at
                     // most the one that was in flight.
+                    checkpointed = true
                     try await saveNow()
+                    try? FileManager.default.removeItem(at: segmentsDirectory)
                 }
                 try Task.checkCancellation()
+                let run = NarrationRun(
+                    bookID: bookID,
+                    voiceID: book.voiceID,
+                    words: generatedWords,
+                    audioSeconds: generatedSeconds,
+                    wallSeconds: Date().timeIntervalSince(started)
+                )
                 guard let snapshot = self.book(id: bookID), snapshot.isFullyNarrated else { return }
                 setNarrationState(.finalizing, for: bookID)
                 progress = NarrationProgress(
@@ -439,7 +596,7 @@ final class BookshelfModel {
                     assembly.cancel()
                 }
                 var committed = false
-                defer { if !committed { try? FileManager.default.removeItem(at: result.url) } }
+                defer { if !committed { Self.removeRecording(at: result.url) } }
                 try Task.checkCancellation()
                 guard result.ranges.count == snapshot.chapters.count else { throw CocoaError(.fileReadCorruptFile) }
                 guard let position = books.firstIndex(where: { $0.id == bookID }) else { return }
@@ -464,7 +621,7 @@ final class BookshelfModel {
                         books[index].needsPreparation = previous.needsPreparation
                         books[index].listeningPosition = previous.listeningPosition
                     }
-                    try? FileManager.default.removeItem(at: result.url)
+                    Self.removeRecording(at: result.url)
                     throw error
                 }
                 committed = true
@@ -479,6 +636,7 @@ final class BookshelfModel {
                     ? "\(book.title) is fully narrated."
                     : "Narration finished."
                 successMessage = narrationSuccessMessage
+                onNarrationFinished?(run)
             } catch is CancellationError {
                 setNarrationState(.interrupted, for: bookID)
             } catch BackendError.cancelled {
@@ -524,10 +682,6 @@ final class BookshelfModel {
         update(bookID) { $0.voiceID = voiceID }
     }
 
-    func updateSpeed(_ speed: Double, for bookID: UUID) {
-        update(bookID) { $0.speed = speed }
-    }
-
     func updateFormat(_ format: AudioFormat, for bookID: UUID) {
         update(bookID) { $0.audioFormat = format }
     }
@@ -559,11 +713,26 @@ final class BookshelfModel {
         for url in retiredAudio where !isAudioInUse(url) {
             do {
                 if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+                Self.removeRecordingFolder(containing: url)
                 retiredAudio.remove(url)
             } catch {
                 // Retry cleanup after the next playback change.
             }
         }
+    }
+
+    /// Chapter and book recordings each live in a folder of their own, next to
+    /// their `timings.json`; removing the audio should not strand the rest.
+    static func removeRecording(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        removeRecordingFolder(containing: url)
+    }
+
+    static func removeRecordingFolder(containing url: URL) {
+        let folder = url.deletingLastPathComponent()
+        let name = folder.lastPathComponent
+        guard name.hasPrefix("chapter-") || name.hasPrefix("Audiobook-") else { return }
+        try? FileManager.default.removeItem(at: folder)
     }
 
     private func setNarrationState(_ state: NarrationState, for id: UUID, failure: String? = nil) {
@@ -647,6 +816,28 @@ final class BookshelfModel {
         narratedCounts.removeValue(forKey: bookID)
         persist()
         successMessage = "Removed \(book.title) from your library."
+    }
+
+    /// Takes a book back to silent: its narration is deleted and its text is
+    /// kept. This is Undo for a narration someone did not want.
+    func removeNarration(_ bookID: UUID) {
+        guard progress?.bookID != bookID, let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        removeNarrations(for: bookID, chapters: books[index].chapters + (books[index].previousChapters ?? []))
+        if let audioURL = books[index].audioURL { AudioMetadataStore.shared.forget(audioURL) }
+        books[index].audioPath = nil
+        books[index].previousChapters = nil
+        books[index].needsPreparation = false
+        books[index].narrationState = .unprepared
+        books[index].narrationFailure = nil
+        books[index].listeningPosition = 0
+        books[index].lastListenedAt = nil
+        for chapter in books[index].chapters.indices {
+            books[index].chapters[chapter].audioPath = nil
+            books[index].chapters[chapter].startTime = nil
+            books[index].chapters[chapter].endTime = nil
+        }
+        refreshNarrationCounts()
+        persist()
     }
 
     /// Chapter audio is written to the same path every time it is generated,

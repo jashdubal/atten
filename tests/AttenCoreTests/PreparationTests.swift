@@ -34,6 +34,29 @@ final class PreparationTests: XCTestCase {
         XCTFail("Preparation did not finish")
     }
 
+    func testNarrationPersistsChapterAndBookTimingsAndStillPlays() async throws {
+        let book = try await seed()
+        let shelf = BookshelfModel(directories: directories, generator: ImmediateGenerator())
+        await shelf.load()
+        shelf.narrate(book.id, useMPS: false)
+        try await finish(shelf)
+        let narrated = try XCTUnwrap(shelf.book(id: book.id))
+        let audio = try XCTUnwrap(narrated.audioURL)
+        XCTAssertTrue(narrated.hasBookAudio)
+        XCTAssertEqual(try AVAudioFile(forReading: audio).length, 4800)
+        let timings = try XCTUnwrap(NarrationTimings.load(beside: audio))
+        XCTAssertEqual(timings.segments.map(\.text), ["one", "two"])
+        XCTAssertEqual(timings.segments[1].start, narrated.chapters[1].startTime)
+        XCTAssertFalse(timings.segments[0].words.isEmpty)
+        let folder = directories.narrations.appendingPathComponent(book.id.uuidString)
+        let children = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        // Once the book file commits, chapter folders and their segment WAVs
+        // are retired; only the book recording and its timings remain.
+        XCTAssertEqual(children.filter { $0.lastPathComponent.hasPrefix("chapter-") }, [])
+        XCTAssertEqual(children.map(\.lastPathComponent), [audio.deletingLastPathComponent().lastPathComponent])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: NarrationTimings.sidecarURL(for: audio).path))
+    }
+
     func testFailedSecondChapterResumesFromCheckpointAfterRelaunch() async throws {
         let book = try await seed()
         let generator = CheckpointGenerator()
@@ -83,9 +106,7 @@ final class PreparationTests: XCTestCase {
         model.draftText = "A competing narration"
         model.generate()
         model.previewVoice(VoiceCatalog.defaultVoice)
-        model.generatePlaygroundSample(text: "sample", voiceID: "af_heart", speed: 1, format: .wav, useMPS: false)
         XCTAssertFalse(model.isGenerating)
-        XCTAssertFalse(model.isPlaygroundGenerating)
         XCTAssertNil(model.voicePreviewID)
         model.bookshelf.cancelNarration()
         try await finish(model.bookshelf)
@@ -280,7 +301,7 @@ final class PreparationTests: XCTestCase {
         XCTAssertEqual(decoded.narrationState, .interrupted)
         XCTAssertEqual(SidebarItem.restored("home"), .library)
         XCTAssertEqual(SidebarItem.restored("unknown"), .library)
-        XCTAssertEqual(SidebarItem.restored("projects").workspace, .studio)
+        XCTAssertEqual(SidebarItem.restored("projects"), .library)
     }
 }
 

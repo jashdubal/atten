@@ -41,6 +41,66 @@ final class BookshelfTests: XCTestCase {
         XCTAssertTrue(book.sourceExists)
     }
 
+    func testImportingTheSameContentUnderADifferentNameDedupes() async throws {
+        let first = try writeText("Once upon a time, in a house on a hill.", named: "story.txt")
+        let result = await shelf.importBook(from: first, defaults: settings())
+        let original = try XCTUnwrap(shelf.books.first)
+        XCTAssertEqual(result, .imported(original))
+
+        let second = try writeText("Once upon a time, in a house on a hill.", named: "story-copy.txt")
+        let secondResult = await shelf.importBook(from: second, defaults: settings())
+
+        XCTAssertEqual(secondResult, .alreadyInLibrary(original.id))
+        XCTAssertEqual(shelf.books.count, 1)
+        // Nothing was left behind for the duplicate: only the first import's copy exists.
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: directories.bookSources.path)
+        XCTAssertEqual(leftovers.count, 1)
+    }
+
+    func testImportingAWhitespaceOnlyDifferenceDedupes() async throws {
+        let first = try writeText("Once upon a time,\nin a house on a hill.", named: "story.txt")
+        await shelf.importBook(from: first, defaults: settings())
+        let original = try XCTUnwrap(shelf.books.first)
+
+        let second = try writeText("  Once   upon a time,   in a house  on a hill.  ", named: "story-2.txt")
+        let secondResult = await shelf.importBook(from: second, defaults: settings())
+
+        XCTAssertEqual(secondResult, .alreadyInLibrary(original.id))
+        XCTAssertEqual(shelf.books.count, 1)
+    }
+
+    func testImportingDifferentTextDoesNotDedupe() async throws {
+        let first = try writeText("Once upon a time, in a house on a hill.", named: "story.txt")
+        await shelf.importBook(from: first, defaults: settings())
+
+        let second = try writeText("A completely different book entirely.", named: "other.txt")
+        let secondResult = await shelf.importBook(from: second, defaults: settings())
+
+        XCTAssertEqual(shelf.books.count, 2)
+        guard case .imported = secondResult else { return XCTFail("Expected a new import") }
+    }
+
+    /// A book saved before content hashes existed has none stored; the shelf
+    /// fills it in from the book's own chapters rather than treating it as
+    /// unrelated to a later import of the same text.
+    func testDedupeBackfillsAMissingHashFromAnOlderRecord() async throws {
+        let older = BookRecord(
+            title: "Older book", format: .document, sourcePath: workspace.appendingPathComponent("older.txt").path,
+            chapters: [BookChapter(title: "Older book", text: "Once upon a time, in a house on a hill.")],
+            voiceID: "af_heart", speed: 1, audioFormat: .wav
+        )
+        try Data("Once upon a time, in a house on a hill.".utf8).write(to: URL(fileURLWithPath: older.sourcePath))
+        try await BookLibraryStore(fileURL: directories.booksFile).save([older])
+        await shelf.load()
+        XCTAssertNil(shelf.books.first?.contentHash)
+
+        let duplicate = try writeText("Once upon a time, in a house on a hill.", named: "duplicate.txt")
+        let result = await shelf.importBook(from: duplicate, defaults: settings())
+
+        XCTAssertEqual(result, .alreadyInLibrary(older.id))
+        XCTAssertEqual(shelf.books.count, 1)
+    }
+
     func testImportingAnUnreadableBookLeavesNoCopyBehind() async throws {
         let source = workspace.appendingPathComponent("torn.epub")
         try Data("not a zip".utf8).write(to: source)
@@ -88,8 +148,6 @@ final class BookshelfTests: XCTestCase {
             defaults: settings()
         )
         let older = try XCTUnwrap(shelf.books.first)
-        // The import date is real metadata, so the second import is the first
-        // result in Recently Added without a separate category to maintain.
         try await Task.sleep(for: .milliseconds(2))
         await shelf.importBook(
             from: try makePDF(pages: ["Newer book."]),
@@ -97,14 +155,15 @@ final class BookshelfTests: XCTestCase {
         )
         let newer = try XCTUnwrap(shelf.books.first)
 
-        XCTAssertEqual(shelf.filteredBooks(for: .books).map(\.id), [newer.id, older.id])
-        XCTAssertEqual(shelf.filteredBooks(for: .recentlyAdded).map(\.id), [newer.id, older.id])
+        XCTAssertEqual(Set(shelf.filteredBooks(for: .all).map(\.id)), Set([newer.id, older.id]))
         XCTAssertTrue(shelf.filteredBooks(for: .audiobooks).isEmpty)
+        XCTAssertEqual(Set(shelf.filteredBooks(for: .drafts).map(\.id)), Set([newer.id, older.id]))
 
         shelf.narrate(newer.id, chapters: [0], useMPS: false)
         try await waitForNarration()
 
         XCTAssertEqual(shelf.filteredBooks(for: .audiobooks).map(\.id), [newer.id])
+        XCTAssertEqual(shelf.filteredBooks(for: .drafts).map(\.id), [older.id])
         XCTAssertEqual(
             shelf.filteredBooks(for: .audiobooks, query: newer.title).map(\.id),
             [newer.id]
@@ -112,7 +171,7 @@ final class BookshelfTests: XCTestCase {
         XCTAssertTrue(shelf.filteredBooks(for: .audiobooks, query: older.title).isEmpty)
     }
 
-    func testBooksForFilterAppliesSortExceptUnderRecentlyAdded() async throws {
+    func testBooksForFilterAlwaysAppliesTheChosenSort() async throws {
         await shelf.importBook(from: try makePDF(pages: ["First book."]), defaults: settings())
         let first = try XCTUnwrap(shelf.books.first)
         try await Task.sleep(for: .milliseconds(2))
@@ -127,7 +186,7 @@ final class BookshelfTests: XCTestCase {
             .map(\.id)
 
         // "All" and "Audiobooks" honour the chosen sort…
-        XCTAssertEqual(shelf.books(for: .books, sort: .title).map(\.id), byTitle)
+        XCTAssertEqual(shelf.books(for: .all, sort: .title).map(\.id), byTitle)
 
         shelf.narrate(first.id, chapters: [0], useMPS: false)
         try await waitForNarration()
@@ -135,15 +194,15 @@ final class BookshelfTests: XCTestCase {
         try await waitForNarration()
         XCTAssertEqual(shelf.books(for: .audiobooks, sort: .title).map(\.id), byTitle)
 
-        // …but "Recently Added" stays newest-first regardless of sort.
+        // …and choosing the "Recently added" sort always puts the newest first.
         XCTAssertEqual(
-            shelf.books(for: .recentlyAdded, sort: .title).map(\.id),
+            shelf.books(for: .all, sort: .recentlyAdded).map(\.id),
             [second.id, first.id]
         )
 
         // A search query still narrows the sorted result.
         XCTAssertEqual(
-            shelf.books(for: .books, query: first.title, sort: .title).map(\.id),
+            shelf.books(for: .all, query: first.title, sort: .title).map(\.id),
             [first.id]
         )
     }
@@ -395,6 +454,77 @@ final class BookshelfTests: XCTestCase {
         XCTAssertEqual(changed.lastLocation?.pageIndex, 10)
     }
 
+    // MARK: - Drafts
+
+    func testSavingADraftWritesATextFileAndASilentSingleChapterBook() throws {
+        let draft = try shelf.saveDraft(title: "My Draft", text: "Some text to narrate.", voiceID: "af_heart", defaults: settings())
+
+        XCTAssertEqual(shelf.books.map(\.id), [draft.id])
+        XCTAssertEqual(draft.format, .document)
+        XCTAssertEqual(draft.narrationState, .unprepared)
+        XCTAssertEqual(draft.chapters.count, 1)
+        XCTAssertEqual(draft.chapters[0].text, "Some text to narrate.")
+        XCTAssertEqual(LibraryItem.book(draft).state, .silent)
+        XCTAssertEqual(try String(contentsOf: draft.sourceURL, encoding: .utf8), "Some text to narrate.")
+    }
+
+    func testSavingADraftAgainWithTheSameIDUpdatesItInPlace() throws {
+        let first = try shelf.saveDraft(title: "Draft One", text: "First version.", voiceID: "af_heart", defaults: settings())
+
+        let updated = try shelf.saveDraft(
+            id: first.id, title: "Draft One, Revised", text: "Second version.",
+            voiceID: "af_heart", defaults: settings()
+        )
+
+        XCTAssertEqual(shelf.books.count, 1)
+        XCTAssertEqual(updated.id, first.id)
+        XCTAssertEqual(updated.title, "Draft One, Revised")
+        XCTAssertEqual(try String(contentsOf: updated.sourceURL, encoding: .utf8), "Second version.")
+    }
+
+    func testUpdatingADraftKeepsListeningStateAndNewDraftsGenerateAtNormalSpeed() throws {
+        var defaults = settings()
+        defaults.defaultSpeed = 1.4
+        let first = try shelf.saveDraft(title: "Draft", text: "First.", voiceID: "af_heart", defaults: defaults)
+        XCTAssertEqual(first.speed, 1.0)
+
+        shelf.saveListeningPosition(42, for: first.id)
+        shelf.toggleBookmark(at: ReadingLocation(chapterIndex: 0, paragraphIndex: 0), excerpt: "First.", in: first.id)
+        let updated = try shelf.saveDraft(id: first.id, title: "Draft", text: "Second.", voiceID: "af_bella", defaults: defaults)
+
+        XCTAssertEqual(updated.listeningPosition, 42)
+        XCTAssertEqual(updated.bookmarks.count, 1)
+        XCTAssertEqual(updated.chapters.map(\.id), first.chapters.map(\.id))
+        XCTAssertEqual(updated.voiceID, "af_bella")
+        XCTAssertEqual(updated.contentHash, ContentHash.of("Second."))
+    }
+
+    /// A draft is a book with its own dedicated text file, so `remove(_:)` —
+    /// which already deletes only one book's own source file — needs no
+    /// special case for drafts.
+    func testRemovingADraftDeletesOnlyItsOwnTextFile() throws {
+        let keep = try shelf.saveDraft(title: "Keep", text: "Keep me.", voiceID: "af_heart", defaults: settings())
+        let discard = try shelf.saveDraft(title: "Discard", text: "Discard me.", voiceID: "af_heart", defaults: settings())
+
+        shelf.remove(discard.id)
+
+        XCTAssertEqual(shelf.books.map(\.id), [keep.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keep.sourceURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: discard.sourceURL.path))
+    }
+
+    func testADraftReloadsWithItsTextIntact() async throws {
+        let draft = try shelf.saveDraft(title: "Reload Me", text: "Text that must survive a reload.", voiceID: "af_heart", defaults: settings())
+        try await shelf.flushPersistence()
+
+        let reopened = BookshelfModel(directories: directories, generator: ImmediateGenerator())
+        await reopened.load()
+
+        let reloaded = try XCTUnwrap(reopened.book(id: draft.id))
+        XCTAssertEqual(reloaded.chapters.first?.text, "Text that must survive a reload.")
+        XCTAssertEqual(LibraryItem.book(reloaded).state, .silent)
+    }
+
     // MARK: - Helpers
 
     private func settings() -> AppSettings {
@@ -411,6 +541,12 @@ final class BookshelfTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Timed out waiting for narration to finish")
+    }
+
+    private func writeText(_ text: String, named name: String) throws -> URL {
+        let url = workspace.appendingPathComponent(name)
+        try Data(text.utf8).write(to: url)
+        return url
     }
 
     private func makePDF(pages: [String]) throws -> URL {

@@ -9,7 +9,7 @@ struct BookDetailView: View {
 
     @State private var pendingVoice: Voice?
     @State private var confirmRemoval = false
-    @State private var pendingSpeed: Double?
+    @State private var pendingExport: ExportTarget?
 
     private var shelf: BookshelfModel { model.bookshelf }
 
@@ -32,6 +32,7 @@ struct BookDetailView: View {
             }
             .padding(.horizontal, AttenSpacing.xl)
             .padding(.vertical, AttenSpacing.lg)
+            .attenScrollPadding()
             .frame(maxWidth: 1120, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .top)
         }
@@ -54,17 +55,6 @@ struct BookDetailView: View {
         } message: {
             Text("Prepare the book again to use this voice. Your existing audiobook remains available until its replacement is ready.")
         }
-        .confirmationDialog("Change narration speed?", isPresented: Binding(
-            get: { pendingSpeed != nil }, set: { if !$0 { pendingSpeed = nil } }
-        ), titleVisibility: .visible) {
-            Button("Change Speed") {
-                if let pendingSpeed { shelf.updateSpeed(pendingSpeed, for: book.id) }
-                pendingSpeed = nil
-            }
-            Button("Cancel", role: .cancel) { pendingSpeed = nil }
-        } message: {
-            Text("Prepare the book again to apply this change. The existing audiobook remains playable. Use the player speed control to change listening speed immediately.")
-        }
         .confirmationDialog(
             "Remove \(book.title) from your library?",
             isPresented: $confirmRemoval,
@@ -74,6 +64,9 @@ struct BookDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Atten's copy of the book and every chapter it narrated are deleted. The original file is untouched.")
+        }
+        .sheet(item: $pendingExport) { target in
+            ExportSheet(model: model, target: target)
         }
     }
 
@@ -113,18 +106,18 @@ struct BookDetailView: View {
                         .font(.system(size: 26))
                         .foregroundStyle(AttenColor.accent.opacity(0.8))
                     Text(book.format.displayName)
-                        .font(AttenTypography.caption.weight(.semibold))
+                        .font(AttenTypography.callout.weight(.semibold))
                         .foregroundStyle(AttenColor.textSecondary)
                 }
             }
         }
-        .frame(width: 132, height: 198)
+        .frame(width: AttenMetrics.coverGridMinimum, height: AttenMetrics.coverGridMinimum / AttenMetrics.coverAspectRatio)
         .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
+        .shadow(color: AttenColor.shadow.opacity(0.15), radius: 6, y: 2)
         .accessibilityLabel("Cover for \(book.title)")
     }
 
@@ -150,10 +143,10 @@ struct BookDetailView: View {
 
     private var actionsMenu: some View {
         Menu {
-            Button(model.isExportingBook ? "Exporting Audiobook…" : "Export Audiobook…", systemImage: "square.and.arrow.up") {
-                model.exportBook(book)
+            Button("Export…", systemImage: "square.and.arrow.up") {
+                pendingExport = ExportTarget(book: book)
             }
-            .disabled(!book.hasBookAudio || model.isExportingBook)
+            .disabled(!book.hasBookAudio)
             Divider()
             Button("Reveal Source in Finder", systemImage: "folder") {
                 model.revealBookSource(book)
@@ -178,10 +171,10 @@ struct BookDetailView: View {
                 .foregroundStyle(AttenColor.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Source file unavailable")
-                    .font(AttenTypography.control.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.textPrimary)
                 Text("Reading and revealing the original file are disabled. Narration already on disk remains available.")
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
             Spacer(minLength: 0)
@@ -212,7 +205,9 @@ struct BookDetailView: View {
                 } label: {
                     Label(primaryTitle, systemImage: shelf.isFullyNarrated(book) ? (model.playingBook?.id == book.id && model.isPlaying ? "pause.fill" : "play.fill") : "waveform")
                 }
-                .buttonStyle(AttenPrimaryButtonStyle())
+                .buttonStyle(AttenPrimaryButtonStyle(
+                    disabledReason: progress == nil ? "Another narration is running" : nil
+                ))
                 .disabled(progress != nil || (!shelf.isFullyNarrated(book) && model.synthesis.isBusy))
                 .help(shelf.isFullyNarrated(book) ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
 
@@ -249,11 +244,11 @@ struct BookDetailView: View {
             } else {
                 if let failure = book.narrationFailure {
                     Text("Preparation stopped: \(failure) Resume to retry. Completed chapters are saved.")
-                        .font(AttenTypography.caption).foregroundStyle(AttenColor.destructive)
+                        .font(AttenTypography.callout).foregroundStyle(AttenColor.destructive)
                 }
                 Label(shelf.isFullyNarrated(book) ? "Audiobook ready" : "\(narratedCount) of \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters") prepared",
                       systemImage: shelf.isFullyNarrated(book) ? "checkmark.circle" : "waveform")
-                    .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
+                    .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
             }
 
             Divider().overlay(AttenColor.separator)
@@ -275,27 +270,19 @@ struct BookDetailView: View {
                 .labelsHidden()
                 .frame(width: 220)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Narration speed")
-                Picker("Narration speed", selection: speedBinding) {
-                    ForEach([0.75, 0.9, 1.0, 1.15, 1.3, 1.5], id: \.self) { value in
-                        Text(String(format: "%.2g×", value)).tag(value)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 90)
-            }
             if let required = model.requiredModelID(for: book.voiceID) {
                 Button("Download Voice Model") { model.library.download(required) }
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .disabled(model.library.downloads[required] != nil)
                     .help("Download once; this voice then works offline")
             } else if let voice = VoiceCatalog.voice(id: book.voiceID) {
                 Button("Preview") { model.previewVoice(voice) }
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .disabled(model.synthesis.isBusy)
             }
             Spacer(minLength: 0)
         }
-        .font(AttenTypography.metadata)
+        .font(AttenTypography.callout)
         .foregroundStyle(AttenColor.textSecondary)
         .disabled(progress != nil)
     }
@@ -317,16 +304,6 @@ struct BookDetailView: View {
                 } else {
                     shelf.updateVoice(newValue, for: book.id)
                 }
-            }
-        )
-    }
-
-    private var speedBinding: Binding<Double> {
-        Binding(
-            get: { book.speed },
-            set: { value in
-                if narratedCount > 0 || book.hasBookAudio { pendingSpeed = value }
-                else { shelf.updateSpeed(value, for: book.id) }
             }
         )
     }
@@ -391,18 +368,18 @@ private struct ChapterRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(number). \(chapter.title)")
-                    .font(AttenTypography.control)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textPrimary)
                     .lineLimit(1)
                 Text(chapter.text.prefix(120))
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(detail)
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
                 .frame(width: 96, alignment: .trailing)
         }
@@ -434,7 +411,7 @@ private struct ChapterRow: View {
                 if isPlaying { model.toggleActivePlayback() } else { model.listen(to: book, chapter: chapter) }
             } label: {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.accent)
                     .frame(width: 30, height: 30)
                     .background(AttenColor.accent.opacity(0.10))
@@ -444,7 +421,7 @@ private struct ChapterRow: View {
             .accessibilityLabel(isPlaying ? "Pause \(chapter.title)" : "Play \(chapter.title)")
         } else {
             Image(systemName: "text.alignleft")
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
                 .frame(width: 30, height: 30)
                 .accessibilityHidden(true)

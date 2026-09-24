@@ -5,36 +5,6 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
-    func testPlaygroundSampleIsTemporaryAndNeverCreatesProject() async throws {
-        let fixture = try makeFixture()
-        defer { fixture.cleanUp() }
-
-        fixture.model.generatePlaygroundSample(
-            text: "A temporary meadow sample.",
-            voiceID: "af_heart",
-            speed: 1.15,
-            format: .wav,
-            useMPS: false
-        )
-        try await waitForPlayground(fixture.model)
-
-        let audioURL = try XCTUnwrap(fixture.model.playgroundAudioURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
-        XCTAssertTrue(audioURL.path.contains("/Atten/Playground/"))
-        XCTAssertTrue(fixture.model.projects.isEmpty)
-        XCTAssertEqual(fixture.model.activeAudioURL, audioURL)
-
-        let metadata = AudioFileMetadata(url: audioURL)
-        XCTAssertGreaterThan(metadata.byteCount ?? 0, 0)
-        XCTAssertEqual(metadata.duration ?? 0, 0.1, accuracy: 0.01)
-
-        fixture.model.clearPlaygroundSample()
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
-        XCTAssertNil(fixture.model.playgroundAudioURL)
-        XCTAssertNil(fixture.model.activeAudioURL)
-    }
-
     func testProjectDeletionCanKeepOrRemoveAudio() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanUp() }
@@ -187,18 +157,6 @@ final class AppModelTests: XCTestCase {
         )
     }
 
-    private func waitForPlayground(_ model: AppModel) async throws {
-        for _ in 0..<50 {
-            if model.playgroundAudioURL != nil { return }
-            if case let .failed(message) = model.playgroundState {
-                XCTFail(message)
-                return
-            }
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        XCTFail("Timed out waiting for the Playground sample")
-    }
-
     private func makeFixture() throws -> Fixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AttenTests-\(UUID().uuidString)")
@@ -223,7 +181,6 @@ private struct Fixture {
     let suite: String
 
     func cleanUp() {
-        model.clearPlaygroundSample()
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: directory)
     }

@@ -7,13 +7,29 @@ enum LibraryRoute: Hashable {
     case reader(UUID)
 }
 
+private extension AttenCore.LibraryItemFilter {
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .listening: "Listening"
+        case .drafts: "Drafts"
+        case .audiobooks: "Audiobooks"
+        }
+    }
+}
+
 struct LibraryView: View {
     @Bindable var model: AppModel
-    @State private var selectedFilter: LibraryFilter = .books
+    @State private var selectedFilter: AttenCore.LibraryItemFilter = .all
     @State private var isTargeted = false
     @AppStorage("Atten.libraryListView") private var showsList = false
     @AppStorage("Atten.librarySort") private var sortOrder = LibrarySort.recentlyAdded
     @State private var pendingRemoval: BookRecord?
+    @State private var pendingExport: ExportTarget?
+    /// The item a dedupe toast points at: shown while non-nil, and where the
+    /// shelf scrolls to and briefly highlights.
+    @State private var duplicateBookID: UUID?
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -39,6 +55,12 @@ struct LibraryView: View {
                         reduceMotion: reduceMotion
                     )
                 )
+            if model.libraryPath.isEmpty {
+                Button("Search Library") { isSearchFocused = true }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
         }
         .animation(
             AttenMotion.transitionAnimation(
@@ -51,6 +73,13 @@ struct LibraryView: View {
             receive(providers)
         }
         .task { shelf.refreshNarrationCounts() }
+        .onChange(of: shelf.duplicateImport) { _, event in
+            guard let event else { return }
+            duplicateBookID = event.bookID
+        }
+        .sheet(item: $pendingExport) { target in
+            ExportSheet(model: model, target: target)
+        }
         .confirmationDialog(
             "Remove “\(pendingRemoval?.title ?? "")” from Library?",
             isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
@@ -102,29 +131,45 @@ struct LibraryView: View {
 
     private var shelfPage: some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                    header
-                    LibraryStatusArea(shelf: shelf)
-                    if query.isEmpty, selectedFilter == .books,
-                       let book = continueBook {
-                        ContinueListeningCard(model: model, book: book)
-                    }
-                    if !shelf.books.isEmpty {
-                        searchAndFilters
-                    }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                        header
+                        LibraryStatusArea(shelf: shelf)
+                        if query.isEmpty, selectedFilter == .all,
+                           let book = continueBook {
+                            ContinueListeningHero(model: model, book: book)
+                        }
+                        if !shelf.books.isEmpty || !model.projects.isEmpty {
+                            searchAndFilters
+                        }
 
-                    if filteredBooks.isEmpty {
-                        emptyState
-                    } else {
-                        collection(availableWidth: geometry.size.width)
+                        if filteredBooks.isEmpty && projectItems.isEmpty {
+                            emptyState
+                        } else if !filteredBooks.isEmpty {
+                            collection(availableWidth: geometry.size.width)
+                        }
+                        if !projectItems.isEmpty {
+                            LibraryProjectsSection(
+                                model: model,
+                                items: projectItems,
+                                isWide: geometry.size.width >= 820
+                            )
+                        }
+                        importHint
                     }
-                    importHint
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .attenScrollPadding()
+                    .frame(maxWidth: 1440, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 24)
-                .frame(maxWidth: 1440, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .onChange(of: duplicateBookID) { _, id in
+                    guard let id else { return }
+                    withAnimation(AttenMotion.animation(.large, reduceMotion: reduceMotion)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
             }
         }
         .background(AttenBackdrop())
@@ -136,6 +181,19 @@ struct LibraryView: View {
                     .allowsHitTesting(false)
             }
         }
+        .overlay(alignment: .bottom) {
+            if let duplicateBookID, let title = shelf.book(id: duplicateBookID)?.title {
+                DedupeToast(title: title) { self.duplicateBookID = nil }
+                    .padding(.bottom, AttenSpacing.lg)
+                    .transition(.opacity)
+            }
+        }
+        .animation(AttenMotion.fade(reduceMotion: reduceMotion), value: duplicateBookID)
+        .task(id: duplicateBookID) {
+            guard duplicateBookID != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { duplicateBookID = nil }
+        }
     }
 
     private var header: some View {
@@ -143,11 +201,11 @@ struct LibraryView: View {
             HStack(alignment: .top) {
                 pageHeader
                 Spacer(minLength: AttenSpacing.md)
-                addBookButton
+                actions
             }
             VStack(alignment: .leading, spacing: AttenSpacing.md) {
                 pageHeader
-                addBookButton
+                actions
             }
         }
     }
@@ -159,7 +217,7 @@ struct LibraryView: View {
 
     private var pageHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Library").font(AttenTypography.pageTitle)
+            Text("Library").font(AttenTypography.title2)
             Text("Your books and documents, ready when you are.")
                 .font(AttenTypography.body).foregroundStyle(AttenColor.textSecondary)
         }
@@ -171,8 +229,28 @@ struct LibraryView: View {
         } label: {
             Label("Add to Library", systemImage: "plus")
         }
-        .buttonStyle(LibraryAddButtonStyle())
+        .buttonStyle(AttenSecondaryButtonStyle())
         .disabled(shelf.isImporting)
+        .fixedSize()
+    }
+
+    private var actions: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            addBookButton
+            newButton
+        }
+    }
+
+    /// Create is a verb, so it starts here rather than living in the sidebar.
+    private var newButton: some View {
+        Button {
+            model.newDraft()
+            model.section = .studio
+        } label: {
+            Label("New", systemImage: "plus")
+        }
+        .buttonStyle(AttenPrimaryButtonStyle())
+        .help("New (⌘N)")
         .fixedSize()
     }
 
@@ -196,14 +274,14 @@ struct LibraryView: View {
 
     private var filterPicker: some View {
         HStack(spacing: 6) {
-            ForEach(LibraryFilter.allCases) { filter in
+            ForEach(AttenCore.LibraryItemFilter.allCases, id: \.rawValue) { filter in
                 Button { selectedFilter = filter } label: {
-                    Text(filter == .books ? "All" : filter.title)
-                        .font(AttenTypography.control)
+                    Text(filter.title)
+                        .font(AttenTypography.callout)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
                 }
-                .buttonStyle(LibraryFilterButtonStyle(selected: selectedFilter == filter))
+                .buttonStyle(AttenTertiaryButtonStyle(isSelected: selectedFilter == filter))
                 .accessibilityAddTraits(selectedFilter == filter ? .isSelected : [])
             }
         }
@@ -213,26 +291,24 @@ struct LibraryView: View {
 
     private var displayControls: some View {
         HStack(spacing: 16) {
-            if selectedFilter != .recentlyAdded {
-                HStack(spacing: 8) {
-                    Text("Sort by")
-                        .foregroundStyle(AttenColor.textMuted)
-                    Menu {
-                        Picker("Sort by", selection: $sortOrder) {
-                            ForEach(LibrarySort.allCases) { order in
-                                Text(order.rawValue).tag(order)
-                            }
+            HStack(spacing: 8) {
+                Text("Sort by")
+                    .foregroundStyle(AttenColor.textMuted)
+                Menu {
+                    Picker("Sort by", selection: $sortOrder) {
+                        ForEach(LibrarySort.allCases) { order in
+                            Text(order.rawValue).tag(order)
                         }
-                    } label: {
-                        Text(sortOrder.rawValue)
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Sort books")
+                } label: {
+                    Text(sortOrder.rawValue)
                 }
-                .font(AttenTypography.metadata)
-                Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Sort books")
             }
+            .font(AttenTypography.callout)
+            Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
             HStack(spacing: 4) {
                 layoutButton(list: false, icon: "square.grid.2x2.fill", title: "Grid view")
                 layoutButton(list: true, icon: "list.bullet", title: "List view")
@@ -244,7 +320,7 @@ struct LibraryView: View {
         Button { showsList = list } label: {
             Image(systemName: icon).frame(width: 38, height: 32)
         }
-        .buttonStyle(LibraryFilterButtonStyle(selected: showsList == list))
+        .buttonStyle(AttenTertiaryButtonStyle(isSelected: showsList == list))
         .help(title)
         .accessibilityLabel(title)
         .accessibilityAddTraits(showsList == list ? .isSelected : [])
@@ -255,7 +331,7 @@ struct LibraryView: View {
             Image(systemName: "arrow.down.doc")
                 .foregroundStyle(AttenColor.textMuted)
             Text("Drop a PDF, EPUB, Kindle, Word, RTF, Markdown, HTML or text file here")
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
             Spacer(minLength: 0)
         }
@@ -265,13 +341,18 @@ struct LibraryView: View {
     }
 
     private var searchField: some View {
-        AttenSearchField(prompt: "Search your library…", text: $model.libraryQuery, height: 34)
-            .frame(maxWidth: 640)
+        AttenSearchField(
+            prompt: "Search your library…",
+            text: $model.libraryQuery,
+            height: 34,
+            externalFocus: $isSearchFocused
+        )
+        .frame(maxWidth: 640)
     }
 
     private var emptyState: some View {
         let isFiltering = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || selectedFilter != .books
+            || selectedFilter != .all
         return VStack(spacing: AttenSpacing.md) {
             AttenEmptyState(
                 title: isFiltering ? "No books found" : "Your library is empty",
@@ -282,7 +363,7 @@ struct LibraryView: View {
             )
             if !isFiltering {
                 Button("Add a Book") { model.openBookImportPanel() }
-                    .buttonStyle(LibraryAddButtonStyle())
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .fixedSize()
                     .padding(.bottom, AttenSpacing.lg)
             }
@@ -316,16 +397,26 @@ struct LibraryView: View {
             book: book,
             narrated: shelf.narratedCount(of: book),
             cover: shelf.covers.cover(for: book.id),
+            dominantColor: shelf.covers.dominantColor(for: book.id),
             progress: shelf.progress,
             isList: showsList,
+            isPlaying: model.playingBook?.id == book.id && model.isPlaying,
+            isHighlighted: duplicateBookID == book.id,
             open: { model.openInLibrary(.book(book.id)) },
             read: { model.openInLibrary(.reader(book.id)) },
-            remove: { pendingRemoval = book }
+            remove: { pendingRemoval = book },
+            export: { pendingExport = ExportTarget(book: book) }
         )
+        .id(book.id)
         .task(id: book.id) { await shelf.covers.load(book) }
         .contextMenu {
             Button("Open", systemImage: "book") { model.openInLibrary(.book(book.id)) }
             Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
+            Divider()
+            Button("Export…", systemImage: "square.and.arrow.up") {
+                pendingExport = ExportTarget(book: book)
+            }
+            .disabled(!book.hasBookAudio)
             Divider()
             Button("Remove from Library", systemImage: "trash", role: .destructive) {
                 pendingRemoval = book
@@ -335,6 +426,16 @@ struct LibraryView: View {
 
     private var filteredBooks: [BookRecord] {
         shelf.books(for: selectedFilter, query: query, sort: sortOrder)
+    }
+
+    /// Legacy projects are always voiced and never listening, so this only
+    /// ever puts them under All and Audiobooks — the same rule `LibraryItem`
+    /// applies to a book.
+    private var projectItems: [AttenCore.LibraryItem] {
+        let items = AttenCore.LibraryItem.filter(model.projects.map(AttenCore.LibraryItem.project), by: selectedFilter)
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return items }
+        return items.filter { $0.title.localizedCaseInsensitiveContains(term) }
     }
 
     /// Dropping a book onto the shelf is the same import as the panel. Books
@@ -417,18 +518,24 @@ private struct BookCard: View {
     let book: BookRecord
     let narrated: Int
     let cover: NSImage?
+    let dominantColor: OKLCHColor?
     let progress: BookshelfModel.NarrationProgress?
     let isList: Bool
+    let isPlaying: Bool
+    let isHighlighted: Bool
     let open: () -> Void
     let read: () -> Void
     let remove: () -> Void
+    let export: () -> Void
 
-    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isNarrating: Bool { progress?.bookID == book.id }
     private var isFullyNarrated: Bool {
         book.hasBookAudio && !book.needsPreparation
     }
+
+    private var libraryItem: AttenCore.LibraryItem { .book(book) }
 
     /// Matches whichever caption or meter the card is showing, so VoiceOver
     /// reports the same state a sighted reader sees.
@@ -449,11 +556,11 @@ private struct BookCard: View {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(book.title)
-                            .font(AttenTypography.control.weight(.semibold))
+                            .font(AttenTypography.callout.weight(.semibold))
                             .foregroundStyle(AttenColor.textPrimary)
                             .lineLimit(2)
                         Text(book.author ?? book.format.displayName)
-                            .font(AttenTypography.metadata)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                     }
@@ -461,10 +568,9 @@ private struct BookCard: View {
                     Group {
                     if isNarrating || (narrated > 0 && !isFullyNarrated) {
                         NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
-                    } else {
-                        Label(isFullyNarrated ? "Ready to listen" : "Audio not prepared",
-                              systemImage: isFullyNarrated ? "headphones" : "waveform")
-                            .font(AttenTypography.caption)
+                    } else if isFullyNarrated {
+                        Label("Ready to listen", systemImage: "headphones")
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                     }
                     }
@@ -477,7 +583,6 @@ private struct BookCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
         .accessibilityLabel(book.title)
         .accessibilityValue(
             "\(book.author ?? "Unknown author"), \(narrationStatus)"
@@ -488,6 +593,9 @@ private struct BookCard: View {
             Menu {
                 Button("Open", systemImage: "book", action: open)
                 Button("Read", systemImage: "text.alignleft", action: read)
+                Divider()
+                Button("Export…", systemImage: "square.and.arrow.up", action: export)
+                    .disabled(!book.hasBookAudio)
                 Divider()
                 Button("Remove from Library", systemImage: "trash", role: .destructive, action: remove)
             } label: {
@@ -505,6 +613,15 @@ private struct BookCard: View {
             .padding(8)
             .accessibilityLabel("Actions for \(book.title)")
         }
+        .overlay {
+            if isHighlighted {
+                RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
+                    .stroke(AttenColor.signal, lineWidth: 2)
+                    .padding(-4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(AttenMotion.animation(AttenMotion.state, reduceMotion: reduceMotion), value: isHighlighted)
     }
 
     private var jacket: some View {
@@ -519,15 +636,18 @@ private struct BookCard: View {
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .clipped()
                     } else {
-                        blankBoard
+                        GeneratedCover(
+                            title: book.title,
+                            contentHash: libraryItem.coverSeedKey,
+                            sourceLabel: book.author ?? book.format.displayName,
+                            state: libraryItem.state,
+                            isPlaying: isPlaying
+                        )
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(isHovering ? AttenColor.textSecondary.opacity(0.5) : AttenColor.border, lineWidth: 1)
-            }
+            .attenCoverFrame(tint: dominantColor ?? OKLCHColor(lightness: 0.6, chroma: 0.1, hue: CoverSeed(contentHash: libraryItem.coverSeedKey).hue))
+            .attenMatchedCover(book.id)
             .overlay(alignment: .bottomTrailing) {
                 if !book.sourceExists {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -541,72 +661,6 @@ private struct BookCard: View {
                         .help("Fully narrated")
                 }
             }
-    }
-
-    /// A quiet typeset jacket for documents without embedded artwork.
-    /// All text comes from the imported record, including the format label.
-    private var blankBoard: some View {
-        VStack(alignment: .leading, spacing: isList ? 6 : 18) {
-            Text(book.format.displayName.uppercased())
-                .font(.system(size: isList ? 5 : 8, weight: .medium))
-                .tracking(isList ? 1 : 2.8)
-                .foregroundStyle(AttenColor.textSecondary)
-            Text(book.title)
-                .font(.system(size: isList ? 9 : 23, weight: .regular, design: .serif))
-                .lineLimit(isList ? 3 : 5)
-                .multilineTextAlignment(.leading)
-                .foregroundStyle(AttenColor.textPrimary)
-            Rectangle().fill(AttenColor.separator).frame(width: isList ? 12 : 26, height: 1)
-            Spacer(minLength: 0)
-            if !isList, let author = book.author {
-                Text(author)
-                    .font(.system(size: 9, weight: .medium))
-                    .tracking(2)
-                    .lineLimit(2)
-                    .foregroundStyle(AttenColor.textSecondary)
-            }
-        }
-        .padding(isList ? 8 : 26)
-        .padding(.top, isList ? 0 : 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AttenColor.surfaceElevated)
-    }
-}
-
-private struct LibraryFilterButtonStyle: ButtonStyle {
-    let selected: Bool
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .foregroundStyle(selected ? AttenColor.textPrimary : AttenColor.textSecondary)
-            .background(selected || isHovering || configuration.isPressed ? AttenColor.surfaceElevated : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(selected ? AttenColor.border : .clear, lineWidth: 1)
-            }
-            .onHover { isHovering = $0 }
-    }
-}
-
-private struct LibraryAddButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    @State private var isHovering = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(AttenColor.textPrimary)
-            .padding(.horizontal, 18)
-            .frame(height: 40)
-            .background(isHovering || configuration.isPressed ? AttenColor.surfaceElevated : AttenColor.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7).strokeBorder(AttenColor.accent, lineWidth: 1)
-            }
-            .opacity(isEnabled ? 1 : 0.45)
-            .onHover { isHovering = $0 }
     }
 }
 
@@ -634,7 +688,7 @@ struct NarrationMeter: View {
                 Text("\(Int(fraction * 100))%")
                     .monospacedDigit()
             }
-            .font(AttenTypography.caption)
+            .font(AttenTypography.callout)
             .foregroundStyle(AttenColor.textSecondary)
             .padding(.top, 4)
         }
@@ -651,6 +705,38 @@ struct NarrationMeter: View {
 }
 
 
+/// What a duplicate import gets instead of a second copy: a moment of
+/// confirmation that it is already here, over the item the shelf has just
+/// scrolled to and outlined in `signal`.
+private struct DedupeToast: View {
+    let title: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(AttenColor.success)
+            Text("“\(title)” is already in your library")
+                .font(AttenTypography.callout)
+                .foregroundStyle(AttenColor.textPrimary)
+                .lineLimit(1)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, AttenSpacing.md)
+        .frame(height: 44)
+        .background(AttenColor.surfaceElevated, in: Capsule())
+        .overlay { Capsule().stroke(AttenColor.separator, lineWidth: 1) }
+        .shadow(color: AttenColor.shadow.opacity(0.12), radius: 8, y: 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Already in Library: \(title)")
+    }
+}
+
 private extension NSItemProvider {
     /// Main-actor bound because an item provider is not Sendable and this is
     /// only ever reached from a drop on the shelf.
@@ -664,28 +750,3 @@ private extension NSItemProvider {
     }
 }
 
-private struct ContinueListeningCard: View {
-    @Bindable var model: AppModel
-    let book: BookRecord
-
-    var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "headphones").font(.title2).foregroundStyle(AttenColor.accent)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Continue listening").font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
-                Text(book.title).font(.headline).lineLimit(1)
-                Text(book.hasBookAudio ? "Resume where you left off" : "Audio unavailable — open this book to prepare it again")
-                    .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
-            }
-            Spacer()
-            Button("Open Book") { model.openInLibrary(.book(book.id)) }
-                .buttonStyle(AttenSecondaryButtonStyle())
-            if book.hasBookAudio {
-                Button(model.playingBook?.id == book.id && model.isPlaying ? "Pause" : "Listen") { model.listen(to: book) }
-                    .buttonStyle(AttenPrimaryButtonStyle())
-            }
-        }
-        .padding(20)
-        .background(AttenColor.surface, in: RoundedRectangle(cornerRadius: 10))
-    }
-}

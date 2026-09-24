@@ -16,6 +16,11 @@ import SwiftUI
 final class BookCoverStore {
     private let directory: URL
     private var images: [UUID: NSImage] = [:]
+    /// The colour a jacket's own art is dominated by, so a real cover can cast
+    /// a shadow tinted like the book rather than a plain black one. Computed
+    /// alongside the cover itself, off the main thread — a k-means pass on
+    /// every redraw would be the kind of cost a shelf of covers cannot hide.
+    private var dominantColors: [UUID: OKLCHColor] = [:]
     private var inFlight: Set<UUID> = []
     /// Books that turned out not to have one. Without this, every book with no
     /// cover unpacked its whole archive again each time its card came back on
@@ -31,6 +36,11 @@ final class BookCoverStore {
 
     /// What is already known, for a card that is drawing right now.
     func cover(for bookID: UUID) -> NSImage? { images[bookID] }
+
+    /// The dominant colour of that cover, once it has loaded. Nil for a book
+    /// with no art of its own — a generated cover has no "dominant colour" of
+    /// its own to speak of; it draws from its `CoverSeed` directly.
+    func dominantColor(for bookID: UUID) -> OKLCHColor? { dominantColors[bookID] }
 
     /// Loads the cover if it has not been looked for yet. Safe to call from
     /// every redraw: the second call for a book does nothing.
@@ -51,10 +61,15 @@ final class BookCoverStore {
             return
         }
         images[book.id] = image
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        dominantColors[book.id] = await Task.detached(priority: .utility) {
+            CoverPalette.dominantColor(of: cgImage)
+        }.value
     }
 
     func forget(_ bookID: UUID) {
         images.removeValue(forKey: bookID)
+        dominantColors.removeValue(forKey: bookID)
         missing.remove(bookID)
         try? FileManager.default.removeItem(at: cacheURL(bookID))
     }

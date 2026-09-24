@@ -15,7 +15,7 @@ final class AppModel {
         case failed(String)
     }
 
-    var draftTitle = "Untitled narration"
+    var draftTitle = ""
     var draftText = ""
     var selectedVoiceID: String
     var speed: Double
@@ -30,7 +30,6 @@ final class AppModel {
     @ObservationIgnored private var playbackBookSnapshot: BookRecord?
     var startupError: String?
     var voicePreviewID: String?
-    var playgroundState: GenerationState = .idle
     var playbackPosition: TimeInterval = 0
     var playbackDuration: TimeInterval = 0
     /// Bumped when downloaded models add or remove voices, since the voice
@@ -44,6 +43,9 @@ final class AppModel {
     let library: ModelLibrary
     let bookshelf: BookshelfModel
     let synthesis = SynthesisCoordinator()
+    let createFlow = CreateFlowModel()
+    /// Plays whichever narration is being generated, as its segments land.
+    let progressivePlayer = ProgressivePlayer()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -58,12 +60,8 @@ final class AppModel {
     @ObservationIgnored private var hasAnnouncedQuarantinedHistory = false
     @ObservationIgnored private var playbackTimer: Timer?
     @ObservationIgnored private let nowPlaying = NowPlayingCenter()
-
-    private var playgroundDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("Atten", isDirectory: true)
-            .appendingPathComponent("Playground", isDirectory: true)
-    }
+    /// The playing voice's level, for the views that breathe with it.
+    @ObservationIgnored let levelMeter = LevelMeter()
 
     init(
         directories: AppDirectories = AppDirectories(),
@@ -108,6 +106,36 @@ final class AppModel {
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }
+        // Every finished narration sharpens the estimates Create shows.
+        self.bookshelf.onNarrationFinished = { [weak self] run in
+            guard let self else { return }
+            settings.listenEstimator.record(voiceID: run.voiceID, words: run.words, audioSeconds: run.audioSeconds)
+            settings.listenEstimator.recordGeneration(audioSeconds: run.audioSeconds, wallSeconds: run.wallSeconds)
+            saveSettings()
+            // Listening progressively hands off to the finished recording at
+            // the same position, with no gap a listener would notice.
+            if progressivePlayer.bookID == run.bookID {
+                let handoff = progressivePlayer.handoff()
+                // Only a listener actually mid-narration needs handing off —
+                // otherwise nothing was following along, and switching the
+                // player over would silently steal whatever it already had
+                // loaded.
+                if handoff.wasPlaying, let book = bookshelf.book(id: run.bookID) {
+                    play(tracks: book.narrationTracks, atPosition: handoff.position)
+                }
+            }
+            createFlow.narrationFinished(run.bookID)
+        }
+        self.bookshelf.onSegmentReady = { [weak self] bookID, chapterIndex, segment in
+            self?.progressivePlayer.receive(bookID: bookID, chapterIndex: chapterIndex, segment: segment)
+        }
+        self.bookshelf.onNarrationEnded = { [weak self] _ in
+            self?.progressivePlayer.stop()
+        }
+        self.progressivePlayer.onChange = { [weak self] in
+            self?.publishProgressiveNowPlaying()
+        }
+        createFlow.app = self
     }
 
     var selectedVoice: Voice {
@@ -120,13 +148,6 @@ final class AppModel {
     }
 
     var isGenerating: Bool { generationState == .generating }
-
-    var isPlaygroundGenerating: Bool { playgroundState == .generating }
-
-    var playgroundAudioURL: URL? {
-        if case let .ready(url) = playgroundState { return url }
-        return nil
-    }
 
     var currentProject: ProjectRecord? {
         guard let currentAudioURL else { return nil }
@@ -160,7 +181,6 @@ final class AppModel {
         await repairQuarantineIfNeeded()
         do {
             try directories.prepare()
-            try? resetPlaygroundDirectory()
             var loaded = try await repository.load()
             if case let .development(backendRoot)? = BackendLocator.locateInstallation() {
                 let legacyDirectory = backendRoot.appendingPathComponent("outputs", isDirectory: true)
@@ -298,7 +318,21 @@ final class AppModel {
             if section != .library, isReaderFocused {
                 setReaderFocus(false)
             }
+            if section == .studio, oldValue != .studio { sectionBeforeCreate = oldValue }
         }
+    }
+
+    /// Where Create was opened from. Create is a flow over the window rather
+    /// than a place, so leaving it goes back there.
+    private(set) var sectionBeforeCreate = SidebarItem.library
+
+    /// Which Settings tab is showing, so a screen can send someone straight
+    /// to Models.
+    var settingsTab = "general"
+
+    func leaveCreate() {
+        guard section == .studio else { return }
+        section = sectionBeforeCreate
     }
 
     private(set) var libraryPath: [LibraryRoute] = []
@@ -410,15 +444,20 @@ final class AppModel {
             setReaderFocus(false)
             return
         }
+        if section == .studio {
+            leaveCreate()
+            return
+        }
         guard canGoBack else { return }
         libraryMovedForward = false
         libraryPath.removeLast()
     }
 
     /// Only the Library stacks screens, so only the Library has anywhere to go
-    /// back to. Focus mode counts wherever it is on.
+    /// back to — and Create, which goes back to wherever it was opened from.
+    /// Focus mode counts wherever it is on.
     var canGoBack: Bool {
-        isReaderFocused || (section == .library && !libraryPath.isEmpty)
+        isReaderFocused || section == .studio || (section == .library && !libraryPath.isEmpty)
     }
 
     var activeAudioURL: URL? { queue.current?.url }
@@ -471,10 +510,10 @@ final class AppModel {
         publishNowPlaying()
     }
 
-    /// Ten seconds back or forward, the way every player does it.
+    /// Fifteen seconds back or forward, the way every player does it.
     ///
     /// Running off either end carries on into the neighbouring chapter rather
-    /// than stopping dead — and backwards it lands ten seconds from that
+    /// than stopping dead — and backwards it lands fifteen seconds from that
     /// chapter's end, not at its beginning, because skipping back is asking to
     /// hear the last few seconds again.
     func skip(by seconds: TimeInterval) {
@@ -562,17 +601,16 @@ final class AppModel {
     }
 
     func newDraft() {
-        activeTextImportID = nil
-        isImportingText = false
-        if isGenerating || isPlaygroundGenerating || voicePreviewID != nil { cancelGeneration() }
-        draftTitle = "Untitled narration"
+        if isGenerating || voicePreviewID != nil { cancelGeneration() }
+        draftTitle = ""
         draftText = ""
         generationState = .idle
         successMessage = nil
+        createFlow.reset()
     }
 
     func generate() {
-        guard !isImportingText, !synthesis.isBusy else { return }
+        guard !synthesis.isBusy else { return }
         let cleanText = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             generationState = .failed("Enter or import text before generating speech.")
@@ -644,7 +682,6 @@ final class AppModel {
         generator.cancel()
         activeGenerationID = nil
         if isGenerating { generationState = .idle }
-        if isPlaygroundGenerating { playgroundState = .idle }
         voicePreviewID = nil
     }
 
@@ -705,12 +742,19 @@ final class AppModel {
         publishNowPlaying()
     }
 
-    func previewVoice(_ voice: Voice) {
-        let previewDirectory = directories.applicationSupport
+    /// Where a preview of `voice` is cached. A preview of someone's own
+    /// sentence is keyed on the sentence too, so each draft hears itself.
+    func voicePreviewURL(_ voice: Voice, speaking sentence: String? = nil) -> URL {
+        let name = sentence.map { "preview-\(voice.id)-\(ContentHash.of($0).prefix(16))" } ?? "preview-\(voice.id)"
+        return directories.applicationSupport
             .appendingPathComponent("Voice Previews", isDirectory: true)
-        let previewURL = previewDirectory
-            .appendingPathComponent("preview-\(voice.id)")
+            .appendingPathComponent(name)
             .appendingPathExtension("wav")
+    }
+
+    func previewVoice(_ voice: Voice, speaking sentence: String? = nil) {
+        let previewURL = voicePreviewURL(voice, speaking: sentence)
+        let previewDirectory = previewURL.deletingLastPathComponent()
         if FileManager.default.fileExists(atPath: previewURL.path) {
             togglePlayback(url: previewURL)
             return
@@ -724,12 +768,12 @@ final class AppModel {
         let generationID = UUID()
         activeGenerationID = generationID
         let request = GenerationRequest(
-            text: "Welcome to Atten. Let every idea find its voice.",
+            text: sentence ?? "Welcome to Atten. Let every idea find its voice.",
             voiceID: voice.id,
             speed: 1,
             format: .wav,
             outputDirectory: previewDirectory,
-            filename: "preview-\(voice.id)",
+            filename: previewURL.deletingPathExtension().lastPathComponent,
             useMPS: settings.useMPS,
             modelID: voice.modelID
         )
@@ -753,88 +797,6 @@ final class AppModel {
         }
     }
 
-    func generatePlaygroundSample(
-        text: String,
-        voiceID: String,
-        speed: Double,
-        format: AudioFormat,
-        useMPS: Bool
-    ) {
-        guard !synthesis.isBusy else { return }
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanText.isEmpty else {
-            playgroundState = .failed("Enter a short sample before generating.")
-            return
-        }
-        if let message = missingModelMessage(for: voiceID) {
-            playgroundState = .failed(message)
-            return
-        }
-
-        cancelGeneration()
-        do {
-            try resetPlaygroundDirectory()
-        } catch {
-            playgroundState = .failed("The temporary sample folder could not be prepared.")
-            return
-        }
-
-        playgroundState = .generating
-        let generationID = UUID()
-        activeGenerationID = generationID
-        let request = GenerationRequest(
-            text: cleanText,
-            voiceID: voiceID,
-            speed: speed,
-            format: format,
-            outputDirectory: playgroundDirectory,
-            filename: "sample-\(UUID().uuidString)",
-            useMPS: useMPS,
-            modelID: VoiceCatalog.voice(id: voiceID)?.modelID
-        )
-
-        guard let lease = synthesis.acquire("Creating audio") else { return }
-        generationTask = Task { [weak self] in
-            guard let self else { return }
-            defer { synthesis.release(lease) }
-            do {
-                let output = try await generator.generate(request)
-                try Task.checkCancellation()
-                guard activeGenerationID == generationID else { return }
-                playgroundState = .ready(output.url)
-                play(url: output.url)
-            } catch is CancellationError {
-                if activeGenerationID == generationID { playgroundState = .idle }
-            } catch BackendError.cancelled {
-                if activeGenerationID == generationID { playgroundState = .idle }
-            } catch {
-                if activeGenerationID == generationID {
-                    playgroundState = .failed(error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    func clearPlaygroundSample() {
-        cancelGeneration()
-        stopPlayback()
-        try? resetPlaygroundDirectory()
-        playgroundState = .idle
-    }
-
-    func usePlaygroundSettingsInStudio(
-        text: String,
-        voiceID: String,
-        speed: Double,
-        format: AudioFormat
-    ) {
-        draftText = text
-        selectedVoiceID = voiceID
-        self.speed = speed
-        self.format = format
-        generationState = .idle
-    }
-
     func selectVoice(_ voice: Voice) {
         selectedVoiceID = voice.id
         settings.selectedVoiceID = voice.id
@@ -855,56 +817,6 @@ final class AppModel {
         settings.defaultSpeed = speed
         settings.defaultFormat = format
         saveSettings()
-    }
-
-    func selectAppearance(_ appearance: AppearancePreference) {
-        guard settings.appearance != appearance else { return }
-        settings.appearance = appearance
-        saveSettings()
-    }
-
-    private(set) var isImportingText = false
-    @ObservationIgnored private var activeTextImportID: UUID?
-
-    func importText(from url: URL) {
-        guard !isImportingText else { return }
-        isImportingText = true
-        let importID = UUID()
-        activeTextImportID = importID
-        Task {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessed { url.stopAccessingSecurityScopedResource() }
-                if activeTextImportID == importID { isImportingText = false; activeTextImportID = nil }
-            }
-            do {
-                let text = try await Task.detached(priority: .userInitiated) {
-                    if url.pathExtension.lowercased() == "rtf" {
-                        return try NSAttributedString(url: url, options: [:], documentAttributes: nil).string
-                    }
-                    return try String(contentsOf: url, encoding: .utf8)
-                }.value
-                guard activeTextImportID == importID else { return }
-                draftText = text
-                draftTitle = url.deletingPathExtension().lastPathComponent
-                if !isGenerating { generationState = .idle }
-            } catch {
-                if activeTextImportID == importID {
-                    generationState = .failed("Atten could not read that text file: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    func openImportPanel() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Text into Atten"
-        var contentTypes: [UTType] = [.plainText, .sourceCode, .rtf]
-        if let markdown = UTType(filenameExtension: "md") { contentTypes.append(markdown) }
-        panel.allowedContentTypes = contentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        if panel.runModal() == .OK, let url = panel.url { importText(from: url) }
     }
 
     func openBookImportPanel() {
@@ -1007,6 +919,7 @@ final class AppModel {
     }
 
     func duplicate(_ project: ProjectRecord) {
+        createFlow.reset()
         draftTitle = "\(project.title) copy"
         draftText = project.text
         selectedVoiceID = project.voiceID
@@ -1017,7 +930,7 @@ final class AppModel {
 
     func regenerate(_ project: ProjectRecord) {
         duplicate(project)
-        generate()
+        createFlow.generate()
     }
 
     func delete(_ project: ProjectRecord, includingAudio: Bool = false) {
@@ -1093,30 +1006,30 @@ final class AppModel {
     ///
     /// Each is a separate file on disk, so a book can be narrated chapter by
     /// chapter and still listened to as one piece.
-    func play(tracks: [PlaybackTrack], startingAt index: Int = 0) {
+    func play(
+        tracks: [PlaybackTrack], startingAt index: Int = 0,
+        atPosition position: TimeInterval = 0, autoplay: Bool = true
+    ) {
         guard !tracks.isEmpty else { return }
         saveListeningPosition()
         queue = PlaybackQueue(tracks: tracks, startingAt: index)
         playbackBookSnapshot = bookshelf.books.first { $0.id == queue.current?.id }
         guard let track = queue.current else { return }
-        start(track)
+        start(track, autoplay: autoplay, position: position)
     }
 
     /// One file, with nothing before or after it — a preview, a sample, a
     /// finished draft.
     private func play(url: URL, subtitle: String? = nil) {
         let project = projects.first { $0.audioURL == url }
-        let isPlaygroundSample = url.path.hasPrefix(playgroundDirectory.path)
         let isVoicePreview = url.path.contains("/Voice Previews/")
         let title = project?.title
-            ?? (isPlaygroundSample ? "Playground sample" : nil)
             ?? (isVoicePreview ? "Voice preview" : nil)
         let source = subtitle
             ?? project.map { project in
                 let voice = VoiceCatalog.voice(id: project.voiceID)?.name ?? project.voiceID
                 return "Studio · \(voice)"
             }
-            ?? (isPlaygroundSample ? "Studio playground" : nil)
         let track = if let title {
             PlaybackTrack(url: url, title: title, subtitle: source)
         } else {
@@ -1135,6 +1048,7 @@ final class AppModel {
             player.delegate = delegate
             // Set before preparing, or the rate is ignored on first play.
             player.enableRate = true
+            player.isMeteringEnabled = true
             player.prepareToPlay()
             player.rate = Float(playbackRate)
             player.currentTime = min(max(0, position), player.duration)
@@ -1143,6 +1057,7 @@ final class AppModel {
             }
             if autoplay { player.play() }
             audioPlayer = player
+            levelMeter.player = player
             isPlaying = autoplay
             playbackDuration = player.duration
             playbackPosition = player.currentTime
@@ -1154,12 +1069,7 @@ final class AppModel {
             isPlaying = false
             queue = PlaybackQueue()
             nowPlaying.clear()
-            let message = "Audio playback failed: \(error.localizedDescription)"
-            if track.url.path.hasPrefix(playgroundDirectory.path) {
-                playgroundState = .failed(message)
-            } else {
-                generationState = .failed(message)
-            }
+            generationState = .failed("Audio playback failed: \(error.localizedDescription)")
         }
     }
 
@@ -1192,21 +1102,57 @@ final class AppModel {
     func prepareForTermination() {
         cancelGeneration()
         stopPlayback()
+        progressivePlayer.stop()
     }
 
     /// The keyboard's play key, Control Center, and a pair of headphones all
-    /// reach the player through here.
+    /// reach the player through here. While a narration is generating and
+    /// nothing else is queued, they reach progressive playback instead.
     private func startRemoteCommands() {
         nowPlaying.start(
             NowPlayingCenter.Commands(
-                play: { [weak self] in self?.resume() },
-                pause: { [weak self] in self?.pause() },
-                toggle: { [weak self] in self?.toggleActivePlayback() },
+                play: { [weak self] in self?.remotePlayOrPause(playing: true) },
+                pause: { [weak self] in self?.remotePlayOrPause(playing: false) },
+                toggle: { [weak self] in
+                    guard let self else { return }
+                    queue.current != nil ? toggleActivePlayback() : progressivePlayer.toggle()
+                },
                 next: { [weak self] in self?.playNext() },
                 previous: { [weak self] in self?.playPrevious() },
                 skip: { [weak self] seconds in self?.skip(by: seconds) },
-                seek: { [weak self] time in self?.seek(to: time) }
+                seek: { [weak self] time in
+                    guard let self else { return }
+                    queue.current != nil ? seek(to: time) : progressivePlayer.seek(to: time)
+                }
             )
+        )
+    }
+
+    private func remotePlayOrPause(playing: Bool) {
+        guard queue.current != nil else {
+            playing ? progressivePlayer.play() : progressivePlayer.pause()
+            return
+        }
+        playing ? resume() : pause()
+    }
+
+    /// Now Playing while progressive playback, rather than the ordinary
+    /// player, is what a listener is following — the ordinary queue always
+    /// wins the display if both are somehow active at once.
+    private func publishProgressiveNowPlaying() {
+        guard queue.current == nil else { return }
+        guard let bookID = progressivePlayer.bookID, let book = bookshelf.book(id: bookID) else {
+            nowPlaying.clear()
+            return
+        }
+        nowPlaying.update(
+            track: PlaybackTrack(id: bookID, url: book.sourceURL, title: book.title, subtitle: "Narrating…"),
+            isPlaying: progressivePlayer.isPlaying,
+            position: progressivePlayer.position,
+            duration: progressivePlayer.duration,
+            rate: 1,
+            hasNext: false,
+            hasPrevious: false
         )
     }
 
@@ -1276,15 +1222,6 @@ final class AppModel {
         return candidate
     }
 
-    private func resetPlaygroundDirectory() throws {
-        if FileManager.default.fileExists(atPath: playgroundDirectory.path) {
-            try FileManager.default.removeItem(at: playgroundDirectory)
-        }
-        try FileManager.default.createDirectory(
-            at: playgroundDirectory,
-            withIntermediateDirectories: true
-        )
-    }
 }
 
 private final class AudioPlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {

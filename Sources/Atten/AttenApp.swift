@@ -33,7 +33,7 @@ struct AttenApp: App {
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Draft") {
+                Button("New") {
                     model.newDraft()
                     NotificationCenter.default.post(name: .attenOpenStudio, object: nil)
                 }
@@ -42,18 +42,18 @@ struct AttenApp: App {
             CommandGroup(after: .importExport) {
                 Button("Add to Library…") { model.openBookImportPanel() }
                     .keyboardShortcut("o")
-                Button("Import Text into Draft…") {
+                Button("Import into Create…") {
                     model.section = .studio
-                    model.openImportPanel()
-                }.keyboardShortcut("o", modifiers: [.command, .shift])
+                    model.createFlow.openImportPanel()
+                }.keyboardShortcut("i", modifiers: [.command])
                 Button("Export Current Audio…") { model.exportCurrent() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
                     .disabled(model.currentAudioURL == nil && model.playingBook?.hasBookAudio != true)
             }
             CommandMenu("Speech") {
-                Button("Generate Speech") { model.generate() }
+                Button("Generate") { model.createFlow.generate() }
                     .keyboardShortcut(.return, modifiers: [.command])
-                    .disabled(model.synthesis.isBusy)
+                    .disabled(model.section != .studio || !model.createFlow.canGenerate)
                 Button("Stop Preparation") {
                     if model.bookshelf.isNarrating { model.bookshelf.cancelNarration() }
                     else { model.cancelGeneration() }
@@ -72,9 +72,9 @@ struct AttenApp: App {
                 // by words, and ⌥⌘← and ⌥⌘→ are the reader's own chapter keys.
                 // The media keys on the keyboard reach all four through
                 // NowPlayingCenter, which is where macOS expects to find them.
-                Button("Back 10 Seconds") { model.skip(by: -NowPlayingCenter.skipInterval) }
+                Button("Back 15 Seconds") { model.skip(by: -NowPlayingCenter.skipInterval) }
                     .disabled(model.queue.isEmpty)
-                Button("Forward 10 Seconds") { model.skip(by: NowPlayingCenter.skipInterval) }
+                Button("Forward 15 Seconds") { model.skip(by: NowPlayingCenter.skipInterval) }
                     .disabled(model.queue.isEmpty)
                 Button("Previous") { model.playPrevious() }
                     .disabled(model.queue.isEmpty)
@@ -88,14 +88,14 @@ struct AttenApp: App {
                 Divider()
                 Button("Library") { model.returnToShelf() }
                 .keyboardShortcut("1")
-                Button("Create") { model.section = .studio }
+                Button("Voices") { model.section = .voices }
                 .keyboardShortcut("2")
             }
-        }
-
-        Settings {
-            SettingsView(model: model)
-                .frame(width: 680, height: 520)
+            // Settings is a place in the window now, not a second window.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { model.section = .settings }
+                    .keyboardShortcut(",")
+            }
         }
     }
 }

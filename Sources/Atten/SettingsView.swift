@@ -24,15 +24,9 @@ private enum SettingsCategory: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @Bindable var model: AppModel
-    @State private var selectedTab: String
-
-    init(model: AppModel, initialTab: String = "general") {
-        self.model = model
-        _selectedTab = State(initialValue: initialTab)
-    }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: $model.settingsTab) {
             SettingsPane(title: "General", detail: "Speech stays on this Mac.") {
                 providerForm
             }
@@ -106,9 +100,27 @@ struct SettingsView: View {
                 Toggle("Check GitHub for new versions at launch", isOn: $model.settings.checksForUpdates)
                     .help("Turn this off to keep this version indefinitely and never use the network")
 
-                Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually from the sidebar.")
-                    .font(AttenTypography.metadata)
+                Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually here.")
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
+
+                LabeledContent("Version") {
+                    HStack(spacing: AttenSpacing.sm) {
+                        Text(model.isInstallingUpdate ? "Updating…" : model.appVersion)
+                            .foregroundStyle(AttenColor.textSecondary)
+                        if model.isCheckingForUpdate {
+                            ProgressView().controlSize(.small)
+                        }
+                        Button("Check for Updates") {
+                            Task { await model.checkForUpdate(manual: true) }
+                        }
+                        .disabled(model.isCheckingForUpdate || model.isInstallingUpdate)
+                    }
+                }
+
+                LabeledContent("Source code") {
+                    Link("View on GitHub", destination: UpdateChecker.repositoryURL)
+                }
             }
         }
         .formStyle(.grouped)
@@ -131,9 +143,12 @@ struct SettingsView: View {
                     HStack {
                         Slider(value: $model.speed, in: 0.5...2, step: 0.05)
                             .frame(width: 190)
+                            .accessibilityLabel("Speech speed")
+                            .accessibilityValue(String(format: "%.2f×", model.speed))
                         Text(String(format: "%.2f×", model.speed))
                             .monospacedDigit()
                             .frame(width: 48, alignment: .trailing)
+                            .accessibilityHidden(true)
                     }
                 }
 
@@ -161,19 +176,20 @@ struct SettingsView: View {
                 ) {
                     HStack(spacing: AttenSpacing.xs) {
                         Text(model.settings.outputDirectory)
-                            .font(AttenTypography.metadata)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .frame(width: 290, alignment: .trailing)
                         Button("Choose…") { model.chooseOutputDirectory() }
+                        Button("Show in Finder") { model.openSaveFolder() }
                     }
                 }
             }
 
             Section {
                 Text("Existing audio in the original outputs folder is discovered without being moved.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
@@ -191,7 +207,7 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 Text("Atten has one palette, drawn light or dark. Motion and transparency follow your macOS accessibility preferences.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
@@ -201,17 +217,24 @@ struct SettingsView: View {
     private var shortcutsForm: some View {
         Form {
             Section("Create") {
-                ShortcutRow(action: "New draft", keys: "⌘N")
+                ShortcutRow(action: "New", keys: "⌘N")
                 ShortcutRow(action: "Add to Library", keys: "⌘O")
-                ShortcutRow(action: "Import text into draft", keys: "⇧⌘O")
+                ShortcutRow(action: "Import into Create", keys: "⌘I")
                 ShortcutRow(action: "Generate speech", keys: "⌘↩")
                 ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
             }
-            Section("Navigation and playback") {
+            Section("Library and reader") {
                 ShortcutRow(action: "Open Library", keys: "⌘1")
-                ShortcutRow(action: "Open Create", keys: "⌘2")
-                ShortcutRow(action: "Create temporary sample", keys: "⌥⌘↩")
-                ShortcutRow(action: "Play or pause", keys: "⌥Space")
+                ShortcutRow(action: "Open Voices", keys: "⌘2")
+                ShortcutRow(action: "Open Settings", keys: "⌘,")
+                ShortcutRow(action: "Search the Library", keys: "⌘F")
+                ShortcutRow(action: "Find in book", keys: "⌘F")
+            }
+            Section("Playback") {
+                ShortcutRow(action: "Play or pause", keys: "Space")
+                ShortcutRow(action: "Play or pause (anywhere)", keys: "⌥Space")
+                ShortcutRow(action: "Skip back 15 seconds", keys: "←")
+                ShortcutRow(action: "Skip forward 15 seconds", keys: "→")
                 ShortcutRow(action: "Cancel generation", keys: "Esc")
             }
         }
@@ -234,7 +257,7 @@ private struct SettingsPane<Content: View>: View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
                 Text(title)
-                    .font(AttenTypography.pageTitle)
+                    .font(AttenTypography.title2)
                     .foregroundStyle(AttenColor.textPrimary)
                 Text(detail)
                     .font(AttenTypography.body)
@@ -243,7 +266,9 @@ private struct SettingsPane<Content: View>: View {
             .padding(.horizontal, AttenSpacing.lg)
             .padding(.top, AttenSpacing.lg)
 
-            content
+            // The form's own grey would cut the pane in two under its header.
+            content.scrollContentBackground(.hidden)
+                .attenFormScrollPadding()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AttenColor.appBackground)
@@ -257,7 +282,7 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent(action) {
             Text(keys)
-                .font(AttenTypography.readout)
+                .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.textSecondary)
                 .padding(.horizontal, AttenSpacing.xs)
                 .padding(.vertical, AttenSpacing.xxs)

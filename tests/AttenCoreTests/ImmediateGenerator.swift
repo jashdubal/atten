@@ -17,6 +17,28 @@ final class ImmediateGenerator: TTSGenerating, @unchecked Sendable {
         return GenerationOutput(url: url, segmentCount: 1, sampleRate: 24_000)
     }
 
+    func generateStream(_ request: GenerationRequest) -> AsyncThrowingStream<GenerationEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    let output = try await generate(request)
+                    let directory = request.segmentsDirectory ?? request.outputDirectory.appendingPathComponent("segments")
+                    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                    let segmentURL = directory.appendingPathComponent("seg-00000.wav")
+                    try silentWAV().write(to: segmentURL)
+                    continuation.yield(.segment(SegmentReady(url: segmentURL, timing: TimedSegment(
+                        index: 0, text: request.text, start: 0, duration: 0.1, words: []
+                    ))))
+                    continuation.yield(.completed(output.url))
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+            continuation.onTermination = { termination in
+                if case .cancelled = termination { task.cancel() }
+            }
+        }
+    }
+
     func cancel() {}
 
     /// Writes a stand-in narration for one chapter and hands back its URL.

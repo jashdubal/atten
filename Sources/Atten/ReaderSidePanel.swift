@@ -75,7 +75,7 @@ struct ReaderSidePanel: View {
     private var header: some View {
         HStack(spacing: AttenSpacing.xs) {
             Label("Reader tools", systemImage: "slider.horizontal.3")
-                .font(AttenTypography.control.weight(.semibold))
+                .font(AttenTypography.callout.weight(.semibold))
                 .foregroundStyle(AttenColor.textPrimary)
                 .lineLimit(1)
             Spacer(minLength: AttenSpacing.xs)
@@ -97,16 +97,16 @@ struct ReaderSidePanel: View {
     private var searchField: some View {
         HStack(spacing: AttenSpacing.xs) {
             Image(systemName: "magnifyingglass")
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
             TextField("Search this book", text: $query)
                 .textFieldStyle(.plain)
-                .font(AttenTypography.metadata)
+                .font(AttenTypography.callout)
                 .focused($isSearchFocused)
             if !query.isEmpty {
                 Button { query = "" } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                 }
                 .buttonStyle(.plain)
@@ -123,14 +123,14 @@ struct ReaderSidePanel: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: AttenSpacing.xs) {
                 Text("RESULTS")
-                    .font(AttenTypography.sectionTitle)
+                    .font(AttenTypography.body.weight(.semibold))
                     .foregroundStyle(AttenColor.accent)
                 Spacer(minLength: 0)
                 if isSearching {
                     ProgressView().controlSize(.mini)
                 } else {
                     Text("\(hits.count)")
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                 }
             }
@@ -139,7 +139,7 @@ struct ReaderSidePanel: View {
 
             if hits.isEmpty, !isSearching {
                 Text("No passage in this book matches that.")
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
                     .padding(.horizontal, AttenSpacing.sm)
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -159,6 +159,7 @@ struct ReaderSidePanel: View {
                     }
                     .padding(.horizontal, AttenSpacing.xs)
                     .padding(.bottom, AttenSpacing.sm)
+                    .attenScrollPadding()
                 }
             }
         }
@@ -201,6 +202,7 @@ struct ReaderSidePanel: View {
                     }
                     .padding(.horizontal, AttenSpacing.xs)
                     .padding(.bottom, AttenSpacing.sm)
+                    .attenScrollPadding()
                 }
                 // Following the reader is the whole point of a contents list;
                 // one that has to be scrolled to find your place is not one.
@@ -219,7 +221,7 @@ struct ReaderSidePanel: View {
                         .font(.system(size: 18))
                         .foregroundStyle(AttenColor.textSecondary)
                     Text("Nothing marked yet. Press ⌘D on a page worth coming back to.")
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                         .multilineTextAlignment(.center)
                 }
@@ -241,6 +243,7 @@ struct ReaderSidePanel: View {
                     }
                     .padding(.horizontal, AttenSpacing.xs)
                     .padding(.bottom, AttenSpacing.sm)
+                    .attenScrollPadding()
                 }
             }
         }
@@ -305,12 +308,12 @@ private struct ContentsRow: View {
         Button(action: select) {
             HStack(alignment: .firstTextBaseline, spacing: AttenSpacing.xs) {
                 Text("\(number)")
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
                     .frame(width: 22, alignment: .trailing)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(AttenTypography.metadata)
+                        .font(AttenTypography.callout)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                     HStack(spacing: AttenSpacing.xxs) {
@@ -376,7 +379,7 @@ private struct BookmarkRow: View {
                 if isHovering {
                     Button(action: remove) {
                         Image(systemName: "trash")
-                            .font(AttenTypography.caption)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                     }
                     .buttonStyle(.plain)

@@ -7,54 +7,40 @@ import XCTest
 /// without hunting for it.
 ///
 /// It used to be secondary-coloured text on no background at all, which became
-/// a button only once the pointer was already on it.
+/// a button only once the pointer was already on it. It is a secondary button
+/// now: glass at rest, with the title in `text1`.
 final class BackButtonTests: XCTestCase {
-    /// WCAG sets 3:1 for the visual boundary of a control against what is
-    /// behind it. The button's edge is drawn in the accent for exactly this
-    /// reason: the separator, which it used to use, sits near 1.4:1.
-    func testTheButtonsEdgeIsVisibleAgainstEveryScreenItSitsOn() {
+    /// The title and chevron are what make it findable, so they are held to
+    /// the bar for body text on every screen it sits on.
+    func testTheButtonsLabelIsReadableOnEveryScreenItSitsOn() {
         let palette = AttenPalette.atten
         for (name, behind) in backgrounds(of: palette) {
             for appearance in [false, true] {
-                let edge = value(palette.accent, dark: appearance)
                 XCTAssertGreaterThanOrEqual(
-                    contrast(edge, value(behind, dark: appearance)),
-                    3.0,
-                    "\(appearance ? "dark" : "light"): the back button's edge on \(name)"
+                    contrast(value(palette.text1, dark: appearance), value(behind, dark: appearance)),
+                    7.0,
+                    "\(appearance ? "dark" : "light"): the back button's title on \(name)"
                 )
             }
         }
     }
 
-    /// And its label has to be readable on its own fill, at the bar for body
-    /// text rather than the one for decoration.
+    /// …and on its own fill: the glass tint as it lands on the ground, or
+    /// `surface1` when Reduce Transparency makes it opaque.
     func testTheButtonsLabelIsReadableOnItsOwnFill() {
         let palette = AttenPalette.atten
         for appearance in [false, true] {
-            let fill = value(palette.surfaceElevated, dark: appearance)
-            XCTAssertGreaterThanOrEqual(
-                contrast(value(palette.textPrimary, dark: appearance), fill), 7.0,
-                "\(appearance ? "dark" : "light"): the back button's title"
+            let glass = composite(
+                value(palette.glass, dark: appearance),
+                alpha: appearance ? palette.glass.darkAlpha : palette.glass.lightAlpha,
+                over: value(palette.bg, dark: appearance)
             )
-            XCTAssertGreaterThanOrEqual(
-                contrast(value(palette.accent, dark: appearance), fill), 3.0,
-                "\(appearance ? "dark" : "light"): the back button's chevron"
-            )
-        }
-    }
-
-    /// Hovering it fills with the accent, so the label has to survive that.
-    func testTheButtonStaysReadableWhileHovered() {
-        let palette = AttenPalette.atten
-        for appearance in [false, true] {
-            XCTAssertGreaterThanOrEqual(
-                contrast(
-                    value(palette.onAccent, dark: appearance),
-                    value(palette.accent, dark: appearance)
-                ),
-                4.5,
-                "\(appearance ? "dark" : "light"): the back button under the pointer"
-            )
+            for (name, fill) in [("glass", glass), ("surface1", value(palette.surface1, dark: appearance))] {
+                XCTAssertGreaterThanOrEqual(
+                    contrast(value(palette.text1, dark: appearance), fill), 7.0,
+                    "\(appearance ? "dark" : "light"): the back button's title on \(name)"
+                )
+            }
         }
     }
 
@@ -68,6 +54,14 @@ final class BackButtonTests: XCTestCase {
 
     private func value(_ color: AttenThemeColor, dark: Bool) -> UInt {
         dark ? color.dark : color.light
+    }
+
+    private func composite(_ color: UInt, alpha: Double, over ground: UInt) -> UInt {
+        func mix(_ shift: UInt) -> UInt {
+            let top = Double((color >> shift) & 0xff), bottom = Double((ground >> shift) & 0xff)
+            return UInt((top * alpha + bottom * (1 - alpha)).rounded()) << shift
+        }
+        return mix(16) | mix(8) | mix(0)
     }
 
     private func contrast(_ first: UInt, _ second: UInt) -> Double {

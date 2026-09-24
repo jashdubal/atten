@@ -72,7 +72,6 @@ struct BookReaderView: View {
             readerCanvas
         }
         .background(AttenColor.appBackground)
-        .environment(\.attenMutedControls, true)
         .tint(AttenColor.textSecondary)
         .navigationTitle(book.title)
         .attenScreenTitle(book.title)
@@ -362,7 +361,7 @@ struct BookReaderView: View {
             Spacer(minLength: 0)
 
             Text(readout)
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .monospacedDigit()
                 .foregroundStyle(AttenColor.textSecondary)
                 .lineLimit(1)
@@ -391,7 +390,7 @@ struct BookReaderView: View {
             compactNavigationMenu
             Spacer(minLength: AttenSpacing.xs)
             Text(readout)
-                .font(AttenTypography.caption)
+                .font(AttenTypography.callout)
                 .monospacedDigit()
                 .foregroundStyle(AttenColor.textSecondary)
                 .lineLimit(1)
@@ -423,7 +422,7 @@ struct BookReaderView: View {
             .disabled(chapterIndex >= book.chapters.count - 1)
         } label: {
             Image(systemName: "chevron.left.chevron.right")
-                .font(AttenTypography.control)
+                .font(AttenTypography.callout)
                 .frame(width: 30, height: 30)
         }
         .menuStyle(.borderlessButton)
@@ -459,7 +458,7 @@ struct BookReaderView: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(AttenTypography.control)
+                .font(AttenTypography.callout)
                 .frame(width: 30, height: 30)
         }
         .menuStyle(.borderlessButton)
@@ -530,7 +529,7 @@ struct BookReaderView: View {
     private var bookmarkButton: some View {
         Button(action: toggleBookmark) {
             Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
-                .font(AttenTypography.control)
+                .font(AttenTypography.callout)
                 .frame(width: 30, height: 30)
                 .foregroundStyle(
                     isBookmarked ? AttenColor.textSecondary : AttenColor.textMuted
@@ -693,7 +692,7 @@ struct BookReaderView: View {
                     .disabled(fontSize <= Self.fontRange.lowerBound)
 
                     Text("\(Int(fontSize)) pt")
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .monospacedDigit()
                         .foregroundStyle(AttenColor.textSecondary)
                         .frame(maxWidth: .infinity)
@@ -723,7 +722,7 @@ struct BookReaderView: View {
                 panelLabel("Text brightness")
                 Spacer()
                 Text("\(Int((brightness * 100).rounded()))%")
-                    .font(AttenTypography.caption)
+                    .font(AttenTypography.callout)
                     .monospacedDigit()
                     .foregroundStyle(AttenColor.textSecondary)
             }
@@ -753,7 +752,7 @@ struct BookReaderView: View {
 
     private func panelLabel(_ text: String) -> some View {
         Text(text)
-            .font(AttenTypography.caption)
+            .font(AttenTypography.callout)
             .foregroundStyle(AttenColor.textSecondary)
     }
 
@@ -869,7 +868,9 @@ struct BookReaderView: View {
                 } label: {
                     Label("Prepare Audio", systemImage: "waveform")
                 }
-                .buttonStyle(AttenPrimaryButtonStyle())
+                .buttonStyle(AttenPrimaryButtonStyle(
+                    disabledReason: model.synthesis.isBusy ? "Another narration is running" : nil
+                ))
                 .disabled(chapter == nil || model.synthesis.isBusy)
             }
         }
@@ -888,7 +889,7 @@ struct BookReaderView: View {
                 Image(systemName: "waveform")
                     .font(.system(size: 11, weight: .semibold))
                 Text("Playing")
-                    .font(AttenTypography.control)
+                    .font(AttenTypography.callout)
             }
             .foregroundStyle(AttenColor.textSecondary)
             .padding(.horizontal, AttenSpacing.sm)

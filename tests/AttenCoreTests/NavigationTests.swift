@@ -140,7 +140,7 @@ final class NavigationTests: XCTestCase {
         let book = UUID()
         model.openInLibrary(.book(book))
 
-        model.section = .studio
+        model.section = .voices
 
         XCTAssertFalse(model.canGoBack)
         model.goBack()
