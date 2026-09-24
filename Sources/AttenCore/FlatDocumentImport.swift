@@ -117,6 +117,15 @@ enum FlatDocumentExtractor {
     }
 
     private static func divide(_ body: String) -> [DocumentChapter] {
+        let divided = sections(in: body)
+        // One heading at the top is not a division; it is a title. A document
+        // with nothing to divide it by is cut into even pieces instead, the
+        // way a PDF with no outline is.
+        return divided.count > 1 ? divided : chunk(DocumentText.normalize(body))
+    }
+
+    /// The text cut at its headings, each heading naming the section under it.
+    static func sections(in body: String) -> [DocumentChapter] {
         let lines = body.components(separatedBy: "\n")
         var sections: [(title: String?, lines: [String])] = []
         for line in lines {
@@ -129,19 +138,15 @@ enum FlatDocumentExtractor {
             }
         }
 
-        let divided = sections.compactMap { section -> DocumentChapter? in
+        return sections.compactMap { section -> DocumentChapter? in
             let text = DocumentText.normalize(section.lines.joined(separator: "\n"))
             guard !text.isEmpty else { return nil }
             return DocumentChapter(title: section.title ?? "Beginning", text: text)
         }
-        // One heading at the top is not a division; it is a title. A document
-        // with nothing to divide it by is cut into even pieces instead, the
-        // way a PDF with no outline is.
-        return divided.count > 1 ? divided : chunk(DocumentText.normalize(body))
     }
 
     /// Splits on paragraph boundaries so a section never begins mid-sentence.
-    private static func chunk(_ text: String) -> [DocumentChapter] {
+    static func chunk(_ text: String) -> [DocumentChapter] {
         guard !text.isEmpty else { return [] }
         let paragraphs = text.components(separatedBy: "\n").filter { !$0.isEmpty }
         guard !paragraphs.isEmpty else { return [] }
@@ -180,7 +185,7 @@ enum FlatDocumentExtractor {
         return hashes
     }
 
-    private static func headingText(in line: String) -> String? {
+    static func headingText(in line: String) -> String? {
         guard headingLevel(of: line) != .max else { return nil }
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         let text = trimmed

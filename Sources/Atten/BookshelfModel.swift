@@ -78,6 +78,9 @@ final class BookshelfModel {
         let total: Int
         var eta: String = "Estimating time remaining…"
         var isCombining: Bool = false
+        /// Words of the current chapter the engine has finished speaking, so
+        /// Create can show narration reaching through the text.
+        var spokenWords = 0
 
         var fraction: Double { total > 0 ? min(0.95, Double(completed) / Double(total) * 0.95) : 0 }
     }
@@ -115,6 +118,12 @@ final class BookshelfModel {
     /// now. Only the app model knows which models are installed.
     @ObservationIgnored var missingModelID: (String) -> String? = { _ in nil }
     @ObservationIgnored var isAudioInUse: (URL) -> Bool = { _ in false }
+    /// Called with each segment as soon as its audio is on disk: book id,
+    /// chapter index, segment. Progressive playback during generation (P5)
+    /// attaches here.
+    @ObservationIgnored var onSegmentReady: ((UUID, Int, SegmentReady) -> Void)?
+    /// Called once a narration has been published as one recording.
+    @ObservationIgnored var onNarrationFinished: ((NarrationRun) -> Void)?
     @ObservationIgnored private var retiredAudio: Set<URL> = []
 
     init(directories: AppDirectories, generator: any TTSGenerating,
@@ -128,6 +137,17 @@ final class BookshelfModel {
             directory: directories.bookSources.appendingPathComponent("Covers", isDirectory: true)
         )
         self.generator = generator
+    }
+
+    /// What one completed narration took, for calibrating estimates. Counts
+    /// only the chapters generated in this run, so a resumed book does not
+    /// credit the engine with audio it made on an earlier day.
+    struct NarrationRun: Equatable {
+        let bookID: UUID
+        let voiceID: String
+        let words: Int
+        let audioSeconds: TimeInterval
+        let wallSeconds: TimeInterval
     }
 
     var isNarrating: Bool { progress != nil }
@@ -377,8 +397,19 @@ final class BookshelfModel {
     /// Passing the id of an existing draft updates it in place; removing a
     /// draft is `remove(_:)`, which already deletes only that one book's own
     /// source file.
+    ///
+    /// `chapters`, when given, is how the text is divided for narration;
+    /// without it a draft is one chapter. Chapters whose text has not changed
+    /// are kept as they are, so narration that was stopped resumes.
     @discardableResult
-    func saveDraft(id: UUID? = nil, title: String, text: String, voiceID: String, defaults: AppSettings) throws -> BookRecord {
+    func saveDraft(
+        id: UUID? = nil,
+        title: String,
+        text: String,
+        voiceID: String,
+        defaults: AppSettings,
+        chapters: [DocumentChapter]? = nil
+    ) throws -> BookRecord {
         let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle.isEmpty ? "Untitled" : resolvedTitle
         let bookID = id ?? UUID()
@@ -397,7 +428,11 @@ final class BookshelfModel {
             updated.title = displayTitle
             updated.sourcePath = destination.path
             updated.voiceID = voiceID
-            if updated.chapters.count == 1 {
+            if let chapters {
+                if updated.chapters.map(\.text) != chapters.map(\.text) {
+                    updated.chapters = chapters.map { BookChapter(title: $0.title, text: $0.text) }
+                }
+            } else if updated.chapters.count == 1 {
                 updated.chapters[0].title = displayTitle
                 updated.chapters[0].text = text
             } else {
@@ -414,7 +449,8 @@ final class BookshelfModel {
                 title: displayTitle,
                 format: .document,
                 sourcePath: destination.path,
-                chapters: [BookChapter(title: displayTitle, text: text)],
+                chapters: chapters?.map { BookChapter(title: $0.title, text: $0.text) }
+                    ?? [BookChapter(title: displayTitle, text: text)],
                 voiceID: voiceID,
                 speed: 1.0,
                 audioFormat: defaults.defaultFormat
@@ -476,6 +512,8 @@ final class BookshelfModel {
                     withIntermediateDirectories: true
                 )
                 let started = Date()
+                var generatedWords = 0
+                var generatedSeconds = 0.0
                 var completedWords = 0
                 let totalWords = pending.reduce(0) { $0 + book.chapters[$1].text.count }
                 for index in pending {
@@ -522,7 +560,10 @@ final class BookshelfModel {
                     for try await event in events {
                         try Task.checkCancellation()
                         switch event {
-                        case let .segment(segment): segments.append(segment.timing.estimatingMissingWords())
+                        case let .segment(segment):
+                            segments.append(segment.timing.estimatingMissingWords())
+                            progress?.spokenWords += segment.timing.text.split(whereSeparator: \.isWhitespace).count
+                            onSegmentReady?(bookID, index, segment)
                         case let .completed(url): audioURL = url
                         case .failed, .progress: break
                         }
@@ -538,6 +579,8 @@ final class BookshelfModel {
                     try NarrationTimings(segments: segments).save(beside: audioURL)
                     try Task.checkCancellation()
                     completedWords += chapter.text.count
+                    generatedWords += chapter.text.split(whereSeparator: \.isWhitespace).count
+                    generatedSeconds += segments.last.map { $0.start + $0.duration } ?? 0
                     // The shelf may have changed while the engine was running.
                     guard let updated = books.firstIndex(where: { $0.id == bookID }),
                           books[updated].chapters.indices.contains(index) else { return }
@@ -550,6 +593,13 @@ final class BookshelfModel {
                     try? FileManager.default.removeItem(at: segmentsDirectory)
                 }
                 try Task.checkCancellation()
+                let run = NarrationRun(
+                    bookID: bookID,
+                    voiceID: book.voiceID,
+                    words: generatedWords,
+                    audioSeconds: generatedSeconds,
+                    wallSeconds: Date().timeIntervalSince(started)
+                )
                 guard let snapshot = self.book(id: bookID), snapshot.isFullyNarrated else { return }
                 setNarrationState(.finalizing, for: bookID)
                 progress = NarrationProgress(
@@ -611,6 +661,7 @@ final class BookshelfModel {
                     ? "\(book.title) is fully narrated."
                     : "Narration finished."
                 successMessage = narrationSuccessMessage
+                onNarrationFinished?(run)
             } catch is CancellationError {
                 setNarrationState(.interrupted, for: bookID)
             } catch BackendError.cancelled {
@@ -794,6 +845,28 @@ final class BookshelfModel {
         narratedCounts.removeValue(forKey: bookID)
         persist()
         successMessage = "Removed \(book.title) from your library."
+    }
+
+    /// Takes a book back to silent: its narration is deleted and its text is
+    /// kept. This is Undo for a narration someone did not want.
+    func removeNarration(_ bookID: UUID) {
+        guard progress?.bookID != bookID, let index = books.firstIndex(where: { $0.id == bookID }) else { return }
+        removeNarrations(for: bookID, chapters: books[index].chapters + (books[index].previousChapters ?? []))
+        if let audioURL = books[index].audioURL { AudioMetadataStore.shared.forget(audioURL) }
+        books[index].audioPath = nil
+        books[index].previousChapters = nil
+        books[index].needsPreparation = false
+        books[index].narrationState = .unprepared
+        books[index].narrationFailure = nil
+        books[index].listeningPosition = 0
+        books[index].lastListenedAt = nil
+        for chapter in books[index].chapters.indices {
+            books[index].chapters[chapter].audioPath = nil
+            books[index].chapters[chapter].startTime = nil
+            books[index].chapters[chapter].endTime = nil
+        }
+        refreshNarrationCounts()
+        persist()
     }
 
     /// Chapter audio is written to the same path every time it is generated,

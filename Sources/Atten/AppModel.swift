@@ -15,7 +15,7 @@ final class AppModel {
         case failed(String)
     }
 
-    var draftTitle = "Untitled narration"
+    var draftTitle = ""
     var draftText = ""
     var selectedVoiceID: String
     var speed: Double
@@ -44,6 +44,7 @@ final class AppModel {
     let library: ModelLibrary
     let bookshelf: BookshelfModel
     let synthesis = SynthesisCoordinator()
+    let createFlow = CreateFlowModel()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -108,6 +109,15 @@ final class AppModel {
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }
+        // Every finished narration sharpens the estimates Create shows.
+        self.bookshelf.onNarrationFinished = { [weak self] run in
+            guard let self else { return }
+            settings.listenEstimator.record(voiceID: run.voiceID, words: run.words, audioSeconds: run.audioSeconds)
+            settings.listenEstimator.recordGeneration(audioSeconds: run.audioSeconds, wallSeconds: run.wallSeconds)
+            saveSettings()
+            createFlow.narrationFinished(run.bookID)
+        }
+        createFlow.app = self
     }
 
     var selectedVoice: Voice {
@@ -584,10 +594,11 @@ final class AppModel {
         activeTextImportID = nil
         isImportingText = false
         if isGenerating || isPlaygroundGenerating || voicePreviewID != nil { cancelGeneration() }
-        draftTitle = "Untitled narration"
+        draftTitle = ""
         draftText = ""
         generationState = .idle
         successMessage = nil
+        createFlow.reset()
     }
 
     func generate() {
@@ -724,12 +735,19 @@ final class AppModel {
         publishNowPlaying()
     }
 
-    func previewVoice(_ voice: Voice) {
-        let previewDirectory = directories.applicationSupport
+    /// Where a preview of `voice` is cached. A preview of someone's own
+    /// sentence is keyed on the sentence too, so each draft hears itself.
+    func voicePreviewURL(_ voice: Voice, speaking sentence: String? = nil) -> URL {
+        let name = sentence.map { "preview-\(voice.id)-\(ContentHash.of($0).prefix(16))" } ?? "preview-\(voice.id)"
+        return directories.applicationSupport
             .appendingPathComponent("Voice Previews", isDirectory: true)
-        let previewURL = previewDirectory
-            .appendingPathComponent("preview-\(voice.id)")
+            .appendingPathComponent(name)
             .appendingPathExtension("wav")
+    }
+
+    func previewVoice(_ voice: Voice, speaking sentence: String? = nil) {
+        let previewURL = voicePreviewURL(voice, speaking: sentence)
+        let previewDirectory = previewURL.deletingLastPathComponent()
         if FileManager.default.fileExists(atPath: previewURL.path) {
             togglePlayback(url: previewURL)
             return
@@ -743,12 +761,12 @@ final class AppModel {
         let generationID = UUID()
         activeGenerationID = generationID
         let request = GenerationRequest(
-            text: "Welcome to Atten. Let every idea find its voice.",
+            text: sentence ?? "Welcome to Atten. Let every idea find its voice.",
             voiceID: voice.id,
             speed: 1,
             format: .wav,
             outputDirectory: previewDirectory,
-            filename: "preview-\(voice.id)",
+            filename: previewURL.deletingPathExtension().lastPathComponent,
             useMPS: settings.useMPS,
             modelID: voice.modelID
         )
@@ -1020,6 +1038,7 @@ final class AppModel {
     }
 
     func duplicate(_ project: ProjectRecord) {
+        createFlow.reset()
         draftTitle = "\(project.title) copy"
         draftText = project.text
         selectedVoiceID = project.voiceID
@@ -1030,7 +1049,7 @@ final class AppModel {
 
     func regenerate(_ project: ProjectRecord) {
         duplicate(project)
-        generate()
+        createFlow.generate()
     }
 
     func delete(_ project: ProjectRecord, includingAudio: Bool = false) {

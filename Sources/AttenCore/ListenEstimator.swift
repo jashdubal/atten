@@ -71,6 +71,14 @@ public struct ListenEstimator: Equatable, Sendable {
         "~\(minutes(duration)) min to generate"
     }
 
+    public static func audioLabel(_ duration: TimeInterval) -> String {
+        "≈ \(minutes(duration)) min of audio"
+    }
+
+    public static func remainingLabel(_ duration: TimeInterval) -> String {
+        "~\(minutes(duration)) min remaining"
+    }
+
     public static func wordsLabel(_ words: Int) -> String {
         "\(groupedNumber(words)) WORDS"
     }

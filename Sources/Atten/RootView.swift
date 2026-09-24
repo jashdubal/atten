@@ -57,6 +57,7 @@ struct RootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var screenTitle: AttenScreenTitle?
     @Namespace private var playerNamespace
+    @Namespace private var coverNamespace
     @FocusState private var focusedSidebarItem: SidebarItem?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -70,11 +71,16 @@ struct RootView: View {
                 AttenBackdrop()
                 animatedDetail
             }
+            .environment(\.attenCoverNamespace, coverNamespace)
+            .overlay(alignment: .top) {
+                CreateToast(flow: model.createFlow).padding(.top, AttenSpacing.sm)
+            }
             .onAttenScreenTitle { screenTitle = $0 }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(spacing: 0) {
                     TopChrome(model: model, title: screenTitle)
-                    if let activity = model.synthesis.activity {
+                    // Create shows its own narration in its inspector.
+                    if let activity = model.synthesis.activity, model.section != .studio {
                         HStack {
                             ProgressView().controlSize(.small)
                             Text(activity).font(AttenTypography.caption)
@@ -118,8 +124,12 @@ struct RootView: View {
         .toolbarBackground(AttenColor.appBackground, for: .windowToolbar)
         .task {
             model.section = SidebarItem.restored(restoredSection)
-            if model.draftText.isEmpty { model.draftText = restoredDraft }
             await model.start()
+            // Drafts are books on the shelf now. The last Studio draft, kept
+            // here before they were, is put there once and then let go.
+            if !restoredDraft.isEmpty, model.createFlow.importLegacyDraft(restoredDraft) {
+                restoredDraft = ""
+            }
         }
         .onChange(of: model.section) { oldSection, section in
             restoredSection = section.rawValue
@@ -132,19 +142,10 @@ struct RootView: View {
                 }
             }
         }
-        // A scene-storage write goes to disk, and this one carried up to
-        // 100 KB. Running it on every keystroke made typing in Studio stutter,
-        // so it waits for the typing to stop.
-        .task(id: model.draftText) {
-            try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            restoredDraft = String(model.draftText.prefix(100_000))
-        }
-        // …and whatever the pause has not caught yet is written on the way out.
         .onReceive(
             NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
         ) { _ in
-            restoredDraft = String(model.draftText.prefix(100_000))
+            model.createFlow.saveNow()
             model.saveListeningPosition()
         }
         .onReceive(NotificationCenter.default.publisher(for: .attenOpenStudio)) { _ in

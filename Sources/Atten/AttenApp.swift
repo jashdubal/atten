@@ -42,18 +42,18 @@ struct AttenApp: App {
             CommandGroup(after: .importExport) {
                 Button("Add to Library…") { model.openBookImportPanel() }
                     .keyboardShortcut("o")
-                Button("Import Text into Draft…") {
+                Button("Import into Create…") {
                     model.section = .studio
-                    model.openImportPanel()
+                    model.createFlow.openImportPanel()
                 }.keyboardShortcut("o", modifiers: [.command, .shift])
                 Button("Export Current Audio…") { model.exportCurrent() }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
                     .disabled(model.currentAudioURL == nil && model.playingBook?.hasBookAudio != true)
             }
             CommandMenu("Speech") {
-                Button("Generate Speech") { model.generate() }
+                Button("Generate") { model.createFlow.generate() }
                     .keyboardShortcut(.return, modifiers: [.command])
-                    .disabled(model.synthesis.isBusy)
+                    .disabled(model.section != .studio || !model.createFlow.canGenerate)
                 Button("Stop Preparation") {
                     if model.bookshelf.isNarrating { model.bookshelf.cancelNarration() }
                     else { model.cancelGeneration() }
