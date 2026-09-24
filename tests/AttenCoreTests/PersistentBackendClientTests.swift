@@ -224,6 +224,71 @@ final class PersistentBackendClientTests: XCTestCase {
         XCTAssertEqual(lines("launches").count, 2)
     }
 
+    // MARK: - Sharing one engine across two owners
+
+    func testTwoSharedClientsUseOneProcess() async throws {
+        let engine = try makeClient(generate: "complete")
+        let studio = SharedBackendClient(sharing: engine)
+        let bookshelf = SharedBackendClient(sharing: engine)
+
+        let first = try await studio.generate(request("first"))
+        let second = try await bookshelf.generate(request("second"))
+
+        XCTAssertEqual(first.url, output("first"))
+        XCTAssertEqual(second.url, output("second"))
+        XCTAssertEqual(lines("launches").count, 1)
+    }
+
+    func testCancellingASharedClientsQueuedRequestLeavesTheOtherClientsRequestRunning() async throws {
+        let engine = try makeClient(generate: #"""
+        while [ ! -f "release-$filename" ]; do sleep 0.02; done
+        complete
+        """#)
+        let studio = SharedBackendClient(sharing: engine)
+        let bookshelf = SharedBackendClient(sharing: engine)
+
+        let runningRequest = request("running")
+        let running = Task { try await studio.generate(runningRequest) }
+        try await waitUntil { lines("received") == ["running"] }
+        let queuedRequest = request("queued")
+        let queued = Task { try await bookshelf.generate(queuedRequest) }
+        try await Task.sleep(for: .milliseconds(100))
+
+        bookshelf.cancel()
+        await assertThrows(.cancelled) { _ = try await queued.value }
+        XCTAssertEqual(lines("received"), ["running"], "a request cancelled while still queued never reaches the engine")
+
+        try Data().write(to: directory.appendingPathComponent("release-running"))
+        let runningURL = try await running.value.url
+        XCTAssertEqual(runningURL, output("running"))
+        XCTAssertEqual(lines("launches").count, 1)
+    }
+
+    func testCancellingASharedClientsRunningRequestLetsTheOtherClientsQueuedRequestRunNext() async throws {
+        let engine = try makeClient(generate: #"""
+        [ "$filename" = current ] || { complete; return; }
+        progress
+        IFS= read -r line
+        case "$line" in *'"op":"cancel"'*) event '"cancelled"' ;; esac
+        """#)
+        let studio = SharedBackendClient(sharing: engine)
+        let bookshelf = SharedBackendClient(sharing: engine)
+
+        let currentRequest = request("current")
+        let current = Task { try await studio.generate(currentRequest) }
+        try await waitUntil { lines("received") == ["current"] }
+        let queuedRequest = request("queued")
+        let queued = Task { try await bookshelf.generate(queuedRequest) }
+        try await Task.sleep(for: .milliseconds(100))
+
+        studio.cancel()
+        await assertThrows(.cancelled) { _ = try await current.value }
+
+        let queuedURL = try await queued.value.url
+        XCTAssertEqual(queuedURL, output("queued"))
+        XCTAssertEqual(lines("launches").count, 1)
+    }
+
     func testABackendThatCannotServeFallsBackToOneProcessPerRequest() async throws {
         // An older backend reads `serve` as text to speak and starts talking.
         let client = try makeClient(generate: "complete", serve: #"""
