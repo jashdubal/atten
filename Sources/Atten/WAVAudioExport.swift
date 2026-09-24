@@ -21,9 +21,16 @@ enum WAVAudioExport {
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             throw ExportError.noAudioTrack
         }
+        let (sampleRate, channelCount) = try await Self.audioFormat(of: track)
 
-        let outputSettings: [String: Any] = [
+        // The reader decodes to linear PCM in whatever shape it likes; the
+        // writer, unlike the reader, refuses to start without an explicit
+        // sample rate and channel count for the file it is asked to produce.
+        let readerSettings: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM]
+        let writerSettings: [String: Any] = [
             AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channelCount,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false,
@@ -31,7 +38,7 @@ enum WAVAudioExport {
         ]
 
         let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: readerSettings)
         reader.add(output)
 
         let temporary = destination.deletingLastPathComponent()
@@ -39,7 +46,7 @@ enum WAVAudioExport {
         defer { try? FileManager.default.removeItem(at: temporary) }
 
         let writer = try AVAssetWriter(outputURL: temporary, fileType: .wav)
-        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: outputSettings)
+        let input = AVAssetWriterInput(mediaType: .audio, outputSettings: writerSettings)
         input.expectsMediaDataInRealTime = false
         writer.add(input)
 
@@ -54,6 +61,16 @@ enum WAVAudioExport {
         } else {
             try FileManager.default.moveItem(at: temporary, to: destination)
         }
+    }
+
+    private static func audioFormat(of track: AVAssetTrack) async throws -> (sampleRate: Double, channelCount: Int) {
+        guard let description = try await track.load(.formatDescriptions).first else {
+            throw ExportError.noAudioTrack
+        }
+        guard let basic = CMAudioFormatDescriptionGetStreamBasicDescription(description)?.pointee else {
+            throw ExportError.noAudioTrack
+        }
+        return (basic.mSampleRate, Int(basic.mChannelsPerFrame))
     }
 }
 
