@@ -59,6 +59,8 @@ public struct GenerationRequest: Equatable, Sendable {
     public var useMPS: Bool
     public var modelID: String?
     public var segmentsDirectory: URL?
+    /// Nil leaves the voice's own pause, as every request before this did.
+    public var pauseLength: PauseLength?
 
     public init(
         text: String,
@@ -69,7 +71,8 @@ public struct GenerationRequest: Equatable, Sendable {
         filename: String,
         useMPS: Bool = true,
         modelID: String? = nil,
-        segmentsDirectory: URL? = nil
+        segmentsDirectory: URL? = nil,
+        pauseLength: PauseLength? = nil
     ) {
         self.text = text
         self.voiceID = voiceID
@@ -80,6 +83,7 @@ public struct GenerationRequest: Equatable, Sendable {
         self.useMPS = useMPS
         self.modelID = modelID
         self.segmentsDirectory = segmentsDirectory
+        self.pauseLength = pauseLength
     }
 }
 

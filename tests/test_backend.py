@@ -20,6 +20,7 @@ from atten_backend.service import (
     GenerationService,
     KokoroProvider,
     SoundFileAudioIO,
+    apply_pause,
 )
 
 
@@ -327,6 +328,76 @@ class DurabilityTests(unittest.TestCase):
                 )
 
 
+class PauseTests(unittest.TestCase):
+    """A pause length changes only the silence that closes each segment."""
+
+    def generate(self, pause, segments):
+        audio_io = FakeAudioIO()
+        events = []
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            GenerationService(FakeProvider(segments), audio_io).generate(
+                GenerationRequest(text="One.\nTwo.", output_directory=root, filename="book",
+                                  output_format="wav", segments_directory=root / "segments",
+                                  pause=pause),
+                segment_ready=events.append,
+            )
+        return events, audio_io.writes[-1][1]
+
+    def test_omitting_the_pause_leaves_the_audio_as_it_was(self):
+        segments = [[0.5, 0.0, 0.0], [0.3, 0.0]]
+        for pause in (None, "normal"):
+            events, merged = self.generate(pause, segments)
+            self.assertEqual(merged, [0.5, 0.0, 0.0, 0.3, 0.0])
+            self.assertEqual([e["duration"] for e in events], [3 / 24000, 2 / 24000])
+        self.assertIsNone(cli.build_parser().parse_args(["hello"]).pause)
+
+    def test_long_appends_silence_and_later_segments_start_after_it(self):
+        speech = [0.5] * 2400
+        events, merged = self.generate("long", [speech, speech])
+        silence = round(0.6 * 24000)
+        self.assertEqual(len(merged), 2 * (2400 + silence))
+        self.assertEqual(merged[2400:2400 + silence], [0.0] * silence)
+        self.assertAlmostEqual(events[0]["duration"], 0.7)
+        self.assertAlmostEqual(events[1]["start"], 0.7)
+
+    def test_short_trims_trailing_silence_to_a_floor(self):
+        speech = [0.5] * 2400 + [0.001] * 24000
+        events, merged = self.generate("short", [speech, speech])
+        kept = 2400 + round(0.05 * 24000)
+        self.assertEqual(len(merged), 2 * kept)
+        self.assertAlmostEqual(events[0]["duration"], kept / 24000)
+        self.assertAlmostEqual(events[1]["start"], kept / 24000)
+
+    def test_word_times_within_a_segment_are_unchanged(self):
+        class Result:
+            tokens = [types.SimpleNamespace(text="Hello", start_ts=0.1, end_ts=0.4)]
+
+            def __iter__(self):
+                return iter(("Hello", "phonemes", [0.5] * 12000))
+
+        provider = FakeProvider()
+        provider.segments = lambda *_: iter([Result(), Result()])
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = []
+            GenerationService(provider, FakeAudioIO()).generate(
+                GenerationRequest(text="Hello\nHello", output_directory=root, filename="final",
+                                  output_format="wav", segments_directory=root / "segments",
+                                  pause="long"),
+                segment_ready=events.append,
+            )
+        self.assertEqual([e["words"] for e in events], [[{"text": "Hello", "start": 0.1, "end": 0.4}]] * 2)
+        self.assertAlmostEqual(events[1]["start"], 1.1)
+
+    def test_an_unknown_pause_is_refused(self):
+        with TemporaryDirectory() as directory, self.assertRaisesRegex(ValueError, "Pause"):
+            GenerationService(FakeProvider(), FakeAudioIO()).generate(
+                GenerationRequest(text="Hi", output_directory=Path(directory), pause="huge")
+            )
+        self.assertEqual(apply_pause([0.1], None, 24000), [0.1])
+
+
 class CLICompatibilityTests(unittest.TestCase):
     def test_original_defaults_remain_available(self):
         args = cli.build_parser().parse_args(["hello"])
@@ -576,6 +647,15 @@ class ServeTests(unittest.TestCase):
         self.assertEqual([e["text"] for e in first if e["event"] == "segment"], ["Hello", "there"])
         self.assertTrue(Path(second[-1]["path"]).is_file())
         self.assertEqual(CountingKokoro.loads, 1)
+
+    def test_a_serve_request_carries_its_pause(self):
+        self.send({"id": "paused", "op": "generate", "text": "Hello there", "format": "wav",
+                   "output": str(self.directory), "filename": "paused", "pause": "long",
+                   "segments_dir": str(self.directory / "paused")})
+        events = self.events_until("paused", "completed", "error")
+        segments = [e for e in events if e["event"] == "segment"]
+        self.assertEqual(events[-1]["event"], "completed")
+        self.assertAlmostEqual(segments[1]["start"], 1 / 24000 + 0.6)
 
     def test_cancel_stops_at_a_segment_boundary_and_the_process_keeps_serving(self):
         self.generate("long", "forever")

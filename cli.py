@@ -13,7 +13,12 @@ import warnings
 
 from atten_backend.catalog import VOICES
 from atten_backend.device import SUPPORTED_DEVICE_MODES, model_status, resolve_device
-from atten_backend.service import GenerationRequest, GenerationService, SoundFileAudioIO
+from atten_backend.service import (
+    PAUSE_LENGTHS,
+    GenerationRequest,
+    GenerationService,
+    SoundFileAudioIO,
+)
 from play import play_audio_file
 
 warnings.filterwarnings("ignore")
@@ -114,6 +119,7 @@ def process_input(args, service=None, should_stop=None):
                     output_directory=Path(output_directory),
                     filename="preview",
                     segments_directory=args.segments_dir,
+                    pause=args.pause,
                 ),
                 progress=segment_progress,
                 segment_ready=segment_ready,
@@ -135,6 +141,7 @@ def process_input(args, service=None, should_stop=None):
             output_directory=Path(args.output),
             filename=args.filename,
             segments_directory=args.segments_dir,
+            pause=args.pause,
         ),
         progress=segment_progress,
         segment_ready=segment_ready,
@@ -201,6 +208,11 @@ def build_parser():
     )
     parser.add_argument("--segments-dir", type=Path, help="Keep WAV segments and emit word timings.")
     parser.add_argument("--filename", help="Output filename without extension.")
+    parser.add_argument(
+        "--pause",
+        choices=PAUSE_LENGTHS,
+        help="Pause after each paragraph: short, normal, or long (default: the voice's own).",
+    )
     parser.add_argument("--play", action="store_true", help="Play after generation.")
     parser.add_argument(
         "--play-only", action="store_true", help="Generate and play without saving."
@@ -236,7 +248,7 @@ def backend_info(device_mode="auto"):
 # The generate arguments a `serve` request may carry, named as on the command line.
 SERVE_REQUEST_FIELDS = (
     "text", "source", "voice", "speed", "format", "output", "filename",
-    "segments_dir", "device", "model",
+    "segments_dir", "device", "model", "pause",
 )
 
 

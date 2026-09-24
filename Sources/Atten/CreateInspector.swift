@@ -43,6 +43,17 @@ struct CreateInspector: View {
                     .pickerStyle(.segmented)
                     .labelsHidden()
                 }
+                VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+                    Text("Pauses")
+                        .attenText(.callout)
+                        .foregroundStyle(AttenColor.text2)
+                    Picker("Pauses", selection: $flow.pauseLength) {
+                        ForEach(PauseLength.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+                PronunciationList(pronunciations: $flow.pronunciations)
                 Toggle("Metal acceleration", isOn: $model.settings.useMPS)
                     .attenText(.callout)
                     .onChange(of: model.settings.useMPS) { _, _ in model.applySettings() }
