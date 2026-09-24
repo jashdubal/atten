@@ -148,6 +148,9 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         if let directory = request.segmentsDirectory {
             arguments += ["--segments-dir", directory.path]
         }
+        if let pauseLength = request.pauseLength {
+            arguments += ["--pause", pauseLength.rawValue]
+        }
         child.arguments = arguments
 
         setProcess(child)

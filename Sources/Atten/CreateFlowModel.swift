@@ -37,6 +37,8 @@ final class CreateFlowModel {
     private(set) var isSaved = false
     private(set) var importingName: String?
     var chapterDetection = ChapterDetection.auto
+    var pronunciations: [Pronunciation] = [] { didSet { scheduleSave() } }
+    var pauseLength = PauseLength.normal { didSet { scheduleSave() } }
     var errorMessage: String?
     var isCasting = false
     var isDropTargeted = false
@@ -228,7 +230,9 @@ final class CreateFlowModel {
                 title: title,
                 text: text,
                 voiceID: voice.id,
-                defaults: app.settings
+                defaults: app.settings,
+                pronunciations: pronunciations,
+                pauseLength: pauseLength
             )
             draftID = draft.id
             isSaved = true
@@ -261,7 +265,9 @@ final class CreateFlowModel {
                 text: text,
                 voiceID: voice.id,
                 defaults: app.settings,
-                chapters: chapterDetection.chapters(in: text, title: displayTitle.isEmpty ? "Untitled" : displayTitle)
+                chapters: chapterDetection.chapters(in: text, title: displayTitle.isEmpty ? "Untitled" : displayTitle),
+                pronunciations: pronunciations,
+                pauseLength: pauseLength
             )
             draftID = draft.id
             isSaved = true
@@ -405,6 +411,9 @@ final class CreateFlowModel {
         finishedBookID = nil
         isCasting = false
         chapterDetection = .auto
+        pronunciations = []
+        pauseLength = .normal
+        saveTask?.cancel()
     }
 
     /// Starts a new draft while keeping the current one on the shelf.

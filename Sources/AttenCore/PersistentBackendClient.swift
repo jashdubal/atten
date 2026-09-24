@@ -240,6 +240,7 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
         ]
         if let modelID = request.modelID { body["model"] = modelID }
         if let directory = request.segmentsDirectory { body["segments_dir"] = directory.path }
+        if let pauseLength = request.pauseLength { body["pause"] = pauseLength.rawValue }
         return try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys, .withoutEscapingSlashes])
             + Data([10])
     }
