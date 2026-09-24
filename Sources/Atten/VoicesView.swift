@@ -251,3 +251,32 @@ private struct VoiceRow: View {
         .accessibilityElement(children: .contain)
     }
 }
+
+struct VoiceAvatar: View {
+    let voice: Voice
+    var size: CGFloat = 40
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: AttenRadius.small)
+                .fill(AttenColor.surfaceMuted)
+                .overlay {
+                    RoundedRectangle(cornerRadius: AttenRadius.small)
+                        .stroke(avatarColor.opacity(0.7), lineWidth: 1)
+                }
+            Image(systemName: voice.gender == "Female" ? "person.fill" : "person.fill")
+                .font(.system(size: size * 0.40, weight: .medium))
+                .foregroundStyle(avatarColor)
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    private var avatarColor: Color {
+        switch voice.languageCode {
+        case "b", "f": AttenColor.accentSecondary
+        case "e", "i", "p": AttenColor.warning
+        default: AttenColor.accent
+        }
+    }
+}

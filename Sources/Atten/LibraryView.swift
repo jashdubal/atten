@@ -565,6 +565,7 @@ private struct BookCard: View {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(isHovering ? AttenColor.textSecondary.opacity(0.5) : AttenColor.border, lineWidth: 1)
             }
+            .attenMatchedCover(book.id)
             .overlay(alignment: .bottomTrailing) {
                 if !book.sourceExists {
                     Image(systemName: "exclamationmark.triangle.fill")

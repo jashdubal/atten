@@ -1,0 +1,232 @@
+import AttenCore
+import Foundation
+import XCTest
+@testable import Atten
+
+final class ChapterDetectionTests: XCTestCase {
+    private let headed = "# One\n\nThe first part.\n\n# Two\n\nThe second part."
+
+    func testAutoDividesAtHeadings() {
+        let chapters = ChapterDetection.auto.chapters(in: headed, title: "Draft")
+        XCTAssertEqual(chapters.map(\.title), ["One", "Two"])
+        XCTAssertEqual(chapters.map(\.text), ["The first part.", "The second part."])
+    }
+
+    func testAutoCutsLongTextWithoutHeadingsIntoParts() {
+        let paragraph = Array(repeating: "word", count: 500).joined(separator: " ")
+        let chapters = ChapterDetection.auto.chapters(in: [paragraph, paragraph, paragraph].joined(separator: "\n\n"), title: "Draft")
+        XCTAssertGreaterThan(chapters.count, 1)
+    }
+
+    func testShortTextIsOneChapterNamedForTheDraft() {
+        for detection in ChapterDetection.allCases {
+            let chapters = detection.chapters(in: "Just a line.", title: "Draft")
+            XCTAssertEqual(chapters.map(\.title), ["Draft"], "\(detection)")
+            XCTAssertEqual(chapters.map(\.text), ["Just a line."], "\(detection)")
+        }
+    }
+
+    func testNoneKeepsOneChapterAndReadsHeadingsWithoutTheirMarks() {
+        let chapters = ChapterDetection.none.chapters(in: headed, title: "Draft")
+        XCTAssertEqual(chapters.count, 1)
+        XCTAssertEqual(chapters[0].text, "One\n\nThe first part.\n\nTwo\n\nThe second part.")
+    }
+
+    func testHeadingsDividesOnlyAtHeadings() {
+        XCTAssertEqual(ChapterDetection.headings.chapters(in: headed, title: "Draft").count, 2)
+        let paragraph = Array(repeating: "word", count: 2_000).joined(separator: " ")
+        XCTAssertEqual(ChapterDetection.headings.chapters(in: paragraph, title: "Draft").count, 1)
+    }
+
+    func testOpeningHeadingIsWhatAPastedDocumentCallsItself() {
+        XCTAssertEqual(ChapterDetection.openingHeading(in: "\n# The Title\nBody."), "The Title")
+        XCTAssertNil(ChapterDetection.openingHeading(in: "Body first.\n# Later"))
+    }
+
+    func testSpokenExtentFollowsWordsThroughOneChapter() {
+        let text = "One two three. Four five."
+        let extent = SpokenExtent(text: text, chapters: [text], chapterIndex: 0, spokenWords: 3)
+        XCTAssertEqual(extent.words, 3)
+        XCTAssertEqual(extent.totalWords, 5)
+        XCTAssertEqual((text as NSString).substring(to: extent.utf16Offset), "One two three.")
+    }
+
+    func testSpokenExtentFindsLaterChaptersPastTheirHeadings() {
+        let chapters = ChapterDetection.auto.chapters(in: headed, title: "Draft").map(\.text)
+        let extent = SpokenExtent(text: headed, chapters: chapters, chapterIndex: 1, spokenWords: 2)
+        XCTAssertEqual((headed as NSString).substring(to: extent.utf16Offset), "# One\n\nThe first part.\n\n# Two\n\nThe second")
+        XCTAssertEqual(extent.totalWords, 8)
+    }
+
+    func testSpokenExtentNeverRunsPastTheText() {
+        let extent = SpokenExtent(text: "Short.", chapters: ["Short."], chapterIndex: 0, spokenWords: .max)
+        XCTAssertEqual(extent.fraction, 1)
+        XCTAssertEqual(extent.utf16Offset, 6)
+    }
+
+    func testEstimateLabels() {
+        XCTAssertEqual(ListenEstimator.audioLabel(16 * 60), "≈ 16 min of audio")
+        XCTAssertEqual(ListenEstimator.remainingLabel(90), "~2 min remaining")
+    }
+}
+
+@MainActor
+final class CreateFlowTests: XCTestCase {
+    private var root: URL!
+    private var model: AppModel!
+    private var suite: String!
+
+    override func setUp() async throws {
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("AttenCreate-\(UUID().uuidString)")
+        suite = "AttenCreateTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        model = AppModel(
+            directories: AppDirectories(applicationSupport: root),
+            settingsStore: SettingsStore(defaults: defaults),
+            generator: ImmediateGenerator()
+        )
+        // The stand-in engine writes WAV, so drafts are made as WAV.
+        model.settings.defaultFormat = .wav
+        await model.bookshelf.load()
+    }
+
+    override func tearDown() async throws {
+        try? await model.bookshelf.flushPersistence()
+        UserDefaults().removePersistentDomain(forName: suite)
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private var flow: CreateFlowModel { model.createFlow }
+
+    private func waitForNarration() async throws {
+        for _ in 0..<300 {
+            if !model.bookshelf.isNarrating { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("narration did not finish")
+    }
+
+    func testStatesRunFromEmptyThroughEditing() {
+        XCTAssertEqual(flow.state, .empty)
+        flow.startWriting()
+        XCTAssertEqual(flow.state, .editing)
+        XCTAssertEqual(flow.generateDisabledReason, "Add text to generate")
+        XCTAssertFalse(flow.canGenerate)
+        flow.text = "Hello there."
+        XCTAssertTrue(flow.canGenerate)
+        model.newDraft()
+        XCTAssertEqual(flow.state, .empty)
+    }
+
+    func testTheSampleOpensTheEditor() {
+        flow.loadSample()
+        XCTAssertEqual(flow.state, .editing)
+        XCTAssertEqual(flow.text, CreateFlowModel.sampleText)
+    }
+
+    func testTheDraftIsASilentLibraryItemFromItsFirstSave() throws {
+        flow.text = "A draft worth keeping."
+        flow.saveNow()
+        let draft = try XCTUnwrap(model.bookshelf.book(id: XCTUnwrap(flow.draftID)))
+        XCTAssertEqual(LibraryItem.book(draft).state, .silent)
+        XCTAssertTrue(flow.isSaved)
+
+        flow.text = "A draft worth keeping, revised."
+        flow.saveNow()
+        XCTAssertEqual(model.bookshelf.books.count, 1)
+    }
+
+    func testNothingIsSavedUntilThereAreWords() {
+        flow.startWriting()
+        flow.saveNow()
+        XCTAssertNil(flow.draftID)
+        XCTAssertTrue(model.bookshelf.books.isEmpty)
+    }
+
+    func testGeneratingAtNormalSpeedFinishesAndCalibrates() async throws {
+        model.settings.defaultSpeed = 1.6
+        model.section = .studio
+        flow.text = "# One\n\nThe first part.\n\n# Two\n\nThe second part."
+        flow.generate()
+        XCTAssertEqual(flow.state, .generating)
+        try await waitForNarration()
+        XCTAssertNil(model.bookshelf.errorMessage)
+
+        XCTAssertEqual(flow.state, .done)
+        let book = try XCTUnwrap(model.bookshelf.book(id: XCTUnwrap(flow.draftID)))
+        XCTAssertEqual(book.speed, 1.0)
+        XCTAssertEqual(book.chapters.map(\.title), ["One", "Two"])
+        XCTAssertEqual(LibraryItem.book(book).state, .voiced)
+        XCTAssertEqual(flow.toastBookID, book.id)
+        XCTAssertNotNil(model.settings.listenWordsPerMinuteByVoice[book.voiceID])
+        XCTAssertNotEqual(model.settings.listenRealTimeFactor, ListenEstimator.defaultRealTimeFactor)
+        XCTAssertNil(model.bookshelf.successMessage)
+    }
+
+    func testFinishingAfterLeavingCreateClearsItForTheNextDraft() async throws {
+        model.section = .studio
+        flow.text = "Narrate me."
+        flow.generate()
+        model.section = .library
+        try await waitForNarration()
+
+        XCTAssertEqual(flow.state, .empty)
+        XCTAssertNotNil(flow.toastBookID)
+        XCTAssertEqual(model.bookshelf.books.count, 1)
+    }
+
+    func testADraftStartedWhileAnotherIsNarratedStillHearsItFinish() async throws {
+        flow.text = "The first draft."
+        flow.generate()
+        model.newDraft()
+        flow.text = "The second draft."
+        XCTAssertEqual(flow.generateDisabledReason, "Another narration is running")
+        try await waitForNarration()
+
+        XCTAssertNotNil(flow.toastBookID)
+        XCTAssertEqual(flow.state, .editing)
+        XCTAssertEqual(flow.text, "The second draft.")
+    }
+
+    func testUndoRemovesTheNarrationAndKeepsTheDraft() async throws {
+        flow.text = "Narrate me, then change my mind."
+        flow.generate()
+        try await waitForNarration()
+        let id = try XCTUnwrap(flow.toastBookID)
+        let audio = try XCTUnwrap(model.bookshelf.book(id: id)?.audioURL)
+
+        flow.undoNarration()
+
+        let book = try XCTUnwrap(model.bookshelf.book(id: id))
+        XCTAssertEqual(LibraryItem.book(book).state, .silent)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
+        XCTAssertEqual(book.chapters.first?.text, "Narrate me, then change my mind.")
+        XCTAssertNil(flow.toastBookID)
+    }
+
+    func testSegmentsReportProgressAndReachTheHook() async throws {
+        var reached: [Int] = []
+        model.bookshelf.onSegmentReady = { _, chapter, _ in reached.append(chapter) }
+        flow.text = "# One\n\nThe first part.\n\n# Two\n\nThe second part."
+        flow.generate()
+        try await waitForNarration()
+        XCTAssertEqual(reached, [0, 1])
+    }
+
+    func testTheOldStudioDraftIsImportedOnce() {
+        XCTAssertTrue(flow.importLegacyDraft("# Kept\nWords from before drafts were books."))
+        XCTAssertTrue(flow.importLegacyDraft("# Kept\nWords from before drafts were books."))
+        XCTAssertEqual(model.bookshelf.books.map(\.title), ["Kept"])
+        XCTAssertEqual(flow.state, .empty)
+    }
+
+    func testPreviewsAreCachedPerVoicePerSentence() {
+        let voice = VoiceCatalog.defaultVoice
+        XCTAssertEqual(model.voicePreviewURL(voice).lastPathComponent, "preview-\(voice.id).wav")
+        flow.text = "First sentence here. Second one."
+        XCTAssertEqual(flow.firstSentence, "First sentence here.")
+        let own = try? XCTUnwrap(flow.previewURL(for: voice))
+        XCTAssertNotEqual(own, model.voicePreviewURL(voice))
+        XCTAssertEqual(own, model.voicePreviewURL(voice, speaking: "First sentence here."))
+    }
+}

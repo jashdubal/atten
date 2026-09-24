@@ -1,4 +1,5 @@
 import AVFoundation
+import AttenCore
 import SwiftUI
 
 /// The semantic colours every view draws with.
@@ -67,6 +68,20 @@ enum AttenColor {
     /// The AppKit form of the same roles, for the views that are not SwiftUI.
     static var nsTextPrimary: NSColor { palette.textPrimary.nsColor }
     static var nsAccent: NSColor { palette.accent.nsColor }
+    static var nsText3: NSColor { palette.text3.nsColor }
+    static var nsSignal: NSColor { palette.signal.nsColor }
+
+    /// A voice's own colour, from its `VoiceProfile` hue: content, not chrome,
+    /// so it is drawn only where the voice itself is shown.
+    static func voice(hue: Double) -> Color {
+        AttenThemeColor(light: OKLCH(0.58, 0.11, hue), dark: OKLCH(0.76, 0.11, hue)).color
+    }
+
+    /// A colour a generated cover was designed in. Covers are content and keep
+    /// their colours in both appearances.
+    static func cover(_ color: OKLCHColor) -> Color {
+        Color(hex: OKLCH(color.lightness, color.chroma, color.hue).hex)
+    }
 
     static var palette: AttenPalette { .atten }
 }
@@ -419,16 +434,21 @@ enum AttenTextStyle: CaseIterable {
         }
     }
 
-    /// The leading SwiftUI adds on top of the face's own line height to land
-    /// on ``lineHeight``.
-    var lineSpacing: CGFloat {
-        let face: NSFont = switch self {
+    /// The same face for AppKit text.
+    var nsFont: NSFont {
+        switch self {
         case .label: .monospacedSystemFont(ofSize: size, weight: nsWeight)
         case .reading:
             NSFont.systemFont(ofSize: size).fontDescriptor.withDesign(.serif)
                 .flatMap { NSFont(descriptor: $0, size: size) } ?? .systemFont(ofSize: size)
         default: .systemFont(ofSize: size, weight: nsWeight)
         }
+    }
+
+    /// The leading SwiftUI adds on top of the face's own line height to land
+    /// on ``lineHeight``.
+    var lineSpacing: CGFloat {
+        let face = nsFont
         let natural = face.ascender - face.descender + face.leading
         return max(lineHeight - natural, 0)
     }

@@ -13,8 +13,9 @@ struct CreateWorkspace: View {
                 Spacer()
             }
             .padding(.horizontal, 24).padding(.vertical, 12)
+            .opacity(model.createFlow.isDropTargeted ? 0.4 : 1)
             Divider()
-            StudioView(model: model)
+            CreateView(model: model)
         }
     }
 }
