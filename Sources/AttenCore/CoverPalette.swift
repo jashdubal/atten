@@ -7,10 +7,9 @@ import Foundation
 /// makes a deterministic seed produce a cover that reads as intentional
 /// rather than as noise.
 ///
-/// P1 (foundations) was expected to land its own OKLCH type for the whole
-/// app; it hadn't landed when this was written, so the small conversion this
-/// file needs lives here instead, under `OKLab`. If P1's version has since
-/// landed, the two should be consolidated onto one.
+/// Named fields rather than ``OKLCH`` because a cover's palette code reads
+/// better as `lightness`/`chroma`/`hue` than `l`/`c`/`h`; the sRGB and gamut
+/// math itself lives once, in ``OKLCH``, and `OKLab` below only bridges to it.
 public struct OKLCHColor: Equatable, Sendable {
     public let lightness: Double
     public let chroma: Double
@@ -36,10 +35,11 @@ public struct OKLCHColor: Equatable, Sendable {
         return OKLab(L: lightness, a: chroma * cos(radians), b: chroma * sin(radians))
     }
 
-    /// Gamma-encoded sRGB in 0...1, clamped into range — OKLab reaches colours
-    /// outside the sRGB gamut, and this only needs something drawable.
+    /// Gamma-encoded sRGB in 0...1. A colour outside the sRGB gamut keeps its
+    /// lightness and hue and gives up chroma until it fits, via ``OKLCH``.
     public func srgb() -> (r: Double, g: Double, b: Double) {
-        lab.toSRGB()
+        let mapped = OKLCH(lightness, chroma, hue).sRGB
+        return (mapped.red, mapped.green, mapped.blue)
     }
 }
 
@@ -231,8 +231,11 @@ public enum CoverPalette {
     }
 }
 
-/// Minimal OKLab math: sRGB in, OKLab out, and back. See the note on
-/// `OKLCHColor` about consolidating with P1's token conversion once it lands.
+/// OKLab in its rectangular form — the shape k-means clustering wants, since
+/// averaging cluster members only makes sense on a linear axis, unlike hue's
+/// wraparound degrees. The sRGB and gamut math itself is ``OKLCH``'s; this
+/// only rotates between its polar (l, c, h) and this file's rectangular
+/// (L, a, b).
 struct OKLab: Equatable {
     var L: Double
     var a: Double
@@ -245,55 +248,31 @@ struct OKLab: Equatable {
     }
 
     init(srgb: (r: Double, g: Double, b: Double)) {
-        let r = Self.linearize(srgb.r)
-        let g = Self.linearize(srgb.g)
-        let b = Self.linearize(srgb.b)
+        self = OKLab(oklch: OKLCH(red: srgb.r, green: srgb.g, blue: srgb.b))
+    }
 
-        let l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
-        let m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
-        let s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+    private init(oklch: OKLCH) {
+        let radians = oklch.h * .pi / 180
+        L = oklch.l
+        a = oklch.c * cos(radians)
+        b = oklch.c * sin(radians)
+    }
 
-        let l_ = Self.cbrt(l), m_ = Self.cbrt(m), s_ = Self.cbrt(s)
-
-        L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
-        a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
-        self.b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+    private var oklch: OKLCH {
+        let chroma = (a * a + b * b).squareRoot()
+        var hue = atan2(b, a) * 180 / .pi
+        if hue < 0 { hue += 360 }
+        return OKLCH(L, chroma, hue)
     }
 
     func toLinearSRGB() -> (r: Double, g: Double, b: Double) {
-        let l_ = L + 0.3963377774 * a + 0.2158037573 * b
-        let m_ = L - 0.1055613458 * a - 0.0638541728 * b
-        let s_ = L - 0.0894841775 * a - 1.2914855480 * b
-
-        let l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
-
-        let r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
-        let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
-        let b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
-        return (r, g, b)
-    }
-
-    func toSRGB() -> (r: Double, g: Double, b: Double) {
-        let linear = toLinearSRGB()
-        return (Self.gammaEncode(linear.r), Self.gammaEncode(linear.g), Self.gammaEncode(linear.b))
+        let linear = oklch.linearSRGB
+        return (linear.red, linear.green, linear.blue)
     }
 
     func squaredDistance(to other: OKLab) -> Double {
         let dl = L - other.L, da = a - other.a, db = b - other.b
         return dl * dl + da * da + db * db
-    }
-
-    private static func linearize(_ c: Double) -> Double {
-        c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
-    }
-
-    private static func gammaEncode(_ c: Double) -> Double {
-        let clamped = min(max(c, 0), 1)
-        return clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * pow(clamped, 1 / 2.4) - 0.055
-    }
-
-    private static func cbrt(_ x: Double) -> Double {
-        x < 0 ? -pow(-x, 1.0 / 3.0) : pow(x, 1.0 / 3.0)
     }
 }
 
