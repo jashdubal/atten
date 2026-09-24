@@ -78,7 +78,11 @@ final class AppModel {
         self.speed = loadedSettings.defaultSpeed
         self.format = loadedSettings.defaultFormat
         func backendClient() -> any TTSGenerating {
-            RetryingBackendClient(wrapping: ProcessBackendClient(), maximumAttempts: 2)
+            let client = PersistentBackendClient()
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification, object: nil, queue: nil
+            ) { _ in client.shutdown() }
+            return RetryingBackendClient(wrapping: client, maximumAttempts: 2)
         }
         self.generator = generator ?? backendClient()
         // The bookshelf drives its own client, so cancelling a Studio draft

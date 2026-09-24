@@ -2,11 +2,13 @@
 """Backward-compatible command-line entry point for the Atten backend."""
 
 import argparse
+from collections import deque
 import json
 import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+import threading
 import warnings
 
 from atten_backend.catalog import VOICES
@@ -18,11 +20,26 @@ warnings.filterwarnings("ignore")
 
 SILENT_MODE = False
 JSON_MODE = False
+# `serve` sends events here instead of stdout, which it hands to stderr.
+EVENT_STREAM = None
+_request = threading.local()
+_emit_lock = threading.Lock()
 
 
 def emit(event, **payload):
     if JSON_MODE:
-        print(json.dumps({"event": event, **payload}), flush=True)
+        # While serving, every event belongs to the request that caused it.
+        request_id = getattr(_request, "id", None)
+        tag = {} if request_id is None else {"id": request_id}
+        line = json.dumps({"event": event, **tag, **payload})
+        with _emit_lock:
+            try:
+                print(line, file=EVENT_STREAM, flush=True)
+            except BrokenPipeError:
+                # A serving process whose client has gone is about to see its
+                # stdin close and exit; a one-shot run still fails as before.
+                if EVENT_STREAM is None:
+                    raise
 
 
 def log_info(message, emoji="ℹ️"):
@@ -53,7 +70,11 @@ def log_progress(message, emoji="⏳"):
         print(f"{emoji} {message}")
 
 
-def process_input(args, service=None):
+class RequestCancelled(Exception):
+    """The serving client cancelled the request it is waiting on."""
+
+
+def process_input(args, service=None, should_stop=None):
     """Load input, generate one file, optionally play it, and return its path."""
     if args.mps:
         args.device = "mps"
@@ -75,6 +96,8 @@ def process_input(args, service=None):
     def segment_progress(count):
         if args.segments_dir is None:
             emit("segment", count=count)
+        if should_stop and should_stop():
+            raise RequestCancelled()
 
     def segment_ready(payload):
         emit("segment", **payload)
@@ -210,9 +233,132 @@ def backend_info(device_mode="auto"):
     }
 
 
+# The generate arguments a `serve` request may carry, named as on the command line.
+SERVE_REQUEST_FIELDS = (
+    "text", "source", "voice", "speed", "format", "output", "filename",
+    "segments_dir", "device", "model",
+)
+
+
+class RequestServer:
+    """Answers NDJSON requests one at a time, keeping every service it builds,
+    and so every model it loads, for the life of the process."""
+
+    def __init__(self, service_factory=GenerationService):
+        self._service_factory = service_factory
+        self._services = {}
+        self._queue = deque()
+        self._condition = threading.Condition()
+        self._current = None
+        self._stop = threading.Event()
+        self._closed = False
+
+    def read(self, lines):
+        """Takes requests from a binary stream until it closes, which also
+        stops the request in progress: nobody is left to hear the result."""
+        for raw in iter(lines.readline, b""):
+            self._receive(raw)
+        with self._condition:
+            self._closed = True
+            self._queue.clear()
+            self._stop.set()
+            self._condition.notify_all()
+
+    def _receive(self, raw):
+        if not raw.strip():
+            return
+        try:
+            request = json.loads(raw)
+            if not isinstance(request, dict):
+                raise ValueError
+        except ValueError:
+            emit("error", id=None, message="Unreadable request: send one JSON object per line.")
+            return
+        request_id, op = request.get("id"), request.get("op")
+        if op == "ping":
+            emit("pong", id=request_id)
+        elif op == "generate":
+            with self._condition:
+                self._queue.append(request)
+                self._condition.notify_all()
+        elif op == "cancel":
+            with self._condition:
+                if request_id is not None and request_id == self._current:
+                    self._stop.set()
+                    return
+                waiting = next((r for r in self._queue if r.get("id") == request_id), None)
+                if waiting is not None:
+                    self._queue.remove(waiting)
+            if waiting is not None:
+                emit("cancelled", id=request_id)
+        else:
+            emit("error", id=request_id, message=f"Unknown request op: {op!r}")
+
+    def run(self):
+        while True:
+            with self._condition:
+                while not self._queue and not self._closed:
+                    self._condition.wait()
+                if not self._queue:
+                    return
+                request = self._queue.popleft()
+                self._current = request.get("id")
+                self._stop = threading.Event()
+            try:
+                self._perform(request)
+            finally:
+                with self._condition:
+                    self._current = None
+
+    def _perform(self, request):
+        _request.id = request.get("id")
+        try:
+            args = build_parser().parse_args([])
+            for field in SERVE_REQUEST_FIELDS:
+                if request.get(field) is not None:
+                    setattr(args, field, request[field])
+            if args.segments_dir is not None:
+                args.segments_dir = Path(args.segments_dir)
+            if not args.text and not args.source:
+                raise ValueError("Please provide either raw text or a source file path.")
+            key = (args.device, args.model)
+            if key not in self._services:
+                self._services[key] = self._service_factory(
+                    device_mode=args.device, model_id=args.model
+                )
+            with warnings.catch_warnings():
+                process_input(args, self._services[key], should_stop=self._stop.is_set)
+        except RequestCancelled:
+            emit("cancelled")
+        except Exception as error:
+            log_error(str(error))
+        finally:
+            _request.id = None
+
+
+def serve():
+    global JSON_MODE, EVENT_STREAM
+    # Events keep the real stdout; anything else printed to it, by Python or by
+    # a native library, lands on stderr instead of corrupting the stream.
+    EVENT_STREAM = os.fdopen(os.dup(sys.stdout.fileno()), "w", buffering=1)
+    sys.stdout.flush()
+    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    JSON_MODE = True
+    server = RequestServer()
+    emit("ready")
+    threading.Thread(target=server.read, args=(sys.stdin.buffer,), daemon=True).start()
+    server.run()
+    return 0
+
+
 def main(argv=None):
     global SILENT_MODE, JSON_MODE
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "serve":
+        argparse.ArgumentParser(
+            description="Serve newline-delimited JSON generation requests on stdin."
+        ).parse_args(argv[1:])
+        return serve()
     if argv and argv[0] == "transcode":
         parser = argparse.ArgumentParser(description="Transcode local audio to MP3 or WAV.")
         parser.add_argument("--input", required=True, type=Path)
