@@ -147,7 +147,14 @@ struct LibraryView: View {
     private var shelfPage: some View {
         GeometryReader { geometry in
             if isOffscreenRender {
+                // A `GeometryReader` always proposes its own full size to its
+                // child, unlike the `ScrollView` below, which proposes an
+                // effectively unbounded height and lets the content size
+                // itself — without `fixedSize`, every `Spacer` in here would
+                // stretch to fill the render canvas instead of collapsing to
+                // its `minLength` the way it does on the real, scrolled page.
                 shelfContent(availableWidth: geometry.size.width)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -213,7 +220,6 @@ struct LibraryView: View {
                     isWide: availableWidth >= 820
                 )
             }
-            importHint
         }
         .padding(.horizontal, 28)
         .padding(.vertical, 24)
@@ -242,11 +248,7 @@ struct LibraryView: View {
     }
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Library").font(AttenTypography.title2)
-            Text("Your books and documents, ready when you are.")
-                .font(AttenTypography.body).foregroundStyle(AttenColor.textSecondary)
-        }
+        Text("Library").font(AttenTypography.title2)
     }
 
     private var addBookButton: some View {
@@ -352,20 +354,6 @@ struct LibraryView: View {
         .accessibilityAddTraits(showsList == list ? .isSelected : [])
     }
 
-    private var importHint: some View {
-        HStack(spacing: AttenSpacing.xs) {
-            Image(systemName: "arrow.down.doc")
-                .foregroundStyle(AttenColor.textMuted)
-            Text("Drop a PDF, EPUB, Kindle, Word, RTF, Markdown, HTML or text file here")
-                .font(AttenTypography.callout)
-                .foregroundStyle(AttenColor.textSecondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Drop a supported document here to add it to your library")
-    }
-
     private var searchField: some View {
         AttenSearchField(
             prompt: "Search your library…",
@@ -409,7 +397,15 @@ struct LibraryView: View {
             }
         } else {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: availableWidth >= 1100 ? 210 : 170, maximum: 260), spacing: 20)],
+                // Without `alignment: .top`, a `GridItem` centers each cell in
+                // its row — cards with a narration meter or "Ready to listen"
+                // line are taller than one with neither, so the shorter
+                // covers above them would drift down instead of lining up.
+                columns: [GridItem(
+                    .adaptive(minimum: availableWidth >= 1100 ? 210 : 170, maximum: 260),
+                    spacing: 20,
+                    alignment: .top
+                )],
                 alignment: .leading,
                 spacing: 32
             ) {
@@ -585,10 +581,21 @@ private struct BookCard: View {
                             .font(AttenTypography.callout.weight(.semibold))
                             .foregroundStyle(AttenColor.textPrimary)
                             .lineLimit(2)
-                        Text(book.author ?? book.format.displayName)
-                            .font(AttenTypography.callout)
-                            .foregroundStyle(AttenColor.textSecondary)
-                            .lineLimit(1)
+                        // A cover with no art of its own already prints this
+                        // same fallback on its face (`GeneratedCover`'s
+                        // `sourceLabel`) — repeating it here would just be the
+                        // format name twice for a book with no author.
+                        if let author = book.author {
+                            Text(author)
+                                .font(AttenTypography.callout)
+                                .foregroundStyle(AttenColor.textSecondary)
+                                .lineLimit(1)
+                        } else if cover != nil {
+                            Text(book.format.displayName)
+                                .font(AttenTypography.callout)
+                                .foregroundStyle(AttenColor.textSecondary)
+                                .lineLimit(1)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Group {

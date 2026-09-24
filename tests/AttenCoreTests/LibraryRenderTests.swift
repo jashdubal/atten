@@ -33,6 +33,12 @@ final class LibraryRenderTests: XCTestCase {
         let fixture = try await makeFixture()
         defer { fixture.cleanUp() }
 
+        // Settle the shelf's final state — including the "Old Friends" import
+        // that the toast points at — before any snapshot is taken, so light
+        // and dark render from the identical state rather than one from
+        // before this import and one from after it.
+        await fixture.triggerDuplicateToast()
+
         for dark in [false, true] {
             let suffix = dark ? "dark" : "light"
 
@@ -43,6 +49,11 @@ final class LibraryRenderTests: XCTestCase {
             )
             try write(shelf, to: renderDir.appendingPathComponent("library-shelf-\(suffix).png"))
 
+            // The toast only appears while `duplicateBookID` changes on a
+            // *mounted* view, so each pass re-triggers the same (now
+            // already-imported) duplicate on its own fresh `LibraryView` —
+            // the book list this produces is identical to what's already
+            // there, only the toast's own appearance is new each time.
             let toast = try await renderImage(
                 LibraryView(model: fixture.model),
                 dark: dark,
@@ -128,9 +139,14 @@ final class LibraryRenderTests: XCTestCase {
             generator: ImmediateGenerator()
         )
 
-        let silent = plainBook(title: "The Unread Manuscript")
+        // Distinct text per book, not just distinct titles — `BookshelfModel`
+        // computes a book's content hash from its chapter text the first
+        // time anything checks for a duplicate, so identical placeholder
+        // text across fixture books would make two different books collide
+        // onto the same hash, and so the same generated-cover seed.
+        let silent = plainBook(title: "The Unread Manuscript", text: "A manuscript no one has opened yet.")
 
-        var generating = plainBook(title: "Halfway There")
+        var generating = plainBook(title: "Halfway There", text: "A book partway through being narrated.")
         generating.narrationState = .preparing
         generating.chapters = [
             try await chapter(narrated: true),
@@ -143,7 +159,7 @@ final class LibraryRenderTests: XCTestCase {
         // book-level file it also drops audio whose real duration doesn't
         // match the chapter timeline — so the fixture needs the generator's
         // real (if silent) WAV, and `endTime` needs to match its length.
-        var voiced = plainBook(title: "Finished Listen")
+        var voiced = plainBook(title: "Finished Listen", text: "A book someone has already finished listening to.")
         let audioURL = try await generator.generate(chapter: "book-\(UUID().uuidString)", in: workspace)
         voiced.audioPath = audioURL.path
         voiced.chapters[0].audioPath = audioURL.path
@@ -175,15 +191,15 @@ final class LibraryRenderTests: XCTestCase {
     /// would silently undo the fixture's own narration state.
     private let generator = ImmediateGenerator()
 
-    private func plainBook(title: String) -> BookRecord {
+    private func plainBook(title: String, text: String) -> BookRecord {
         let sourcePath = workspace.appendingPathComponent("\(title).txt").path
-        try? Data("Once upon a time.".utf8).write(to: URL(fileURLWithPath: sourcePath))
+        try? Data(text.utf8).write(to: URL(fileURLWithPath: sourcePath))
         return BookRecord(
             title: title,
             author: "A. Writer",
             format: .document,
             sourcePath: sourcePath,
-            chapters: [BookChapter(title: "One", text: "Once upon a time.")],
+            chapters: [BookChapter(title: "One", text: text)],
             voiceID: "af_heart",
             speed: 1,
             audioFormat: .wav
