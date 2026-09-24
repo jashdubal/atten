@@ -22,7 +22,7 @@ final class NowPlayingCenter {
 
     /// How far the keyboard and Control Center jump. The same interval the
     /// player's own buttons use, so the two never disagree.
-    static let skipInterval: TimeInterval = 10
+    static let skipInterval: TimeInterval = 15
 
     private var commands = Commands()
     private var isListening = false

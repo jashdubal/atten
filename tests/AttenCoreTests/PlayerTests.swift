@@ -133,7 +133,7 @@ final class PlayerTests: XCTestCase {
         XCTAssertEqual(model.playbackRate, 1.75, "rate did not survive a chapter change")
 
         XCTAssertTrue(
-            PlaybackFormat.rates.allSatisfy { (0.5...3.0).contains($0) },
+            PlaybackFormat.rates.allSatisfy { (0.75...3.0).contains($0) },
             "a rate is offered that the settings clamp would reject"
         )
     }

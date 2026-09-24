@@ -523,7 +523,9 @@ extension View {
 
 struct AttenBackdrop: View {
     var body: some View {
-        AttenColor.appBackground.ignoresSafeArea()
+        AttenColor.appBackground
+            .overlay { AmbientFieldLayer() }
+            .ignoresSafeArea()
     }
 }
 

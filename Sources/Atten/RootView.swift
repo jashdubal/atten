@@ -72,6 +72,7 @@ struct RootView: View {
                 animatedDetail
             }
             .environment(\.attenCoverNamespace, coverNamespace)
+            .attenAmbientField(model)
             .overlay(alignment: .top) {
                 CreateToast(flow: model.createFlow).padding(.top, AttenSpacing.sm)
             }
@@ -107,13 +108,15 @@ struct RootView: View {
             // it; every scroll view leaves room under its last row with
             // `attenScrollPadding()`.
             .overlay(alignment: .bottom) {
-                if model.playerTitle != nil {
+                // Now Playing is the player grown to the whole window.
+                if model.playerTitle != nil, model.section != .nowPlaying {
                     GlobalPlayer(model: model, isCompact: model.section == .studio, namespace: playerNamespace)
                         .padding(.horizontal, AttenSpacing.lg)
                         .padding(.bottom, AttenSpacing.sm)
                 }
             }
             .animation(AttenMotion.animation(.large, reduceMotion: reduceMotion), value: model.section == .studio)
+            .animation(AttenMotion.animation(.large, reduceMotion: reduceMotion), value: model.section == .nowPlaying)
         }
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
@@ -255,7 +258,7 @@ struct RootView: View {
                 model.leaveCreate()
             }
         case .nowPlaying:
-            NowPlayingView(model: model)
+            ReadAlongView(model: model, namespace: playerNamespace)
         }
     }
 

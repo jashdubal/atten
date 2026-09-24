@@ -6,7 +6,7 @@ private enum PlayerColor {
 
 /// How playback times and rates are written, wherever they are written.
 enum PlaybackFormat {
-    static let rates: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
+    static let rates: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 
     /// %g rather than %.2g: two significant digits turn 1.25 into "1.2" and
     /// 1.75 into "1.8".
@@ -47,6 +47,15 @@ struct GlobalPlayer: View {
 
     private func pill(title: String) -> some View {
         HStack(spacing: 14) {
+            if PlayingArtwork.Source(model: model) != nil {
+                Button { model.openNowPlaying() } label: {
+                    PlayingArtwork(model: model, height: 44)
+                        .matchedGeometryEffect(id: PlayerMatch.cover, in: namespace)
+                }
+                .buttonStyle(.plain)
+                .help("Open Now Playing")
+                .accessibilityLabel("Open Now Playing")
+            }
             HStack(spacing: 0) {
                 TransportButton(
                     systemImage: "backward.end.fill", size: 12,
@@ -55,6 +64,7 @@ struct GlobalPlayer: View {
                     action: model.playPrevious
                 )
                 playPause
+                    .matchedGeometryEffect(id: PlayerMatch.play, in: namespace)
                 TransportButton(
                     systemImage: "forward.end.fill", size: 12,
                     help: "Next chapter", label: "Next chapter",
@@ -74,6 +84,7 @@ struct GlobalPlayer: View {
                             .foregroundStyle(AttenColor.text1)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .matchedGeometryEffect(id: PlayerMatch.title, in: namespace)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if !subtitle.isEmpty {
                             Text(subtitle)

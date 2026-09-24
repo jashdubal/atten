@@ -59,6 +59,8 @@ final class AppModel {
     @ObservationIgnored private var hasAnnouncedQuarantinedHistory = false
     @ObservationIgnored private var playbackTimer: Timer?
     @ObservationIgnored private let nowPlaying = NowPlayingCenter()
+    /// The playing voice's level, for the views that breathe with it.
+    @ObservationIgnored let levelMeter = LevelMeter()
 
     private var playgroundDirectory: URL {
         FileManager.default.temporaryDirectory
@@ -500,10 +502,10 @@ final class AppModel {
         publishNowPlaying()
     }
 
-    /// Ten seconds back or forward, the way every player does it.
+    /// Fifteen seconds back or forward, the way every player does it.
     ///
     /// Running off either end carries on into the neighbouring chapter rather
-    /// than stopping dead — and backwards it lands ten seconds from that
+    /// than stopping dead — and backwards it lands fifteen seconds from that
     /// chapter's end, not at its beginning, because skipping back is asking to
     /// hear the last few seconds again.
     func skip(by seconds: TimeInterval) {
@@ -1167,6 +1169,7 @@ final class AppModel {
             player.delegate = delegate
             // Set before preparing, or the rate is ignored on first play.
             player.enableRate = true
+            player.isMeteringEnabled = true
             player.prepareToPlay()
             player.rate = Float(playbackRate)
             player.currentTime = min(max(0, position), player.duration)
@@ -1175,6 +1178,7 @@ final class AppModel {
             }
             if autoplay { player.play() }
             audioPlayer = player
+            levelMeter.player = player
             isPlaying = autoplay
             playbackDuration = player.duration
             playbackPosition = player.currentTime
