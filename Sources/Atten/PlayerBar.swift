@@ -88,7 +88,7 @@ struct GlobalPlayer: View {
                 Button { model.openNowPlaying() } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title)
-                            .font(AttenTypography.control.weight(.semibold))
+                            .font(AttenTypography.callout.weight(.semibold))
                             .foregroundStyle(AttenColor.text1)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -96,7 +96,7 @@ struct GlobalPlayer: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if !subtitle.isEmpty {
                             Text(subtitle)
-                                .font(AttenTypography.caption)
+                                .font(AttenTypography.callout)
                                 .foregroundStyle(AttenColor.text2)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -116,7 +116,7 @@ struct GlobalPlayer: View {
             .frame(minWidth: 120, maxWidth: .infinity)
 
             Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
-                .font(AttenTypography.timecode)
+                .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.text2)
                 .accessibilityLabel("\(PlaybackFormat.timeText(model.playbackRemaining)) remaining")
 
@@ -168,7 +168,7 @@ struct GlobalPlayer: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .font(AttenTypography.control.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.text1)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -178,7 +178,7 @@ struct GlobalPlayer: View {
             .frame(minWidth: 120, maxWidth: .infinity)
 
             Text(player.state == .catchingUp ? "Catching up…" : PlaybackFormat.timeText(player.position))
-                .font(AttenTypography.timecode)
+                .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.text2)
         }
         .padding(.leading, AttenSpacing.sm)

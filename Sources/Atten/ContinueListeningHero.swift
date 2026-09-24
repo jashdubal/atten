@@ -1,11 +1,10 @@
 import AttenCore
 import SwiftUI
 
-/// The Library's own "pick up where you left off," distinct from Home's
-/// larger hero: a cover, the sentence being read, and a way back in. Its
-/// background is an ambient wash of the cover's own colour — the one place
-/// besides a generated cover's blobs that content, not chrome, supplies the
-/// colour on screen.
+/// The Library's own "pick up where you left off": a cover, the sentence
+/// being read, and a way back in. Its background is an ambient wash of the
+/// cover's own colour — the one place besides a generated cover's blobs that
+/// content, not chrome, supplies the colour on screen.
 struct ContinueListeningHero: View {
     @Bindable var model: AppModel
     let book: BookRecord
@@ -123,6 +122,44 @@ private struct ProgressArc: View {
                 .stroke(AttenColor.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .rotationEffect(.degrees(-90))
         }
+        .accessibilityHidden(true)
+    }
+}
+
+struct BookJacket: View {
+    let book: BookRecord
+    let cover: NSImage?
+    let height: CGFloat
+    var dominantColor: OKLCHColor?
+    var isPlaying = false
+
+    private var seed: CoverSeed { CoverSeed(contentHash: AttenCore.LibraryItem.book(book).coverSeedKey) }
+
+    /// A real cover's shadow is tinted by its own dominant colour; a
+    /// generated one is tinted by the same seed its blobs are drawn from, so
+    /// neither ever falls back to a flat black shadow.
+    private var shadowTint: OKLCHColor {
+        dominantColor ?? OKLCHColor(lightness: 0.6, chroma: 0.1, hue: seed.hue)
+    }
+
+    var body: some View {
+        Group {
+            if let cover {
+                Image(nsImage: cover)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                GeneratedCover(
+                    title: book.title,
+                    contentHash: AttenCore.LibraryItem.book(book).coverSeedKey,
+                    sourceLabel: book.author ?? book.format.displayName,
+                    state: AttenCore.LibraryItem.book(book).state,
+                    isPlaying: isPlaying
+                )
+            }
+        }
+        .frame(width: height * AttenMetrics.coverAspectRatio, height: height)
+        .attenCoverFrame(tint: shadowTint)
         .accessibilityHidden(true)
     }
 }

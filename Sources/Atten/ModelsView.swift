@@ -94,7 +94,7 @@ struct ModelsView: View {
                 ProgressView().controlSize(.small)
             }
             Text("\(library.installed.count) installed")
-                .font(AttenTypography.metadata)
+                .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
         }
     }
@@ -170,15 +170,15 @@ private struct ModelRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: AttenSpacing.xs) {
                         Text(model.name)
-                            .font(AttenTypography.control.weight(.semibold))
+                            .font(AttenTypography.callout.weight(.semibold))
                         if !model.author.isEmpty {
                             Text(model.author)
-                                .font(AttenTypography.caption)
+                                .font(AttenTypography.callout)
                                 .foregroundStyle(AttenColor.textSecondary)
                         }
                     }
                     Text(model.languages)
-                        .font(AttenTypography.caption)
+                        .font(AttenTypography.callout)
                         .foregroundStyle(AttenColor.textSecondary)
                         .lineLimit(1)
                 }
@@ -220,7 +220,7 @@ private struct ModelRow: View {
             Text(model.sizeText)
                 .frame(minWidth: 70, alignment: .trailing)
         }
-        .font(AttenTypography.caption)
+        .font(AttenTypography.callout)
         .foregroundStyle(AttenColor.textSecondary)
         .labelStyle(.titleAndIcon)
     }
@@ -238,11 +238,11 @@ private struct ModelRow: View {
         case nil:
             if isBundled {
                 Text("BUNDLED")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.success)
             } else if isInstalled {
                 Text("INSTALLED")
-                    .font(AttenTypography.caption.weight(.semibold))
+                    .font(AttenTypography.callout.weight(.semibold))
                     .foregroundStyle(AttenColor.success)
                 Button(role: .destructive, action: onDelete) {
                     Image(systemName: "trash")

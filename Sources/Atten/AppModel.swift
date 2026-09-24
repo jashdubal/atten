@@ -30,7 +30,6 @@ final class AppModel {
     @ObservationIgnored private var playbackBookSnapshot: BookRecord?
     var startupError: String?
     var voicePreviewID: String?
-    var playgroundState: GenerationState = .idle
     var playbackPosition: TimeInterval = 0
     var playbackDuration: TimeInterval = 0
     /// Bumped when downloaded models add or remove voices, since the voice
@@ -63,12 +62,6 @@ final class AppModel {
     @ObservationIgnored private let nowPlaying = NowPlayingCenter()
     /// The playing voice's level, for the views that breathe with it.
     @ObservationIgnored let levelMeter = LevelMeter()
-
-    private var playgroundDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("Atten", isDirectory: true)
-            .appendingPathComponent("Playground", isDirectory: true)
-    }
 
     init(
         directories: AppDirectories = AppDirectories(),
@@ -156,13 +149,6 @@ final class AppModel {
 
     var isGenerating: Bool { generationState == .generating }
 
-    var isPlaygroundGenerating: Bool { playgroundState == .generating }
-
-    var playgroundAudioURL: URL? {
-        if case let .ready(url) = playgroundState { return url }
-        return nil
-    }
-
     var currentProject: ProjectRecord? {
         guard let currentAudioURL else { return nil }
         return projects.first { $0.audioPath == currentAudioURL.path }
@@ -195,7 +181,6 @@ final class AppModel {
         await repairQuarantineIfNeeded()
         do {
             try directories.prepare()
-            try? resetPlaygroundDirectory()
             var loaded = try await repository.load()
             if case let .development(backendRoot)? = BackendLocator.locateInstallation() {
                 let legacyDirectory = backendRoot.appendingPathComponent("outputs", isDirectory: true)
@@ -616,9 +601,7 @@ final class AppModel {
     }
 
     func newDraft() {
-        activeTextImportID = nil
-        isImportingText = false
-        if isGenerating || isPlaygroundGenerating || voicePreviewID != nil { cancelGeneration() }
+        if isGenerating || voicePreviewID != nil { cancelGeneration() }
         draftTitle = ""
         draftText = ""
         generationState = .idle
@@ -627,7 +610,7 @@ final class AppModel {
     }
 
     func generate() {
-        guard !isImportingText, !synthesis.isBusy else { return }
+        guard !synthesis.isBusy else { return }
         let cleanText = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanText.isEmpty else {
             generationState = .failed("Enter or import text before generating speech.")
@@ -699,7 +682,6 @@ final class AppModel {
         generator.cancel()
         activeGenerationID = nil
         if isGenerating { generationState = .idle }
-        if isPlaygroundGenerating { playgroundState = .idle }
         voicePreviewID = nil
     }
 
@@ -815,88 +797,6 @@ final class AppModel {
         }
     }
 
-    func generatePlaygroundSample(
-        text: String,
-        voiceID: String,
-        speed: Double,
-        format: AudioFormat,
-        useMPS: Bool
-    ) {
-        guard !synthesis.isBusy else { return }
-        let cleanText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanText.isEmpty else {
-            playgroundState = .failed("Enter a short sample before generating.")
-            return
-        }
-        if let message = missingModelMessage(for: voiceID) {
-            playgroundState = .failed(message)
-            return
-        }
-
-        cancelGeneration()
-        do {
-            try resetPlaygroundDirectory()
-        } catch {
-            playgroundState = .failed("The temporary sample folder could not be prepared.")
-            return
-        }
-
-        playgroundState = .generating
-        let generationID = UUID()
-        activeGenerationID = generationID
-        let request = GenerationRequest(
-            text: cleanText,
-            voiceID: voiceID,
-            speed: speed,
-            format: format,
-            outputDirectory: playgroundDirectory,
-            filename: "sample-\(UUID().uuidString)",
-            useMPS: useMPS,
-            modelID: VoiceCatalog.voice(id: voiceID)?.modelID
-        )
-
-        guard let lease = synthesis.acquire("Creating audio") else { return }
-        generationTask = Task { [weak self] in
-            guard let self else { return }
-            defer { synthesis.release(lease) }
-            do {
-                let output = try await generator.generate(request)
-                try Task.checkCancellation()
-                guard activeGenerationID == generationID else { return }
-                playgroundState = .ready(output.url)
-                play(url: output.url)
-            } catch is CancellationError {
-                if activeGenerationID == generationID { playgroundState = .idle }
-            } catch BackendError.cancelled {
-                if activeGenerationID == generationID { playgroundState = .idle }
-            } catch {
-                if activeGenerationID == generationID {
-                    playgroundState = .failed(error.localizedDescription)
-                }
-            }
-        }
-    }
-
-    func clearPlaygroundSample() {
-        cancelGeneration()
-        stopPlayback()
-        try? resetPlaygroundDirectory()
-        playgroundState = .idle
-    }
-
-    func usePlaygroundSettingsInStudio(
-        text: String,
-        voiceID: String,
-        speed: Double,
-        format: AudioFormat
-    ) {
-        draftText = text
-        selectedVoiceID = voiceID
-        self.speed = speed
-        self.format = format
-        generationState = .idle
-    }
-
     func selectVoice(_ voice: Voice) {
         selectedVoiceID = voice.id
         settings.selectedVoiceID = voice.id
@@ -917,50 +817,6 @@ final class AppModel {
         settings.defaultSpeed = speed
         settings.defaultFormat = format
         saveSettings()
-    }
-
-    private(set) var isImportingText = false
-    @ObservationIgnored private var activeTextImportID: UUID?
-
-    func importText(from url: URL) {
-        guard !isImportingText else { return }
-        isImportingText = true
-        let importID = UUID()
-        activeTextImportID = importID
-        Task {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessed { url.stopAccessingSecurityScopedResource() }
-                if activeTextImportID == importID { isImportingText = false; activeTextImportID = nil }
-            }
-            do {
-                let text = try await Task.detached(priority: .userInitiated) {
-                    if url.pathExtension.lowercased() == "rtf" {
-                        return try NSAttributedString(url: url, options: [:], documentAttributes: nil).string
-                    }
-                    return try String(contentsOf: url, encoding: .utf8)
-                }.value
-                guard activeTextImportID == importID else { return }
-                draftText = text
-                draftTitle = url.deletingPathExtension().lastPathComponent
-                if !isGenerating { generationState = .idle }
-            } catch {
-                if activeTextImportID == importID {
-                    generationState = .failed("Atten could not read that text file: \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-
-    func openImportPanel() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Text into Atten"
-        var contentTypes: [UTType] = [.plainText, .sourceCode, .rtf]
-        if let markdown = UTType(filenameExtension: "md") { contentTypes.append(markdown) }
-        panel.allowedContentTypes = contentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        if panel.runModal() == .OK, let url = panel.url { importText(from: url) }
     }
 
     func openBookImportPanel() {
@@ -1166,17 +1022,14 @@ final class AppModel {
     /// finished draft.
     private func play(url: URL, subtitle: String? = nil) {
         let project = projects.first { $0.audioURL == url }
-        let isPlaygroundSample = url.path.hasPrefix(playgroundDirectory.path)
         let isVoicePreview = url.path.contains("/Voice Previews/")
         let title = project?.title
-            ?? (isPlaygroundSample ? "Playground sample" : nil)
             ?? (isVoicePreview ? "Voice preview" : nil)
         let source = subtitle
             ?? project.map { project in
                 let voice = VoiceCatalog.voice(id: project.voiceID)?.name ?? project.voiceID
                 return "Studio · \(voice)"
             }
-            ?? (isPlaygroundSample ? "Studio playground" : nil)
         let track = if let title {
             PlaybackTrack(url: url, title: title, subtitle: source)
         } else {
@@ -1216,12 +1069,7 @@ final class AppModel {
             isPlaying = false
             queue = PlaybackQueue()
             nowPlaying.clear()
-            let message = "Audio playback failed: \(error.localizedDescription)"
-            if track.url.path.hasPrefix(playgroundDirectory.path) {
-                playgroundState = .failed(message)
-            } else {
-                generationState = .failed(message)
-            }
+            generationState = .failed("Audio playback failed: \(error.localizedDescription)")
         }
     }
 
@@ -1374,15 +1222,6 @@ final class AppModel {
         return candidate
     }
 
-    private func resetPlaygroundDirectory() throws {
-        if FileManager.default.fileExists(atPath: playgroundDirectory.path) {
-            try FileManager.default.removeItem(at: playgroundDirectory)
-        }
-        try FileManager.default.createDirectory(
-            at: playgroundDirectory,
-            withIntermediateDirectories: true
-        )
-    }
 }
 
 private final class AudioPlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {

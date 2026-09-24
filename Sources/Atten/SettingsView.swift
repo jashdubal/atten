@@ -101,7 +101,7 @@ struct SettingsView: View {
                     .help("Turn this off to keep this version indefinitely and never use the network")
 
                 Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually here.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
 
                 LabeledContent("Version") {
@@ -173,7 +173,7 @@ struct SettingsView: View {
                 ) {
                     HStack(spacing: AttenSpacing.xs) {
                         Text(model.settings.outputDirectory)
-                            .font(AttenTypography.metadata)
+                            .font(AttenTypography.callout)
                             .foregroundStyle(AttenColor.textSecondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -186,7 +186,7 @@ struct SettingsView: View {
 
             Section {
                 Text("Existing audio in the original outputs folder is discovered without being moved.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
@@ -204,7 +204,7 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
 
                 Text("Atten has one palette, drawn light or dark. Motion and transparency follow your macOS accessibility preferences.")
-                    .font(AttenTypography.metadata)
+                    .font(AttenTypography.callout)
                     .foregroundStyle(AttenColor.textSecondary)
             }
         }
@@ -248,7 +248,7 @@ private struct SettingsPane<Content: View>: View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
                 Text(title)
-                    .font(AttenTypography.pageTitle)
+                    .font(AttenTypography.title2)
                     .foregroundStyle(AttenColor.textPrimary)
                 Text(detail)
                     .font(AttenTypography.body)
@@ -273,7 +273,7 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent(action) {
             Text(keys)
-                .font(AttenTypography.readout)
+                .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.textSecondary)
                 .padding(.horizontal, AttenSpacing.xs)
                 .padding(.vertical, AttenSpacing.xxs)

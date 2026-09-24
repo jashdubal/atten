@@ -212,9 +212,6 @@ enum AttenRadius {
     static let cover: CGFloat = 8
     /// Fully rounded — segmented filters, chapter pills, the transport ring.
     static let pill: CGFloat = 999
-    /// The compact player in the top chrome and its expanded panel.
-    @available(*, deprecated, renamed: "card")
-    static let player: CGFloat = card
 
     /// The radius of a shape nested inside another.
     ///
@@ -354,8 +351,6 @@ enum AttenState {
 enum AttenMetrics {
     /// Height of the mini player's pill.
     static let playerHeight: CGFloat = 64
-    /// The expanded player panel's width when it opens as a popover.
-    static let expandedPlayerWidth: CGFloat = 380
     /// A cover in a shelf grid, at its smallest. Grids size themselves in
     /// multiples of this with `.adaptive`.
     static let coverGridMinimum: CGFloat = 132
@@ -468,9 +463,6 @@ enum AttenTextStyle: CaseIterable {
 /// The fonts of ``AttenTextStyle``, for the places that only take a `Font`.
 /// Anything that sets text on its own should use ``SwiftUI/View/attenText(_:)``
 /// instead, which also applies the style's tracking, line height and case.
-///
-/// The names below the scale are what screens were written against. They
-/// resolve to the nearest step of the scale until each screen is moved over.
 enum AttenTypography {
     static let display = AttenTextStyle.display.font
     static let title1 = AttenTextStyle.title1.font
@@ -479,26 +471,6 @@ enum AttenTypography {
     static let callout = AttenTextStyle.callout.font
     static let label = AttenTextStyle.label.font
     static let reading = AttenTextStyle.reading.font
-
-    @available(*, deprecated, renamed: "display")
-    static let displayTitle = display
-    @available(*, deprecated, renamed: "title2")
-    static let pageTitle = title2
-    /// Body size at the weight a section heading had.
-    @available(*, deprecated, message: "Use .attenText(.body) with a weight")
-    static let sectionTitle = body.weight(.semibold)
-    @available(*, deprecated, renamed: "callout")
-    static let control = callout
-    @available(*, deprecated, renamed: "callout")
-    static let metadata = callout
-    @available(*, deprecated, renamed: "callout")
-    static let caption = callout
-    /// Elapsed and remaining time.
-    @available(*, deprecated, renamed: "label")
-    static let timecode = label
-    /// A number that sits next to the control that changes it — 1.1×, 120%.
-    @available(*, deprecated, renamed: "label")
-    static let readout = label
 }
 
 private struct AttenTextModifier: ViewModifier {
