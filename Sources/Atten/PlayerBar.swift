@@ -42,6 +42,14 @@ struct GlobalPlayer: View {
             } else {
                 pill(title: title)
             }
+        } else if let bookID = model.progressivePlayer.bookID, let book = model.bookshelf.book(id: bookID) {
+            // Nothing has finished yet to hand the ordinary player, but a
+            // narration in progress can already be heard.
+            if isCompact {
+                progressiveIndicator(title: book.title)
+            } else {
+                progressivePill(title: book.title)
+            }
         }
     }
 
@@ -149,6 +157,77 @@ struct GlobalPlayer: View {
     private var fraction: Double {
         guard model.playbackDuration > 0 else { return 0 }
         return min(1, max(0, model.playbackPosition / model.playbackDuration))
+    }
+
+    /// The same pill, while a narration has nothing finished yet to hand the
+    /// ordinary player but already has something to listen to.
+    private func progressivePill(title: String) -> some View {
+        let player = model.progressivePlayer
+        return HStack(spacing: 14) {
+            progressivePlayPause
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .font(AttenTypography.control.weight(.semibold))
+                    .foregroundStyle(AttenColor.text1)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                ScrubBar(position: player.position, duration: player.duration, seek: player.seek(to:), neutral: true)
+            }
+            .frame(minWidth: 120, maxWidth: .infinity)
+
+            Text(player.state == .catchingUp ? "Catching up…" : PlaybackFormat.timeText(player.position))
+                .font(AttenTypography.timecode)
+                .foregroundStyle(AttenColor.text2)
+        }
+        .padding(.leading, AttenSpacing.sm)
+        .padding(.trailing, AttenSpacing.md)
+        .frame(height: AttenMetrics.playerHeight)
+        .frame(maxWidth: 640)
+        .attenGlass(cornerRadius: AttenMetrics.playerHeight / 2)
+        .matchedGeometryEffect(id: "player", in: namespace)
+        .tint(PlayerColor.text)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Player: \(title), narrating")
+    }
+
+    private func progressiveIndicator(title: String) -> some View {
+        let player = model.progressivePlayer
+        let fraction = player.duration > 0 ? min(1, max(0, player.position / player.duration)) : 0
+        return progressivePlayPause
+            .overlay {
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(
+                        player.isPlaying ? AttenColor.signal : AttenColor.text3,
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .padding(1)
+                    .allowsHitTesting(false)
+            }
+            .padding(AttenSpacing.xxs)
+            .attenGlass(cornerRadius: 24)
+            .matchedGeometryEffect(id: "player", in: namespace)
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Player: \(title), narrating")
+    }
+
+    private var progressivePlayPause: some View {
+        let player = model.progressivePlayer
+        return Button(action: player.toggle) {
+            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(AttenColor.text1)
+                .frame(width: 40, height: 40)
+                .background(AttenColor.text1.opacity(AttenState.hoverFill), in: Circle())
+                .contentShape(Circle())
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .help(player.isPlaying ? "Pause" : "Listen as it narrates")
+        .accessibilityLabel(player.isPlaying ? "Pause" : "Play narration so far")
     }
 
     private var subtitle: String {

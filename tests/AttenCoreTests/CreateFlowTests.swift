@@ -213,6 +213,35 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertEqual(reached, [0, 1])
     }
 
+    /// P5: as each segment lands, `AppModel` feeds it to `progressivePlayer`,
+    /// and `CreateFlowModel` can turn where that player has reached back into
+    /// an exact range of the draft's own text.
+    func testPlayingSentenceRangeTracksProgressivePlaybackWhileGenerating() async throws {
+        var capturedRanges: [(location: Int, length: Int)?] = []
+        model.bookshelf.onSegmentReady = { [weak model] bookID, chapterIndex, segment in
+            guard let model else { return }
+            model.progressivePlayer.receive(bookID: bookID, chapterIndex: chapterIndex, segment: segment)
+            // Nothing is actually playing in this test, so position never
+            // moves on its own — seek to what just landed to look at it.
+            model.progressivePlayer.seek(to: model.progressivePlayer.duration)
+            capturedRanges.append(model.createFlow.playingSentenceRange)
+        }
+        let text = "# One\n\nFirst chapter text.\n\n# Two\n\nSecond chapter text."
+        flow.text = text
+        flow.generate()
+        try await waitForNarration()
+
+        XCTAssertEqual(capturedRanges.count, 2, "one segment per chapter")
+        let first = try XCTUnwrap(capturedRanges[0])
+        XCTAssertEqual((text as NSString).substring(with: NSRange(location: first.location, length: first.length)), "First chapter text.")
+        let second = try XCTUnwrap(capturedRanges[1])
+        XCTAssertEqual((text as NSString).substring(with: NSRange(location: second.location, length: second.length)), "Second chapter text.")
+
+        // Once narration finishes, nothing should still claim to be playing
+        // along with a draft that is no longer being generated.
+        XCTAssertNil(flow.playingSentenceRange)
+    }
+
     func testTheOldStudioDraftIsImportedOnce() {
         XCTAssertTrue(flow.importLegacyDraft("# Kept\nWords from before drafts were books."))
         XCTAssertTrue(flow.importLegacyDraft("# Kept\nWords from before drafts were books."))

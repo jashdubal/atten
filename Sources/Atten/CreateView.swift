@@ -168,6 +168,7 @@ private struct CreateEditorColumn: View {
                 text: $flow.text,
                 accessibilityLabel: "Text to narrate",
                 spokenLength: isGenerating ? (extent?.utf16Offset ?? 0) : nil,
+                playingRange: isGenerating ? flow.playingSentenceRange.map { NSRange(location: $0.location, length: $0.length) } : nil,
                 focusesOnAppear: flow.text.isEmpty
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

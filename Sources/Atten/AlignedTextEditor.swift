@@ -14,6 +14,9 @@ struct AlignedTextEditor: NSViewRepresentable {
     /// How much of `text` (in UTF-16) has been spoken, while narration runs.
     /// Nil while the text is being written.
     var spokenLength: Int?
+    /// The sentence sounding right now, while progressive playback follows
+    /// this draft. Nil when nothing is playing along with it.
+    var playingRange: NSRange?
     var focusesOnAppear = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -81,11 +84,17 @@ struct AlignedTextEditor: NSViewRepresentable {
                 : validSelection
             coordinator.spokenLength = nil
             coordinator.hasColouredSpoken = false
+            markPlaying(nil, in: textView, coordinator: coordinator)
         }
-        guard spokenLength != coordinator.spokenLength || (spokenLength == nil && coordinator.hasColouredSpoken) else { return }
-        colour(textView, spoken: spokenLength, previously: coordinator.spokenLength)
-        coordinator.spokenLength = spokenLength
-        coordinator.hasColouredSpoken = spokenLength != nil
+        if spokenLength != coordinator.spokenLength || (spokenLength == nil && coordinator.hasColouredSpoken) {
+            colour(textView, spoken: spokenLength, previously: coordinator.spokenLength)
+            coordinator.spokenLength = spokenLength
+            coordinator.hasColouredSpoken = spokenLength != nil
+        }
+        if playingRange != coordinator.playingRange {
+            markPlaying(playingRange, in: textView, coordinator: coordinator)
+            coordinator.playingRange = playingRange
+        }
     }
 
     private static func attributes(colour: NSColor) -> [NSAttributedString.Key: Any] {
@@ -118,16 +127,10 @@ struct AlignedTextEditor: NSViewRepresentable {
         }
     }
 
-    /// Draws a hairline of `signal` under the stretch just spoken, left to
-    /// right across each of its lines in reading order, then lets it fade.
-    private func sweep(_ range: NSRange, in textView: NSTextView) {
-        guard let layoutManager = textView.layoutManager,
-              let container = textView.textContainer else { return }
-        textView.wantsLayer = true
-        guard let host = textView.layer else { return }
+    /// One rect per line a range covers, tight to the words on it: a line's
+    /// own rect runs on to the margin past a trailing space.
+    private func lineRects(for range: NSRange, layoutManager: NSLayoutManager, container: NSTextContainer) -> [NSRect] {
         let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-        // One rect per line, tight to the words on it: a line's own rect
-        // runs on to the margin past a trailing space.
         var rects: [NSRect] = []
         layoutManager.enumerateLineFragments(forGlyphRange: glyphs) { line, _, _, lineGlyphs, _ in
             let words = NSIntersectionRange(lineGlyphs, glyphs)
@@ -135,6 +138,17 @@ struct AlignedTextEditor: NSViewRepresentable {
             let bounds = layoutManager.boundingRect(forGlyphRange: words, in: container)
             rects.append(NSRect(x: bounds.minX, y: line.minY, width: bounds.width, height: line.height))
         }
+        return rects
+    }
+
+    /// Draws a hairline of `signal` under the stretch just spoken, left to
+    /// right across each of its lines in reading order, then lets it fade.
+    private func sweep(_ range: NSRange, in textView: NSTextView) {
+        guard let layoutManager = textView.layoutManager,
+              let container = textView.textContainer else { return }
+        textView.wantsLayer = true
+        guard let host = textView.layer else { return }
+        let rects = lineRects(for: range, layoutManager: layoutManager, container: container)
         let total = rects.reduce(0) { $0 + $1.width }
         guard total > 0 else { return }
 
@@ -182,10 +196,45 @@ struct AlignedTextEditor: NSViewRepresentable {
         CATransaction.commit()
     }
 
+    /// Marks the sentence sounding right now with a `signal` underline that
+    /// holds steady, unlike `sweep`'s one-off flourish, until the next
+    /// sentence takes its place or playback stops.
+    private func markPlaying(_ range: NSRange?, in textView: NSTextView, coordinator: Coordinator) {
+        for layer in coordinator.playingLayers { layer.removeFromSuperlayer() }
+        coordinator.playingLayers = []
+        guard let range, let layoutManager = textView.layoutManager, let container = textView.textContainer,
+              NSMaxRange(range) <= (textView.string as NSString).length else { return }
+        textView.wantsLayer = true
+        guard let host = textView.layer else { return }
+        var colour = AttenColor.nsSignal.cgColor
+        textView.effectiveAppearance.performAsCurrentDrawingAppearance {
+            colour = AttenColor.nsSignal.cgColor
+        }
+        let origin = textView.textContainerOrigin
+        let fade = reduceMotion ? AttenMotion.reducedFade : AttenMotion.fast
+        for rect in lineRects(for: range, layoutManager: layoutManager, container: container) {
+            let line = CALayer()
+            line.backgroundColor = colour
+            line.bounds = CGRect(x: 0, y: 0, width: rect.width, height: 1.5)
+            line.position = CGPoint(x: rect.minX + origin.x, y: rect.maxY + origin.y - 1)
+            line.opacity = 0
+            host.addSublayer(line)
+            let show = CABasicAnimation(keyPath: "opacity")
+            show.fromValue = 0
+            show.toValue = 1
+            show.duration = fade
+            line.add(show, forKey: "show")
+            line.opacity = 1
+            coordinator.playingLayers.append(line)
+        }
+    }
+
     final class Coordinator: NSObject, NSTextViewDelegate {
         var text: Binding<String>
         var spokenLength: Int?
         var hasColouredSpoken = false
+        var playingRange: NSRange?
+        var playingLayers: [CALayer] = []
 
         init(text: Binding<String>) {
             self.text = text

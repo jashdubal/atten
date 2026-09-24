@@ -45,6 +45,8 @@ final class AppModel {
     let bookshelf: BookshelfModel
     let synthesis = SynthesisCoordinator()
     let createFlow = CreateFlowModel()
+    /// Plays whichever narration is being generated, as its segments land.
+    let progressivePlayer = ProgressivePlayer()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -117,7 +119,28 @@ final class AppModel {
             settings.listenEstimator.record(voiceID: run.voiceID, words: run.words, audioSeconds: run.audioSeconds)
             settings.listenEstimator.recordGeneration(audioSeconds: run.audioSeconds, wallSeconds: run.wallSeconds)
             saveSettings()
+            // Listening progressively hands off to the finished recording at
+            // the same position, with no gap a listener would notice.
+            if progressivePlayer.bookID == run.bookID {
+                let handoff = progressivePlayer.handoff()
+                // Only a listener actually mid-narration needs handing off —
+                // otherwise nothing was following along, and switching the
+                // player over would silently steal whatever it already had
+                // loaded.
+                if handoff.wasPlaying, let book = bookshelf.book(id: run.bookID) {
+                    play(tracks: book.narrationTracks, atPosition: handoff.position)
+                }
+            }
             createFlow.narrationFinished(run.bookID)
+        }
+        self.bookshelf.onSegmentReady = { [weak self] bookID, chapterIndex, segment in
+            self?.progressivePlayer.receive(bookID: bookID, chapterIndex: chapterIndex, segment: segment)
+        }
+        self.bookshelf.onNarrationEnded = { [weak self] _ in
+            self?.progressivePlayer.stop()
+        }
+        self.progressivePlayer.onChange = { [weak self] in
+            self?.publishProgressiveNowPlaying()
         }
         createFlow.app = self
     }
@@ -1127,13 +1150,16 @@ final class AppModel {
     ///
     /// Each is a separate file on disk, so a book can be narrated chapter by
     /// chapter and still listened to as one piece.
-    func play(tracks: [PlaybackTrack], startingAt index: Int = 0) {
+    func play(
+        tracks: [PlaybackTrack], startingAt index: Int = 0,
+        atPosition position: TimeInterval = 0, autoplay: Bool = true
+    ) {
         guard !tracks.isEmpty else { return }
         saveListeningPosition()
         queue = PlaybackQueue(tracks: tracks, startingAt: index)
         playbackBookSnapshot = bookshelf.books.first { $0.id == queue.current?.id }
         guard let track = queue.current else { return }
-        start(track)
+        start(track, autoplay: autoplay, position: position)
     }
 
     /// One file, with nothing before or after it — a preview, a sample, a
@@ -1228,21 +1254,57 @@ final class AppModel {
     func prepareForTermination() {
         cancelGeneration()
         stopPlayback()
+        progressivePlayer.stop()
     }
 
     /// The keyboard's play key, Control Center, and a pair of headphones all
-    /// reach the player through here.
+    /// reach the player through here. While a narration is generating and
+    /// nothing else is queued, they reach progressive playback instead.
     private func startRemoteCommands() {
         nowPlaying.start(
             NowPlayingCenter.Commands(
-                play: { [weak self] in self?.resume() },
-                pause: { [weak self] in self?.pause() },
-                toggle: { [weak self] in self?.toggleActivePlayback() },
+                play: { [weak self] in self?.remotePlayOrPause(playing: true) },
+                pause: { [weak self] in self?.remotePlayOrPause(playing: false) },
+                toggle: { [weak self] in
+                    guard let self else { return }
+                    queue.current != nil ? toggleActivePlayback() : progressivePlayer.toggle()
+                },
                 next: { [weak self] in self?.playNext() },
                 previous: { [weak self] in self?.playPrevious() },
                 skip: { [weak self] seconds in self?.skip(by: seconds) },
-                seek: { [weak self] time in self?.seek(to: time) }
+                seek: { [weak self] time in
+                    guard let self else { return }
+                    queue.current != nil ? seek(to: time) : progressivePlayer.seek(to: time)
+                }
             )
+        )
+    }
+
+    private func remotePlayOrPause(playing: Bool) {
+        guard queue.current != nil else {
+            playing ? progressivePlayer.play() : progressivePlayer.pause()
+            return
+        }
+        playing ? resume() : pause()
+    }
+
+    /// Now Playing while progressive playback, rather than the ordinary
+    /// player, is what a listener is following — the ordinary queue always
+    /// wins the display if both are somehow active at once.
+    private func publishProgressiveNowPlaying() {
+        guard queue.current == nil else { return }
+        guard let bookID = progressivePlayer.bookID, let book = bookshelf.book(id: bookID) else {
+            nowPlaying.clear()
+            return
+        }
+        nowPlaying.update(
+            track: PlaybackTrack(id: bookID, url: book.sourceURL, title: book.title, subtitle: "Narrating…"),
+            isPlaying: progressivePlayer.isPlaying,
+            position: progressivePlayer.position,
+            duration: progressivePlayer.duration,
+            rate: 1,
+            hasNext: false,
+            hasPrevious: false
         )
     }
 

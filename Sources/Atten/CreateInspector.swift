@@ -92,6 +92,9 @@ struct CreateInspector: View {
             audioSeconds: estimator.listenDuration(words: remainingWords, voiceID: flow.voice.id)
         )
         return VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+            if let player = flow.progressivePlayer, player.duration > 0 {
+                ProgressivePlaybackRow(player: player)
+            }
             GenerationWaveform(fraction: extent?.fraction ?? 0, seed: flow.draftID?.uuidString ?? "")
             HStack {
                 Text("Chapters \(progress?.completed ?? 0) / \(progress?.total ?? 0)")
@@ -185,5 +188,38 @@ struct PreviewButton: View {
 
     private var hasCachedPreview: Bool {
         flow.previewURL(for: voice).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+    }
+}
+
+/// Listening to a draft as it narrates: play or pause what has landed so
+/// far, and scrub anywhere within it. Shows up as soon as the first segment
+/// is ready.
+private struct ProgressivePlaybackRow: View {
+    let player: ProgressivePlayer
+
+    var body: some View {
+        HStack(spacing: AttenSpacing.sm) {
+            Button(action: player.toggle) {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(AttenColor.text1)
+                    .background(AttenColor.text1.opacity(AttenState.hoverFill), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(player.isPlaying ? "Pause" : "Listen as it narrates")
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play narration so far")
+
+            ScrubBar(position: player.position, duration: player.duration, seek: player.seek(to:), neutral: true)
+
+            Text(player.state == .catchingUp ? "Catching up…" : PlaybackFormat.timeText(player.position))
+                .attenText(.label)
+                .foregroundStyle(AttenColor.text2)
+                .monospacedDigit()
+                .frame(minWidth: 78, alignment: .trailing)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Narration so far")
     }
 }
