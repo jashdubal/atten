@@ -14,6 +14,7 @@ import uuid
 
 from .catalog import is_known_voice, required_model_for, voice_for_id
 from .device import resolve_device
+from .word_timings import estimate_word_timings
 
 
 def _configure_espeak():
@@ -400,6 +401,9 @@ class GenerationService:
                             start, end = getattr(token, "start_ts", None), getattr(token, "end_ts", None)
                             if start is not None and end is not None:
                                 words.append({"text": token.text, "start": float(start), "end": float(end)})
+                        if not words:
+                            # A voice that reports no word times has them read from its audio.
+                            words = estimate_word_timings(graphemes, audio, self.audio_io.sample_rate)
                         if segment_ready:
                             segment_ready({"index": index, "path": str(segment_path),
                                            "text": graphemes or "", "start": offset,
