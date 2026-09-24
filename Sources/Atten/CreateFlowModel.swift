@@ -276,6 +276,7 @@ final class CreateFlowModel {
 
     func cancel() {
         guard isGenerating else { return }
+        app?.progressivePlayer.stop()
         app?.bookshelf.cancelNarration()
         // The shelf's own notice speaks for the Library; here the text simply
         // becomes editable again.
@@ -310,8 +311,38 @@ final class CreateFlowModel {
         return progress
     }
 
-    // Progressive playback while generating is P5: it attaches to
-    // `BookshelfModel.onSegmentReady` and plays segments of `draftID` as they land.
+    /// Progressive playback, once it exists and is following this draft
+    /// rather than some other book's narration.
+    var progressivePlayer: ProgressivePlayer? {
+        guard let app, let draftID, app.progressivePlayer.bookID == draftID else { return nil }
+        return app.progressivePlayer
+    }
+
+    /// The sentence sounding right now, as an exact range in the draft's own
+    /// text — found through `NarrationTimings`, not the running word count
+    /// `spokenExtent` estimates from.
+    var playingSentenceRange: (location: Int, length: Int)? {
+        guard let app, let draftID, let player = progressivePlayer, let active = player.activeSentence,
+              let book = app.bookshelf.book(id: draftID), book.chapters.indices.contains(active.chapterIndex)
+        else { return nil }
+        let chapters = book.chapters.map(\.text)
+        let before = SpokenExtent(text: text, chapters: chapters, chapterIndex: active.chapterIndex, spokenWords: active.wordsBefore)
+        let after = SpokenExtent(
+            text: text, chapters: chapters, chapterIndex: active.chapterIndex,
+            spokenWords: active.wordsBefore + active.wordCount
+        )
+        // At the very start of a chapter past the first, `before` lands on
+        // the heading gap rather than the chapter's own first word — the
+        // same gap `AlignedTextEditor` trims before its own sweep.
+        let whole = text as NSString
+        var start = before.utf16Offset
+        while start < after.utf16Offset, let scalar = UnicodeScalar(whole.character(at: start)),
+              CharacterSet.whitespacesAndNewlines.contains(scalar) {
+            start += 1
+        }
+        guard after.utf16Offset > start else { return nil }
+        return (start, after.utf16Offset - start)
+    }
 
     // MARK: - Done
 

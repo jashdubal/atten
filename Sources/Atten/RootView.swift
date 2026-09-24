@@ -109,7 +109,7 @@ struct RootView: View {
             // `attenScrollPadding()`.
             .overlay(alignment: .bottom) {
                 // Now Playing is the player grown to the whole window.
-                if model.playerTitle != nil, model.section != .nowPlaying {
+                if (model.playerTitle != nil || model.progressivePlayer.bookID != nil), model.section != .nowPlaying {
                     GlobalPlayer(model: model, isCompact: model.section == .studio, namespace: playerNamespace)
                         .padding(.horizontal, AttenSpacing.lg)
                         .padding(.bottom, AttenSpacing.sm)

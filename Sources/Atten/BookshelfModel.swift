@@ -124,6 +124,10 @@ final class BookshelfModel {
     @ObservationIgnored var onSegmentReady: ((UUID, Int, SegmentReady) -> Void)?
     /// Called once a narration has been published as one recording.
     @ObservationIgnored var onNarrationFinished: ((NarrationRun) -> Void)?
+    /// Called when a narration task ends, however it ends — finished,
+    /// cancelled, or failed — so anything following it (progressive
+    /// playback) can let go.
+    @ObservationIgnored var onNarrationEnded: ((UUID) -> Void)?
     @ObservationIgnored private var retiredAudio: Set<URL> = []
 
     init(directories: AppDirectories, generator: any TTSGenerating,
@@ -505,6 +509,7 @@ final class BookshelfModel {
                 synthesis.release(lease)
                 narrationTask = nil
                 progress = nil
+                onNarrationEnded?(bookID)
             }
             do {
                 try FileManager.default.createDirectory(
