@@ -3,8 +3,12 @@ import io
 from contextlib import redirect_stdout
 import os
 from pathlib import Path
+import queue
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import threading
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -477,6 +481,147 @@ class DeviceSelectionTests(unittest.TestCase):
         with patch.dict("sys.modules", {"torch": fake_torch}):
             with self.assertRaisesRegex(RuntimeError, "CUDA was requested"):
                 resolve_device("cuda")
+
+
+class CountingKokoro:
+    """Stands in for Kokoro, counting how often a model would be loaded."""
+
+    loads = 0
+
+    def __init__(self, device_mode="auto"):
+        CountingKokoro.loads += 1
+        self.device_info = None
+
+    def segments(self, text, voice, speed):
+        if text == "forever":
+            while True:
+                time.sleep(0.01)
+                yield ("forever", None, [0.1])
+        for word in text.split():
+            yield (word, None, [0.1])
+
+
+class ServeTests(unittest.TestCase):
+    """`cli.py serve` answers one request at a time from a process that loads
+    each model once."""
+
+    def setUp(self):
+        CountingKokoro.loads = 0
+        self.directory = Path(self.enterContext(TemporaryDirectory()))
+        requests_read, requests_write = os.pipe()
+        events_read, events_write = os.pipe()
+        self.requests = os.fdopen(requests_write, "wb", buffering=0)
+        stream = os.fdopen(events_write, "w", buffering=1)
+        for patcher in (
+            patch.object(cli, "JSON_MODE", True),
+            patch.object(cli, "EVENT_STREAM", stream),
+            patch("atten_backend.service.KokoroProvider", CountingKokoro),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        server = cli.RequestServer(
+            lambda **options: GenerationService(audio_io=FakeAudioIO(), **options)
+        )
+        self.runner = threading.Thread(target=server.run, daemon=True)
+        self.runner.start()
+
+        def read():
+            with os.fdopen(requests_read, "rb") as lines:
+                server.read(lines)
+
+        threading.Thread(target=read, daemon=True).start()
+        self.events = queue.Queue()
+
+        def relay():
+            with os.fdopen(events_read) as lines:
+                for line in lines:
+                    self.events.put(json.loads(line))
+
+        threading.Thread(target=relay, daemon=True).start()
+        self.addCleanup(stream.close)
+        self.addCleanup(self.close)
+
+    def send(self, request):
+        self.requests.write(json.dumps(request).encode() + b"\n")
+
+    def generate(self, request_id, text):
+        self.send({"id": request_id, "op": "generate", "text": text, "format": "wav",
+                   "output": str(self.directory), "filename": request_id,
+                   "segments_dir": str(self.directory / request_id)})
+
+    def next_event(self):
+        return self.events.get(timeout=10)
+
+    def events_until(self, request_id, *terminal):
+        events = []
+        while not events or not (events[-1]["event"] in terminal and events[-1].get("id") == request_id):
+            events.append(self.next_event())
+        return events
+
+    def close(self):
+        if not self.requests.closed:
+            self.requests.close()
+        self.runner.join(timeout=10)
+
+    def test_sequential_generates_share_one_model_load(self):
+        self.generate("first", "Hello there")
+        first = self.events_until("first", "completed", "error")
+        self.generate("second", "Goodbye")
+        second = self.events_until("second", "completed", "error")
+
+        self.assertEqual(first[-1]["event"], "completed")
+        self.assertEqual(second[-1]["event"], "completed")
+        self.assertEqual({event["id"] for event in first}, {"first"})
+        self.assertEqual({event["id"] for event in second}, {"second"})
+        self.assertEqual([e["text"] for e in first if e["event"] == "segment"], ["Hello", "there"])
+        self.assertTrue(Path(second[-1]["path"]).is_file())
+        self.assertEqual(CountingKokoro.loads, 1)
+
+    def test_cancel_stops_at_a_segment_boundary_and_the_process_keeps_serving(self):
+        self.generate("long", "forever")
+        self.assertEqual(self.next_event()["id"], "long")
+        self.generate("queued", "never spoken")
+        self.send({"id": "queued", "op": "cancel"})
+        self.send({"id": "long", "op": "cancel"})
+
+        events = self.events_until("long", "cancelled", "completed", "error")
+        self.assertEqual(events[-1], {"event": "cancelled", "id": "long"})
+        self.assertIn({"event": "cancelled", "id": "queued"}, events)
+        self.assertFalse((self.directory / "long.wav").exists())
+        self.generate("after", "Still here")
+        self.assertEqual(self.events_until("after", "completed", "error")[-1]["event"], "completed")
+        self.assertFalse((self.directory / "queued.wav").exists())
+
+    def test_malformed_line_gets_an_error_and_the_process_keeps_serving(self):
+        self.requests.write(b"this is not json\n[1, 2]\n")
+        self.send({"id": "odd", "op": "sing"})
+        self.send({"id": "p", "op": "ping"})
+
+        self.assertEqual(self.next_event()["event"], "error")
+        self.assertEqual(self.next_event()["event"], "error")
+        self.assertEqual(self.next_event(), {"event": "error", "id": "odd", "message": "Unknown request op: 'sing'"})
+        self.assertEqual(self.next_event(), {"event": "pong", "id": "p"})
+        self.generate("fine", "Hello")
+        self.assertEqual(self.events_until("fine", "completed", "error")[-1]["event"], "completed")
+
+    def test_end_of_input_stops_the_request_in_progress_and_exits(self):
+        self.generate("long", "forever")
+        self.assertEqual(self.next_event()["id"], "long")
+        self.requests.close()
+        self.runner.join(timeout=10)
+        self.assertFalse(self.runner.is_alive())
+
+    def test_serve_process_speaks_only_events_on_stdout_and_exits_on_eof(self):
+        result = subprocess.run(
+            [sys.executable, str(Path(cli.__file__)), "serve"],
+            input=b'garbage\n{"id": "p", "op": "ping"}\n',
+            capture_output=True,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        events = [json.loads(line) for line in result.stdout.decode().splitlines()]
+        self.assertEqual([e["event"] for e in events], ["ready", "error", "pong"])
+        self.assertEqual(events[-1]["id"], "p")
 
 
 if __name__ == "__main__":
