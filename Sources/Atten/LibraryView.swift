@@ -18,6 +18,20 @@ private extension AttenCore.LibraryItemFilter {
     }
 }
 
+/// `ImageRenderer` draws nothing for a `ScrollView`'s content, so an offscreen
+/// render sets this to swap the shelf's `ScrollView` for a plain `VStack` —
+/// same content, no scrolling. Never set outside a render test.
+private struct OffscreenRenderKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var attenIsOffscreenRender: Bool {
+        get { self[OffscreenRenderKey.self] }
+        set { self[OffscreenRenderKey.self] = newValue }
+    }
+}
+
 struct LibraryView: View {
     @Bindable var model: AppModel
     @State private var selectedFilter: AttenCore.LibraryItemFilter = .all
@@ -31,6 +45,7 @@ struct LibraryView: View {
     @State private var duplicateBookID: UUID?
     @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
 
     private var shelf: BookshelfModel { model.bookshelf }
 
@@ -131,43 +146,18 @@ struct LibraryView: View {
 
     private var shelfPage: some View {
         GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                        header
-                        LibraryStatusArea(shelf: shelf)
-                        if query.isEmpty, selectedFilter == .all,
-                           let book = continueBook {
-                            ContinueListeningHero(model: model, book: book)
-                        }
-                        if !shelf.books.isEmpty || !model.projects.isEmpty {
-                            searchAndFilters
-                        }
-
-                        if filteredBooks.isEmpty && projectItems.isEmpty {
-                            emptyState
-                        } else if !filteredBooks.isEmpty {
-                            collection(availableWidth: geometry.size.width)
-                        }
-                        if !projectItems.isEmpty {
-                            LibraryProjectsSection(
-                                model: model,
-                                items: projectItems,
-                                isWide: geometry.size.width >= 820
-                            )
-                        }
-                        importHint
+            if isOffscreenRender {
+                shelfContent(availableWidth: geometry.size.width)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        shelfContent(availableWidth: geometry.size.width)
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 24)
-                    .attenScrollPadding()
-                    .frame(maxWidth: 1440, alignment: .topLeading)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .onChange(of: duplicateBookID) { _, id in
-                    guard let id else { return }
-                    withAnimation(AttenMotion.animation(.large, reduceMotion: reduceMotion)) {
-                        proxy.scrollTo(id, anchor: .center)
+                    .onChange(of: duplicateBookID) { _, id in
+                        guard let id else { return }
+                        withAnimation(AttenMotion.animation(.large, reduceMotion: reduceMotion)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
                     }
                 }
             }
@@ -194,6 +184,42 @@ struct LibraryView: View {
             try? await Task.sleep(for: .seconds(3))
             if !Task.isCancelled { duplicateBookID = nil }
         }
+    }
+
+    /// The shelf's content, without the `ScrollView` around it — pulled out
+    /// so `shelfPage` can swap the scroll container for a plain `VStack`
+    /// under `isOffscreenRender` without duplicating everything inside it.
+    private func shelfContent(availableWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+            header
+            LibraryStatusArea(shelf: shelf)
+            if query.isEmpty, selectedFilter == .all,
+               let book = continueBook {
+                ContinueListeningHero(model: model, book: book)
+            }
+            if !shelf.books.isEmpty || !model.projects.isEmpty {
+                searchAndFilters
+            }
+
+            if filteredBooks.isEmpty && projectItems.isEmpty {
+                emptyState
+            } else if !filteredBooks.isEmpty {
+                collection(availableWidth: availableWidth)
+            }
+            if !projectItems.isEmpty {
+                LibraryProjectsSection(
+                    model: model,
+                    items: projectItems,
+                    isWide: availableWidth >= 820
+                )
+            }
+            importHint
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .attenScrollPadding()
+        .frame(maxWidth: 1440, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
     }
 
     private var header: some View {

@@ -104,6 +104,43 @@ the focus-ring gate) are in place and covered where `swift test` can reach
 them — the `Atten` executable target's views themselves are outside
 `AttenCoreTests`' coverage, same as the rest of the app.
 
+## Addendum — 2026-09-24: Library offscreen QA (#68)
+
+Closes #68. P4 (#62) shipped the Library grid without ever being seen on
+screen, and the live check stayed blocked while the portrait monitor was
+disconnected (see the previous addendum's note about needing the GUI).
+`LibraryRenderTests` renders the shelf, the dedupe toast and the export sheet
+with SwiftUI's `ImageRenderer`, in both appearances, gated behind
+`ATTEN_RENDER_DIR` so CI never runs it:
+
+- The fixture covers all four Library states at once: a silent draft, a book
+  partway through narration, a fully voiced book (doubling as the Continue
+  Listening hero), and a legacy `projects.json` entry. It goes through the
+  real `BookshelfModel.load()`/`importBook` paths rather than poking private
+  state, so the toast render triggers the actual dedupe flow by importing the
+  same text twice.
+- **The one fix:** `ImageRenderer` draws nothing for a `ScrollView`'s content
+  (confirmed empirically — the first render of the shelf came back as a flat
+  background with no cards, text, or hero; `library-qa-before-blank.jpg`).
+  `LibraryView.swift` now reads a new `attenIsOffscreenRender` environment
+  value and swaps the shelf's `ScrollView` for a plain `VStack` around the
+  same `shelfContent(availableWidth:)` when it's set — never set outside this
+  test, so the real app is unaffected. `library-qa-shelf-{light,dark}.jpg`,
+  `library-qa-toast-{light,dark}.jpg` and `library-qa-export-{light,dark}.jpg`
+  are the resulting renders.
+- **Reviewed against `docs/design-system.md` and found nothing else to
+  fix:** no clipping, overlap, duplicated information, color on chrome, or
+  glass on the book covers. `TextField`, `Menu` and the segmented `Picker`
+  each render as a plain yellow "unsupported" placeholder — a pre-existing
+  `ImageRenderer`/AppKit limitation (also seen in P6's read-along work), not
+  a Library defect; the search field, sort menu, each card's overflow menu,
+  and the export format picker all still work in the real app.
+
+`swift test` (381 tests, 4 skipped), `uv run python -m unittest discover -s
+tests -p 'test_*.py'` (40 tests) and `swift build -c release` all pass. The live
+on-screen check with the real GUI is still owed once the portrait monitor is
+back.
+
 ## Implemented
 
 - Library and Create are the primary workspaces. Library opens by default and
