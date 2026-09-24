@@ -18,6 +18,20 @@ private extension AttenCore.LibraryItemFilter {
     }
 }
 
+/// `ImageRenderer` draws nothing for a `ScrollView`'s content, so an offscreen
+/// render sets this to swap the shelf's `ScrollView` for a plain `VStack` —
+/// same content, no scrolling. Never set outside a render test.
+private struct OffscreenRenderKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var attenIsOffscreenRender: Bool {
+        get { self[OffscreenRenderKey.self] }
+        set { self[OffscreenRenderKey.self] = newValue }
+    }
+}
+
 struct LibraryView: View {
     @Bindable var model: AppModel
     @State private var selectedFilter: AttenCore.LibraryItemFilter = .all
@@ -31,6 +45,7 @@ struct LibraryView: View {
     @State private var duplicateBookID: UUID?
     @FocusState private var isSearchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
 
     private var shelf: BookshelfModel { model.bookshelf }
 
@@ -131,43 +146,25 @@ struct LibraryView: View {
 
     private var shelfPage: some View {
         GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                        header
-                        LibraryStatusArea(shelf: shelf)
-                        if query.isEmpty, selectedFilter == .all,
-                           let book = continueBook {
-                            ContinueListeningHero(model: model, book: book)
-                        }
-                        if !shelf.books.isEmpty || !model.projects.isEmpty {
-                            searchAndFilters
-                        }
-
-                        if filteredBooks.isEmpty && projectItems.isEmpty {
-                            emptyState
-                        } else if !filteredBooks.isEmpty {
-                            collection(availableWidth: geometry.size.width)
-                        }
-                        if !projectItems.isEmpty {
-                            LibraryProjectsSection(
-                                model: model,
-                                items: projectItems,
-                                isWide: geometry.size.width >= 820
-                            )
-                        }
-                        importHint
+            if isOffscreenRender {
+                // A `GeometryReader` always proposes its own full size to its
+                // child, unlike the `ScrollView` below, which proposes an
+                // effectively unbounded height and lets the content size
+                // itself — without `fixedSize`, every `Spacer` in here would
+                // stretch to fill the render canvas instead of collapsing to
+                // its `minLength` the way it does on the real, scrolled page.
+                shelfContent(availableWidth: geometry.size.width)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        shelfContent(availableWidth: geometry.size.width)
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 24)
-                    .attenScrollPadding()
-                    .frame(maxWidth: 1440, alignment: .topLeading)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .onChange(of: duplicateBookID) { _, id in
-                    guard let id else { return }
-                    withAnimation(AttenMotion.animation(.large, reduceMotion: reduceMotion)) {
-                        proxy.scrollTo(id, anchor: .center)
+                    .onChange(of: duplicateBookID) { _, id in
+                        guard let id else { return }
+                        withAnimation(AttenMotion.animation(.large, reduceMotion: reduceMotion)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
                     }
                 }
             }
@@ -196,6 +193,41 @@ struct LibraryView: View {
         }
     }
 
+    /// The shelf's content, without the `ScrollView` around it — pulled out
+    /// so `shelfPage` can swap the scroll container for a plain `VStack`
+    /// under `isOffscreenRender` without duplicating everything inside it.
+    private func shelfContent(availableWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+            header
+            LibraryStatusArea(shelf: shelf)
+            if query.isEmpty, selectedFilter == .all,
+               let book = continueBook {
+                ContinueListeningHero(model: model, book: book)
+            }
+            if !shelf.books.isEmpty || !model.projects.isEmpty {
+                searchAndFilters
+            }
+
+            if filteredBooks.isEmpty && projectItems.isEmpty {
+                emptyState
+            } else if !filteredBooks.isEmpty {
+                collection(availableWidth: availableWidth)
+            }
+            if !projectItems.isEmpty {
+                LibraryProjectsSection(
+                    model: model,
+                    items: projectItems,
+                    isWide: availableWidth >= 820
+                )
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .attenScrollPadding()
+        .frame(maxWidth: 1440, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
     private var header: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top) {
@@ -216,11 +248,7 @@ struct LibraryView: View {
     }
 
     private var pageHeader: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Library").font(AttenTypography.title2)
-            Text("Your books and documents, ready when you are.")
-                .font(AttenTypography.body).foregroundStyle(AttenColor.textSecondary)
-        }
+        Text("Library").font(AttenTypography.title2)
     }
 
     private var addBookButton: some View {
@@ -326,20 +354,6 @@ struct LibraryView: View {
         .accessibilityAddTraits(showsList == list ? .isSelected : [])
     }
 
-    private var importHint: some View {
-        HStack(spacing: AttenSpacing.xs) {
-            Image(systemName: "arrow.down.doc")
-                .foregroundStyle(AttenColor.textMuted)
-            Text("Drop a PDF, EPUB, Kindle, Word, RTF, Markdown, HTML or text file here")
-                .font(AttenTypography.callout)
-                .foregroundStyle(AttenColor.textSecondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Drop a supported document here to add it to your library")
-    }
-
     private var searchField: some View {
         AttenSearchField(
             prompt: "Search your library…",
@@ -383,7 +397,15 @@ struct LibraryView: View {
             }
         } else {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: availableWidth >= 1100 ? 210 : 170, maximum: 260), spacing: 20)],
+                // Without `alignment: .top`, a `GridItem` centers each cell in
+                // its row — cards with a narration meter or "Ready to listen"
+                // line are taller than one with neither, so the shorter
+                // covers above them would drift down instead of lining up.
+                columns: [GridItem(
+                    .adaptive(minimum: availableWidth >= 1100 ? 210 : 170, maximum: 260),
+                    spacing: 20,
+                    alignment: .top
+                )],
                 alignment: .leading,
                 spacing: 32
             ) {
@@ -559,10 +581,21 @@ private struct BookCard: View {
                             .font(AttenTypography.callout.weight(.semibold))
                             .foregroundStyle(AttenColor.textPrimary)
                             .lineLimit(2)
-                        Text(book.author ?? book.format.displayName)
-                            .font(AttenTypography.callout)
-                            .foregroundStyle(AttenColor.textSecondary)
-                            .lineLimit(1)
+                        // A cover with no art of its own already prints this
+                        // same fallback on its face (`GeneratedCover`'s
+                        // `sourceLabel`) — repeating it here would just be the
+                        // format name twice for a book with no author.
+                        if let author = book.author {
+                            Text(author)
+                                .font(AttenTypography.callout)
+                                .foregroundStyle(AttenColor.textSecondary)
+                                .lineLimit(1)
+                        } else if cover != nil {
+                            Text(book.format.displayName)
+                                .font(AttenTypography.callout)
+                                .foregroundStyle(AttenColor.textSecondary)
+                                .lineLimit(1)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Group {

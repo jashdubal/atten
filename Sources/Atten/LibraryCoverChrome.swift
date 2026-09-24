@@ -49,6 +49,11 @@ private struct AttenCoverFrame: ViewModifier {
                 RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
                     .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
             }
+            // Without this, the clip and the stroke overlay each cast their
+            // own shadow instead of the one flattened shape casting a single
+            // shadow — visible in dark appearance as a second, rectangular
+            // outline offset to the cover's lower right.
+            .compositingGroup()
             .shadow(color: AttenColor.cover(tint).opacity(0.35), radius: 6, y: 2)
     }
 }
