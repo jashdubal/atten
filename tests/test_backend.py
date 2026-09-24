@@ -3,8 +3,12 @@ import io
 from contextlib import redirect_stdout
 import os
 from pathlib import Path
+import queue
+import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import threading
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -16,6 +20,7 @@ from atten_backend.service import (
     GenerationService,
     KokoroProvider,
     SoundFileAudioIO,
+    apply_pause,
 )
 
 
@@ -323,6 +328,76 @@ class DurabilityTests(unittest.TestCase):
                 )
 
 
+class PauseTests(unittest.TestCase):
+    """A pause length changes only the silence that closes each segment."""
+
+    def generate(self, pause, segments):
+        audio_io = FakeAudioIO()
+        events = []
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            GenerationService(FakeProvider(segments), audio_io).generate(
+                GenerationRequest(text="One.\nTwo.", output_directory=root, filename="book",
+                                  output_format="wav", segments_directory=root / "segments",
+                                  pause=pause),
+                segment_ready=events.append,
+            )
+        return events, audio_io.writes[-1][1]
+
+    def test_omitting_the_pause_leaves_the_audio_as_it_was(self):
+        segments = [[0.5, 0.0, 0.0], [0.3, 0.0]]
+        for pause in (None, "normal"):
+            events, merged = self.generate(pause, segments)
+            self.assertEqual(merged, [0.5, 0.0, 0.0, 0.3, 0.0])
+            self.assertEqual([e["duration"] for e in events], [3 / 24000, 2 / 24000])
+        self.assertIsNone(cli.build_parser().parse_args(["hello"]).pause)
+
+    def test_long_appends_silence_and_later_segments_start_after_it(self):
+        speech = [0.5] * 2400
+        events, merged = self.generate("long", [speech, speech])
+        silence = round(0.6 * 24000)
+        self.assertEqual(len(merged), 2 * (2400 + silence))
+        self.assertEqual(merged[2400:2400 + silence], [0.0] * silence)
+        self.assertAlmostEqual(events[0]["duration"], 0.7)
+        self.assertAlmostEqual(events[1]["start"], 0.7)
+
+    def test_short_trims_trailing_silence_to_a_floor(self):
+        speech = [0.5] * 2400 + [0.001] * 24000
+        events, merged = self.generate("short", [speech, speech])
+        kept = 2400 + round(0.05 * 24000)
+        self.assertEqual(len(merged), 2 * kept)
+        self.assertAlmostEqual(events[0]["duration"], kept / 24000)
+        self.assertAlmostEqual(events[1]["start"], kept / 24000)
+
+    def test_word_times_within_a_segment_are_unchanged(self):
+        class Result:
+            tokens = [types.SimpleNamespace(text="Hello", start_ts=0.1, end_ts=0.4)]
+
+            def __iter__(self):
+                return iter(("Hello", "phonemes", [0.5] * 12000))
+
+        provider = FakeProvider()
+        provider.segments = lambda *_: iter([Result(), Result()])
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = []
+            GenerationService(provider, FakeAudioIO()).generate(
+                GenerationRequest(text="Hello\nHello", output_directory=root, filename="final",
+                                  output_format="wav", segments_directory=root / "segments",
+                                  pause="long"),
+                segment_ready=events.append,
+            )
+        self.assertEqual([e["words"] for e in events], [[{"text": "Hello", "start": 0.1, "end": 0.4}]] * 2)
+        self.assertAlmostEqual(events[1]["start"], 1.1)
+
+    def test_an_unknown_pause_is_refused(self):
+        with TemporaryDirectory() as directory, self.assertRaisesRegex(ValueError, "Pause"):
+            GenerationService(FakeProvider(), FakeAudioIO()).generate(
+                GenerationRequest(text="Hi", output_directory=Path(directory), pause="huge")
+            )
+        self.assertEqual(apply_pause([0.1], None, 24000), [0.1])
+
+
 class CLICompatibilityTests(unittest.TestCase):
     def test_original_defaults_remain_available(self):
         args = cli.build_parser().parse_args(["hello"])
@@ -477,6 +552,156 @@ class DeviceSelectionTests(unittest.TestCase):
         with patch.dict("sys.modules", {"torch": fake_torch}):
             with self.assertRaisesRegex(RuntimeError, "CUDA was requested"):
                 resolve_device("cuda")
+
+
+class CountingKokoro:
+    """Stands in for Kokoro, counting how often a model would be loaded."""
+
+    loads = 0
+
+    def __init__(self, device_mode="auto"):
+        CountingKokoro.loads += 1
+        self.device_info = None
+
+    def segments(self, text, voice, speed):
+        if text == "forever":
+            while True:
+                time.sleep(0.01)
+                yield ("forever", None, [0.1])
+        for word in text.split():
+            yield (word, None, [0.1])
+
+
+class ServeTests(unittest.TestCase):
+    """`cli.py serve` answers one request at a time from a process that loads
+    each model once."""
+
+    def setUp(self):
+        CountingKokoro.loads = 0
+        self.directory = Path(self.enterContext(TemporaryDirectory()))
+        requests_read, requests_write = os.pipe()
+        events_read, events_write = os.pipe()
+        self.requests = os.fdopen(requests_write, "wb", buffering=0)
+        stream = os.fdopen(events_write, "w", buffering=1)
+        for patcher in (
+            patch.object(cli, "JSON_MODE", True),
+            patch.object(cli, "EVENT_STREAM", stream),
+            patch("atten_backend.service.KokoroProvider", CountingKokoro),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        server = cli.RequestServer(
+            lambda **options: GenerationService(audio_io=FakeAudioIO(), **options)
+        )
+        self.runner = threading.Thread(target=server.run, daemon=True)
+        self.runner.start()
+
+        def read():
+            with os.fdopen(requests_read, "rb") as lines:
+                server.read(lines)
+
+        threading.Thread(target=read, daemon=True).start()
+        self.events = queue.Queue()
+
+        def relay():
+            with os.fdopen(events_read) as lines:
+                for line in lines:
+                    self.events.put(json.loads(line))
+
+        threading.Thread(target=relay, daemon=True).start()
+        self.addCleanup(stream.close)
+        self.addCleanup(self.close)
+
+    def send(self, request):
+        self.requests.write(json.dumps(request).encode() + b"\n")
+
+    def generate(self, request_id, text):
+        self.send({"id": request_id, "op": "generate", "text": text, "format": "wav",
+                   "output": str(self.directory), "filename": request_id,
+                   "segments_dir": str(self.directory / request_id)})
+
+    def next_event(self):
+        return self.events.get(timeout=10)
+
+    def events_until(self, request_id, *terminal):
+        events = []
+        while not events or not (events[-1]["event"] in terminal and events[-1].get("id") == request_id):
+            events.append(self.next_event())
+        return events
+
+    def close(self):
+        if not self.requests.closed:
+            self.requests.close()
+        self.runner.join(timeout=10)
+
+    def test_sequential_generates_share_one_model_load(self):
+        self.generate("first", "Hello there")
+        first = self.events_until("first", "completed", "error")
+        self.generate("second", "Goodbye")
+        second = self.events_until("second", "completed", "error")
+
+        self.assertEqual(first[-1]["event"], "completed")
+        self.assertEqual(second[-1]["event"], "completed")
+        self.assertEqual({event["id"] for event in first}, {"first"})
+        self.assertEqual({event["id"] for event in second}, {"second"})
+        self.assertEqual([e["text"] for e in first if e["event"] == "segment"], ["Hello", "there"])
+        self.assertTrue(Path(second[-1]["path"]).is_file())
+        self.assertEqual(CountingKokoro.loads, 1)
+
+    def test_a_serve_request_carries_its_pause(self):
+        self.send({"id": "paused", "op": "generate", "text": "Hello there", "format": "wav",
+                   "output": str(self.directory), "filename": "paused", "pause": "long",
+                   "segments_dir": str(self.directory / "paused")})
+        events = self.events_until("paused", "completed", "error")
+        segments = [e for e in events if e["event"] == "segment"]
+        self.assertEqual(events[-1]["event"], "completed")
+        self.assertAlmostEqual(segments[1]["start"], 1 / 24000 + 0.6)
+
+    def test_cancel_stops_at_a_segment_boundary_and_the_process_keeps_serving(self):
+        self.generate("long", "forever")
+        self.assertEqual(self.next_event()["id"], "long")
+        self.generate("queued", "never spoken")
+        self.send({"id": "queued", "op": "cancel"})
+        self.send({"id": "long", "op": "cancel"})
+
+        events = self.events_until("long", "cancelled", "completed", "error")
+        self.assertEqual(events[-1], {"event": "cancelled", "id": "long"})
+        self.assertIn({"event": "cancelled", "id": "queued"}, events)
+        self.assertFalse((self.directory / "long.wav").exists())
+        self.generate("after", "Still here")
+        self.assertEqual(self.events_until("after", "completed", "error")[-1]["event"], "completed")
+        self.assertFalse((self.directory / "queued.wav").exists())
+
+    def test_malformed_line_gets_an_error_and_the_process_keeps_serving(self):
+        self.requests.write(b"this is not json\n[1, 2]\n")
+        self.send({"id": "odd", "op": "sing"})
+        self.send({"id": "p", "op": "ping"})
+
+        self.assertEqual(self.next_event()["event"], "error")
+        self.assertEqual(self.next_event()["event"], "error")
+        self.assertEqual(self.next_event(), {"event": "error", "id": "odd", "message": "Unknown request op: 'sing'"})
+        self.assertEqual(self.next_event(), {"event": "pong", "id": "p"})
+        self.generate("fine", "Hello")
+        self.assertEqual(self.events_until("fine", "completed", "error")[-1]["event"], "completed")
+
+    def test_end_of_input_stops_the_request_in_progress_and_exits(self):
+        self.generate("long", "forever")
+        self.assertEqual(self.next_event()["id"], "long")
+        self.requests.close()
+        self.runner.join(timeout=10)
+        self.assertFalse(self.runner.is_alive())
+
+    def test_serve_process_speaks_only_events_on_stdout_and_exits_on_eof(self):
+        result = subprocess.run(
+            [sys.executable, str(Path(cli.__file__)), "serve"],
+            input=b'garbage\n{"id": "p", "op": "ping"}\n',
+            capture_output=True,
+            timeout=120,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        events = [json.loads(line) for line in result.stdout.decode().splitlines()]
+        self.assertEqual([e["event"] for e in events], ["ready", "error", "pong"])
+        self.assertEqual(events[-1]["id"], "p")
 
 
 if __name__ == "__main__":

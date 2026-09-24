@@ -22,11 +22,6 @@ struct ContinueListeningHero: View {
     }
     private var ambientColor: Color { AttenColor.cover(CoverPalette.ambientColor(from: rawTint)) }
 
-    private var progress: Double {
-        guard let total = book.playbackChapters.last?.endTime, total > 0 else { return 0 }
-        return min(1, max(0, book.listeningPosition / total))
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: AttenSpacing.lg) {
             BookJacket(
@@ -54,14 +49,10 @@ struct ContinueListeningHero: View {
                 Spacer(minLength: AttenSpacing.xs)
 
                 HStack(spacing: AttenSpacing.sm) {
-                    ProgressArc(progress: progress)
-                        .frame(width: 22, height: 22)
                     Button(book.hasBookAudio ? (isPlaying ? "Pause" : "Listen") : "Listen") {
                         model.listen(to: book)
                     }
-                    .buttonStyle(AttenPrimaryButtonStyle(
-                        disabledReason: book.hasBookAudio ? nil : "Prepare this book to listen"
-                    ))
+                    .buttonStyle(AttenSecondaryButtonStyle())
                     .disabled(!book.hasBookAudio)
                     Button("Open") { model.openInLibrary(.book(book.id)) }
                         .buttonStyle(AttenSecondaryButtonStyle())
@@ -107,22 +98,6 @@ struct ContinueListeningHero: View {
             stop = true
         }
         return sentence?.trimmingCharacters(in: .whitespacesAndNewlines) ?? text
-    }
-}
-
-/// A quiet ring of progress — how far into the book listening has gotten.
-private struct ProgressArc: View {
-    let progress: Double
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(AttenColor.progressTrack, lineWidth: 2.5)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(AttenColor.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .accessibilityHidden(true)
     }
 }
 

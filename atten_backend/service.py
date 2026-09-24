@@ -95,6 +95,33 @@ def safe_filename(name, reserved=0):
     return cleaned
 
 
+# How a pause length changes the silence that ends each segment. Normal is the
+# voice's own pause, so a request that names no pause sounds as it always has.
+PAUSE_LENGTHS = ("short", "normal", "long")
+LONG_PAUSE_SECONDS = 0.6
+SHORT_PAUSE_SECONDS = 0.05
+SILENCE_THRESHOLD = 0.01
+
+
+def apply_pause(audio, pause, sample_rate):
+    """Returns a segment's audio with its closing silence lengthened or cut.
+
+    Only the end of the segment changes, so word times within it still hold
+    and the segments after it simply start later or sooner.
+    """
+    if pause is None or pause == "normal":
+        return audio
+    import numpy as np
+
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if pause == "long":
+        silence = np.zeros(int(round(LONG_PAUSE_SECONDS * sample_rate)), dtype=np.float32)
+        return np.concatenate([samples, silence])
+    loud = np.flatnonzero(np.abs(samples) > SILENCE_THRESHOLD)
+    end = (loud[-1] + 1 if loud.size else 0) + int(round(SHORT_PAUSE_SECONDS * sample_rate))
+    return samples[:end]
+
+
 @dataclass(frozen=True)
 class GenerationRequest:
     text: str
@@ -104,6 +131,7 @@ class GenerationRequest:
     output_directory: Path = Path("outputs")
     filename: Optional[str] = None
     segments_directory: Optional[Path] = None
+    pause: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -312,6 +340,8 @@ class GenerationService:
             raise ValueError("Speed must be greater than zero.")
         if request.output_format not in {"mp3", "wav"}:
             raise ValueError("Output format must be mp3 or wav.")
+        if request.pause is not None and request.pause not in PAUSE_LENGTHS:
+            raise ValueError("Pause must be short, normal, or long.")
 
         # The finished file and the hidden partial file that precedes it both
         # have to fit the filesystem's limit on one path component, so the name
@@ -354,6 +384,7 @@ class GenerationService:
                     segments_directory.mkdir(parents=True, exist_ok=True)
                 for index, result in enumerate(provider.segments(text, request.voice, request.speed)):
                     graphemes, _phonemes, audio = result
+                    audio = apply_pause(audio, request.pause, self.audio_io.sample_rate)
                     if segments_directory is None:
                         segment_path = Path(temporary_directory) / f"segment-{index}.{request.output_format}"
                     else:

@@ -382,7 +382,9 @@ final class BookshelfModel {
         text: String,
         voiceID: String,
         defaults: AppSettings,
-        chapters: [DocumentChapter]? = nil
+        chapters: [DocumentChapter]? = nil,
+        pronunciations: [Pronunciation] = [],
+        pauseLength: PauseLength = .normal
     ) throws -> BookRecord {
         let resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = resolvedTitle.isEmpty ? "Untitled" : resolvedTitle
@@ -413,6 +415,12 @@ final class BookshelfModel {
                 updated.chapters = [BookChapter(title: displayTitle, text: text)]
             }
             updated.contentHash = hash
+            let spoken = (pronunciations.isEmpty ? nil : pronunciations, pauseLength == .normal ? nil : pauseLength)
+            if spoken != (updated.pronunciations, updated.pauseLength) {
+                // Chapters already narrated were spoken the old way.
+                updated.chapters = updated.chapters.map { BookChapter(title: $0.title, text: $0.text) }
+                (updated.pronunciations, updated.pauseLength) = spoken
+            }
             books[existingIndex] = updated
             draft = updated
         } else {
@@ -430,6 +438,8 @@ final class BookshelfModel {
                 audioFormat: defaults.defaultFormat
             )
             created.contentHash = hash
+            created.pronunciations = pronunciations.isEmpty ? nil : pronunciations
+            created.pauseLength = pauseLength == .normal ? nil : pauseLength
             books.insert(created, at: 0)
             draft = created
         }
@@ -519,9 +529,10 @@ final class BookshelfModel {
                     let segmentsDirectory = chapterDirectory.appendingPathComponent("segments", isDirectory: true)
                     var segments: [TimedSegment] = []
                     var audioURL: URL?
+                    var pronounced = PronouncedText(chapter.text, pronunciations: current.pronunciations ?? [])
                     let events = generator.generateStream(
                         GenerationRequest(
-                            text: chapter.text,
+                            text: pronounced.spoken,
                             voiceID: current.voiceID,
                             speed: current.speed,
                             format: current.audioFormat,
@@ -529,13 +540,15 @@ final class BookshelfModel {
                             filename: Self.chapterFilename(index: index, title: chapter.title),
                             useMPS: useMPS,
                             modelID: VoiceCatalog.voice(id: current.voiceID)?.modelID,
-                            segmentsDirectory: segmentsDirectory
+                            segmentsDirectory: segmentsDirectory,
+                            pauseLength: current.pauseLength
                         )
                     )
                     for try await event in events {
                         try Task.checkCancellation()
                         switch event {
-                        case let .segment(segment):
+                        case let .segment(spoken):
+                            let segment = SegmentReady(url: spoken.url, timing: pronounced.restore(spoken.timing))
                             segments.append(segment.timing.estimatingMissingWords())
                             progress?.spokenWords += segment.timing.text.split(whereSeparator: \.isWhitespace).count
                             onSegmentReady?(bookID, index, segment)

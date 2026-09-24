@@ -105,7 +105,7 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         try await generate(request, onLine: nil)
     }
 
-    private func generate(
+    func generate(
         _ request: GenerationRequest,
         onLine: (@Sendable (Data) -> Void)?
     ) async throws -> GenerationOutput {
@@ -147,6 +147,9 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         }
         if let directory = request.segmentsDirectory {
             arguments += ["--segments-dir", directory.path]
+        }
+        if let pauseLength = request.pauseLength {
+            arguments += ["--pause", pauseLength.rawValue]
         }
         child.arguments = arguments
 
@@ -229,7 +232,7 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         lock.withLock { cancellationRequested }
     }
 
-    private struct Event: Decodable {
+    struct Event: Decodable {
         let event: String
         let message: String?
         let path: String?

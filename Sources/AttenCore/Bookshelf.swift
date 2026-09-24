@@ -176,6 +176,11 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     /// imported before this existed; the hash is filled in lazily in memory
     /// when it is needed rather than by rewriting every shelf on launch.
     public var contentHash: String?
+    /// Words the voice says differently in this book. Nil for a book that
+    /// has none, which is every book narrated before these existed.
+    public var pronunciations: [Pronunciation]?
+    /// How long the voice rests after each paragraph; nil is normal.
+    public var pauseLength: PauseLength?
     public var hasBookAudio: Bool {
         guard let audioPath, FileManager.default.fileExists(atPath: audioPath) else { return false }
         let timeline = previousChapters ?? chapters
@@ -273,6 +278,8 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
         lastListenedAt = try? container.decode(Date.self, forKey: .lastListenedAt)
         previousChapters = try? container.decode([BookChapter].self, forKey: .previousChapters)
         contentHash = try? container.decode(String.self, forKey: .contentHash)
+        pronunciations = try? container.decode([Pronunciation].self, forKey: .pronunciations)
+        pauseLength = try? container.decode(PauseLength.self, forKey: .pauseLength)
     }
 }
 

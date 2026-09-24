@@ -77,15 +77,25 @@ final class AppModel {
         self.selectedVoiceID = loadedSettings.selectedVoiceID
         self.speed = loadedSettings.defaultSpeed
         self.format = loadedSettings.defaultFormat
-        func backendClient() -> any TTSGenerating {
-            RetryingBackendClient(wrapping: ProcessBackendClient(), maximumAttempts: 2)
+        // Studio and the bookshelf share one resident engine, so only one
+        // model is ever loaded; each reaches it through its own
+        // `SharedBackendClient`, so cancelling a Studio draft still does not
+        // stop a book that is halfway through being narrated, and the reverse.
+        func sharedBackendClients() -> (any TTSGenerating, any TTSGenerating) {
+            let engine = PersistentBackendClient()
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification, object: nil, queue: nil
+            ) { _ in engine.shutdown() }
+            let studio = RetryingBackendClient(wrapping: SharedBackendClient(sharing: engine), maximumAttempts: 2)
+            let bookshelf = RetryingBackendClient(wrapping: SharedBackendClient(sharing: engine), maximumAttempts: 2)
+            return (studio, bookshelf)
         }
-        self.generator = generator ?? backendClient()
-        // The bookshelf drives its own client, so cancelling a Studio draft
-        // does not stop a book that is halfway through being narrated.
+        let (studioGenerator, bookshelfGenerator): (any TTSGenerating, any TTSGenerating) =
+            generator.map { ($0, $0) } ?? sharedBackendClients()
+        self.generator = studioGenerator
         self.bookshelf = BookshelfModel(
             directories: directories,
-            generator: generator ?? backendClient(),
+            generator: bookshelfGenerator,
             synthesis: synthesis
         )
         self.library = library ?? ModelLibrary(

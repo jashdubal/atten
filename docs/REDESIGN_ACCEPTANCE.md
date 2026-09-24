@@ -104,6 +104,88 @@ the focus-ring gate) are in place and covered where `swift test` can reach
 them — the `Atten` executable target's views themselves are outside
 `AttenCoreTests`' coverage, same as the rest of the app.
 
+## Addendum — 2026-09-24: Library offscreen QA (#68)
+
+Closes #68. P4 (#62) shipped the Library grid without ever being seen on
+screen, and the live check stayed blocked while the portrait monitor was
+disconnected (see the previous addendum's note about needing the GUI).
+`LibraryRenderTests` renders the shelf, the dedupe toast and the export sheet
+with SwiftUI's `ImageRenderer`, in both appearances, gated behind
+`ATTEN_RENDER_DIR` so CI never runs it:
+
+- The fixture covers all four Library states at once: a silent draft, a book
+  partway through narration, a fully voiced book (doubling as the Continue
+  Listening hero), and a legacy `projects.json` entry. It goes through the
+  real `BookshelfModel.load()`/`importBook` paths rather than poking private
+  state, so the toast render triggers the actual dedupe flow by importing the
+  same text twice.
+- **The one fix:** `ImageRenderer` draws nothing for a `ScrollView`'s content
+  (confirmed empirically — the first render of the shelf came back as a flat
+  background with no cards, text, or hero; `library-qa-before-blank.jpg`).
+  `LibraryView.swift` now reads a new `attenIsOffscreenRender` environment
+  value and swaps the shelf's `ScrollView` for a plain `VStack` around the
+  same `shelfContent(availableWidth:)` when it's set — never set outside this
+  test, so the real app is unaffected. `library-qa-shelf-{light,dark}.jpg`,
+  `library-qa-toast-{light,dark}.jpg` and `library-qa-export-{light,dark}.jpg`
+  are the resulting renders.
+- `TextField`, `Menu` and the segmented `Picker` each render as a plain
+  yellow "unsupported" placeholder in every screenshot — a pre-existing
+  `ImageRenderer`/AppKit limitation (also seen in P6's read-along work), not
+  a Library defect; the search field, sort menu, each card's overflow menu,
+  and the export format picker all still work in the real app.
+
+A first pass called this done with no further fixes; a coordinator review of
+the renders found eight real defects against `docs/design-system.md`, since
+fixed on the same branch:
+
+- **Two primary buttons on one screen.** The hero's "Listen" competed with
+  "New" for the app's one signal-filled button; it's `AttenSecondaryButtonStyle`
+  now, like "Open" beside it (`ContinueListeningHero.swift`).
+- **Help text.** The header's "Your books and documents, ready when you are."
+  and the shelf's permanent "Drop a PDF, EPUB…" hint were both instructions a
+  control already conveys (the empty state says the same thing when the
+  shelf actually is empty); both removed (`LibraryView.swift`).
+- **An unlabeled progress ring beside "Listen"** read as a stuck loading
+  spinner rather than listening progress shown nowhere else — removed rather
+  than given a caption that would just duplicate the meter pattern used
+  elsewhere. Its removal also exposed the real cause of a large empty gap
+  under the hero's text: `shelfContent` rendered inside a `GeometryReader`
+  under `isOffscreenRender`, which unlike the real `ScrollView` proposes its
+  full fixed height to its child, so every `Spacer` in the tree — including
+  the hero's — stretched to fill the render canvas. Fixed with `.fixedSize(
+  horizontal: false, vertical: true)` on the offscreen render path only
+  (`LibraryView.swift`).
+- **A cover's shadow rendering as a second, offset rectangle in dark
+  appearance.** `AttenCoverFrame` clipped, stroked, and shadowed a cover
+  without a `.compositingGroup()`, so the clip and the stroke overlay each
+  cast their own shadow instead of one shape casting one
+  (`LibraryCoverChrome.swift`).
+- **Grid covers not lining up.** `LazyVGrid` centers a cell within its row by
+  default; cards with a narration meter or "Ready to listen" line are taller
+  than one with neither, so shorter covers above them drifted down. Fixed
+  with `alignment: .top` on the `GridItem` (`LibraryView.swift`).
+- **The same book showing a different generated-cover hue per appearance.**
+  Root cause was in the fixture, not production code:
+  `BookshelfModel.existingBook(withContentHash:)` lazily computes and caches
+  a book's content hash the first time anything checks for a duplicate, and
+  the render test's fixture gave every book the same placeholder chapter
+  text, so this collided two different books onto the same hash (and so the
+  same cover seed) once that backfill ran. Fixed by giving each fixture book
+  distinct text and settling the shelf's final state — the "Old Friends"
+  duplicate import included — before either appearance is rendered, so light
+  and dark always render from identical state (`LibraryRenderTests.swift`).
+- **A card's caption repeating its cover's own text.** A `BookCard` with no
+  real cover art already prints title and author/format onto the generated
+  cover's own face; for a book with no author, the caption below it repeated
+  the exact same format name a second time. Now that caption is only shown
+  when there's a real author to show, or when there's real cover art with no
+  baked-in label of its own (`LibraryView.swift`).
+
+`swift test` (381 tests, 4 skipped), `uv run python -m unittest discover -s
+tests -p 'test_*.py'` (40 tests) and `swift build -c release` all pass after
+these fixes. The live on-screen check with the real GUI is still owed once
+the portrait monitor is back.
+
 ## Implemented
 
 - Library and Create are the primary workspaces. Library opens by default and
