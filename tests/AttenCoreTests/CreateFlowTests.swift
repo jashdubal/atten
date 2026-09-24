@@ -258,4 +258,17 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertNotEqual(own, model.voicePreviewURL(voice))
         XCTAssertEqual(own, model.voicePreviewURL(voice, speaking: "First sentence here."))
     }
+
+    func testPreviewAppliesPronunciationsAndTheirOwnCacheKey() throws {
+        let voice = VoiceCatalog.defaultVoice
+        flow.text = "Say Kubernetes correctly."
+        let before = try XCTUnwrap(flow.previewURL(for: voice))
+        XCTAssertEqual(before, model.voicePreviewURL(voice, speaking: "Say Kubernetes correctly."))
+
+        flow.pronunciations = [Pronunciation(match: "Kubernetes", say: "koo-ber-NET-eez")]
+
+        let after = try XCTUnwrap(flow.previewURL(for: voice))
+        XCTAssertNotEqual(after, before, "a changed pronunciation should miss the old cache entry")
+        XCTAssertEqual(after, model.voicePreviewURL(voice, speaking: "Say koo-ber-NET-eez correctly."))
+    }
 }
