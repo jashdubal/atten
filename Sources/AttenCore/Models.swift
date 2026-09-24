@@ -322,7 +322,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         // Clamped rather than trusted: a rate of zero would look like a player
         // that has silently stopped.
         playbackRate = (try container.decodeIfPresent(Double.self, forKey: .playbackRate))
-            .map { min(max(0.5, $0), 3.0) } ?? 1.0
+            .map { min(max(0.75, $0), 3.0) } ?? 1.0
         readerViewMode = (try? container.decodeIfPresent(ReaderViewMode.self, forKey: .readerViewMode))
             .flatMap { $0 } ?? .page
         readerJustifiesText = try container

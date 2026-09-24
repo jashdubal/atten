@@ -72,9 +72,9 @@ struct AttenApp: App {
                 // by words, and ⌥⌘← and ⌥⌘→ are the reader's own chapter keys.
                 // The media keys on the keyboard reach all four through
                 // NowPlayingCenter, which is where macOS expects to find them.
-                Button("Back 10 Seconds") { model.skip(by: -NowPlayingCenter.skipInterval) }
+                Button("Back 15 Seconds") { model.skip(by: -NowPlayingCenter.skipInterval) }
                     .disabled(model.queue.isEmpty)
-                Button("Forward 10 Seconds") { model.skip(by: NowPlayingCenter.skipInterval) }
+                Button("Forward 15 Seconds") { model.skip(by: NowPlayingCenter.skipInterval) }
                     .disabled(model.queue.isEmpty)
                 Button("Previous") { model.playPrevious() }
                     .disabled(model.queue.isEmpty)
