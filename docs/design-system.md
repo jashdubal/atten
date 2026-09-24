@@ -139,9 +139,10 @@ serif, for prose someone reads rather than scans). Apply a step with
   interaction — not merely because the system's Full Keyboard Access
   auto-focused the first control at launch.
 - **Shortcuts:** Space play/pause, ⌘N new, ⌘I import, ⌘↩ generate, ←/→ skip
-  15s, ⌘F search the Library (⌘F stays the Reader's own find while the Reader
-  is frontmost — SwiftUI resolves same-key shortcuts by giving the
-  more-local one priority). See Settings → Shortcuts for the full list.
+  15s (in the Read-Along player), ⌘F search the Library. The Library's ⌘F is
+  only in the view hierarchy on the shelf page, and the Reader mounts its own
+  ⌘F only while it's on screen, so the two never contend for the same key.
+  See Settings → Shortcuts for the full list.
 
 ## The don'ts
 
