@@ -3,34 +3,6 @@ import AttenCore
 import Foundation
 import Observation
 
-/// The views available in the Library shelf. These are intentionally derived
-/// from the records Atten already owns: an audiobook is a book with at least
-/// one narration on disk, and Recently Added is the import date, not a made-up
-/// folder or category.
-enum LibraryFilter: String, CaseIterable, Identifiable, Sendable {
-    case books
-    case audiobooks
-    case recentlyAdded
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .books: "Books"
-        case .audiobooks: "Audiobooks"
-        case .recentlyAdded: "Recently Added"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .books: "books.vertical"
-        case .audiobooks: "headphones"
-        case .recentlyAdded: "clock"
-        }
-    }
-}
-
 /// Presentation order only; records and their persisted import order are unchanged.
 enum LibrarySort: String, CaseIterable, Identifiable {
     case recentlyAdded = "Recently added"
@@ -85,9 +57,19 @@ final class BookshelfModel {
         var fraction: Double { total > 0 ? min(0.95, Double(completed) / Double(total) * 0.95) : 0 }
     }
 
+    /// An import that turned out to already be on the shelf, under whatever
+    /// title it was first added as. A struct rather than a bare `UUID` so
+    /// importing the same duplicate twice in a row is still a change the
+    /// Library's dedupe toast can observe.
+    struct DuplicateImportEvent: Equatable {
+        private let token = UUID()
+        let bookID: UUID
+    }
+
     private(set) var books: [BookRecord] = []
     private(set) var progress: NarrationProgress?
     private(set) var isImporting = false
+    private(set) var duplicateImport: DuplicateImportEvent?
     /// How many chapters of each book have narration on disk.
     ///
     /// Answering means asking the file system once per chapter, and the shelf
@@ -163,21 +145,12 @@ final class BookshelfModel {
     }
 
     /// Applies the shelf filter and the Library search in one place so their
-    /// combinations remain truthful. In particular, Audiobooks is based on
-    /// narration files that still exist, rather than a book's file format.
-    func filteredBooks(for filter: LibraryFilter, query: String = "") -> [BookRecord] {
-        let candidates: [BookRecord]
-        switch filter {
-        case .books:
-            candidates = books
-        case .audiobooks:
-            candidates = books.filter { narratedCount(of: $0) > 0 }
-        case .recentlyAdded:
-            candidates = books.sorted { lhs, rhs in
-                if lhs.addedAt == rhs.addedAt { return lhs.id.uuidString < rhs.id.uuidString }
-                return lhs.addedAt > rhs.addedAt
-            }
-        }
+    /// combinations remain truthful. The filter itself is `LibraryItem`'s —
+    /// the same one the Library's chips and its dedupe toast use — applied to
+    /// each book wrapped as a `LibraryItem` so a book's drafts/audiobooks
+    /// state is decided in exactly one place.
+    func filteredBooks(for filter: AttenCore.LibraryItemFilter, query: String = "") -> [BookRecord] {
+        let candidates = books.filter { AttenCore.LibraryItem.filter([.book($0)], by: filter).count == 1 }
 
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return candidates }
@@ -195,13 +168,9 @@ final class BookshelfModel {
     }
 
     /// `filteredBooks(for:query:)` plus the shelf's sort order, in one place
-    /// so the Library view and its tests agree on the combination — in
-    /// particular that Recently Added, already newest-first, is never
-    /// re-sorted underneath itself.
-    func books(for filter: LibraryFilter, query: String = "", sort: LibrarySort) -> [BookRecord] {
-        let candidates = filteredBooks(for: filter, query: query)
-        guard filter != .recentlyAdded else { return candidates }
-        return sort.sorted(candidates)
+    /// so the Library view and its tests agree on the combination.
+    func books(for filter: AttenCore.LibraryItemFilter, query: String = "", sort: LibrarySort) -> [BookRecord] {
+        sort.sorted(filteredBooks(for: filter, query: query))
     }
 
     func isFullyNarrated(_ book: BookRecord) -> Bool {
@@ -317,6 +286,7 @@ final class BookshelfModel {
                     let existingTitle = book(id: existingID)?.title ?? document.title
                     importSuccessMessage = "\(existingTitle) is already in your library."
                     successMessage = importSuccessMessage
+                    duplicateImport = DuplicateImportEvent(bookID: existingID)
                     return .alreadyInLibrary(existingID)
                 }
                 let book = BookRecord(
@@ -710,10 +680,6 @@ final class BookshelfModel {
 
     func updateVoice(_ voiceID: String, for bookID: UUID) {
         update(bookID) { $0.voiceID = voiceID }
-    }
-
-    func updateSpeed(_ speed: Double, for bookID: UUID) {
-        update(bookID) { $0.speed = speed }
     }
 
     func updateFormat(_ format: AudioFormat, for bookID: UUID) {

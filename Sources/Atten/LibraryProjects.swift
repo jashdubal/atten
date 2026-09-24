@@ -14,6 +14,7 @@ struct LibraryProjectsSection: View {
 
     @State private var projectToDelete: ProjectRecord?
     @State private var projectToRename: ProjectRecord?
+    @State private var pendingExport: ExportTarget?
     @State private var name = ""
 
     var body: some View {
@@ -41,6 +42,7 @@ struct LibraryProjectsSection: View {
                                 name = project.title
                                 projectToRename = project
                             },
+                            export: { pendingExport = ExportTarget(project: project) },
                             delete: { projectToDelete = project }
                         )
                         if item.id != items.last?.id {
@@ -88,6 +90,9 @@ struct LibraryProjectsSection: View {
             }
             Button("Cancel", role: .cancel) { projectToRename = nil }
         }
+        .sheet(item: $pendingExport) { target in
+            ExportSheet(model: model, target: target)
+        }
     }
 }
 
@@ -98,6 +103,7 @@ private struct ProjectRow: View {
     let duplicate: () -> Void
     let regenerate: () -> Void
     let rename: () -> Void
+    let export: () -> Void
     let delete: () -> Void
 
     @State private var isHovering = false
@@ -209,7 +215,7 @@ private struct ProjectRow: View {
         }
         Button("Rename…", systemImage: "pencil", action: rename)
             .disabled(!fileExists)
-        Button("Export…", systemImage: "square.and.arrow.up") { model.export(project) }
+        Button("Export…", systemImage: "square.and.arrow.up", action: export)
             .disabled(!fileExists)
         Button("Reveal in Finder", systemImage: "folder") { model.reveal(project) }
             .disabled(!fileExists)

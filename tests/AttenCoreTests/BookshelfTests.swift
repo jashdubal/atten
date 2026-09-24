@@ -148,8 +148,6 @@ final class BookshelfTests: XCTestCase {
             defaults: settings()
         )
         let older = try XCTUnwrap(shelf.books.first)
-        // The import date is real metadata, so the second import is the first
-        // result in Recently Added without a separate category to maintain.
         try await Task.sleep(for: .milliseconds(2))
         await shelf.importBook(
             from: try makePDF(pages: ["Newer book."]),
@@ -157,14 +155,15 @@ final class BookshelfTests: XCTestCase {
         )
         let newer = try XCTUnwrap(shelf.books.first)
 
-        XCTAssertEqual(shelf.filteredBooks(for: .books).map(\.id), [newer.id, older.id])
-        XCTAssertEqual(shelf.filteredBooks(for: .recentlyAdded).map(\.id), [newer.id, older.id])
+        XCTAssertEqual(Set(shelf.filteredBooks(for: .all).map(\.id)), Set([newer.id, older.id]))
         XCTAssertTrue(shelf.filteredBooks(for: .audiobooks).isEmpty)
+        XCTAssertEqual(Set(shelf.filteredBooks(for: .drafts).map(\.id)), Set([newer.id, older.id]))
 
         shelf.narrate(newer.id, chapters: [0], useMPS: false)
         try await waitForNarration()
 
         XCTAssertEqual(shelf.filteredBooks(for: .audiobooks).map(\.id), [newer.id])
+        XCTAssertEqual(shelf.filteredBooks(for: .drafts).map(\.id), [older.id])
         XCTAssertEqual(
             shelf.filteredBooks(for: .audiobooks, query: newer.title).map(\.id),
             [newer.id]
@@ -172,7 +171,7 @@ final class BookshelfTests: XCTestCase {
         XCTAssertTrue(shelf.filteredBooks(for: .audiobooks, query: older.title).isEmpty)
     }
 
-    func testBooksForFilterAppliesSortExceptUnderRecentlyAdded() async throws {
+    func testBooksForFilterAlwaysAppliesTheChosenSort() async throws {
         await shelf.importBook(from: try makePDF(pages: ["First book."]), defaults: settings())
         let first = try XCTUnwrap(shelf.books.first)
         try await Task.sleep(for: .milliseconds(2))
@@ -187,7 +186,7 @@ final class BookshelfTests: XCTestCase {
             .map(\.id)
 
         // "All" and "Audiobooks" honour the chosen sort…
-        XCTAssertEqual(shelf.books(for: .books, sort: .title).map(\.id), byTitle)
+        XCTAssertEqual(shelf.books(for: .all, sort: .title).map(\.id), byTitle)
 
         shelf.narrate(first.id, chapters: [0], useMPS: false)
         try await waitForNarration()
@@ -195,15 +194,15 @@ final class BookshelfTests: XCTestCase {
         try await waitForNarration()
         XCTAssertEqual(shelf.books(for: .audiobooks, sort: .title).map(\.id), byTitle)
 
-        // …but "Recently Added" stays newest-first regardless of sort.
+        // …and choosing the "Recently added" sort always puts the newest first.
         XCTAssertEqual(
-            shelf.books(for: .recentlyAdded, sort: .title).map(\.id),
+            shelf.books(for: .all, sort: .recentlyAdded).map(\.id),
             [second.id, first.id]
         )
 
         // A search query still narrows the sorted result.
         XCTAssertEqual(
-            shelf.books(for: .books, query: first.title, sort: .title).map(\.id),
+            shelf.books(for: .all, query: first.title, sort: .title).map(\.id),
             [first.id]
         )
     }

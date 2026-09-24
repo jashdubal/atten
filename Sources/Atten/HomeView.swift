@@ -103,7 +103,13 @@ private struct ContinueHero: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: AttenSpacing.lg) {
-            BookJacket(book: book, cover: shelf.covers.cover(for: book.id), height: 168)
+            BookJacket(
+                book: book,
+                cover: shelf.covers.cover(for: book.id),
+                height: 168,
+                dominantColor: shelf.covers.dominantColor(for: book.id),
+                isPlaying: isLoaded && model.isPlaying
+            )
 
             VStack(alignment: .leading, spacing: AttenSpacing.sm) {
                 Text(eyebrow)
@@ -332,6 +338,7 @@ private struct LibraryRow: View {
                         ShelfTile(
                             book: book,
                             cover: shelf.covers.cover(for: book.id),
+                            dominantColor: shelf.covers.dominantColor(for: book.id),
                             narrated: shelf.narratedCount(of: book)
                         ) {
                             model.section = .library
@@ -356,13 +363,14 @@ private struct LibraryRow: View {
 private struct ShelfTile: View {
     let book: BookRecord
     let cover: NSImage?
+    let dominantColor: OKLCHColor?
     let narrated: Int
     let open: () -> Void
 
     var body: some View {
         Button(action: open) {
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
-                BookJacket(book: book, cover: cover, height: 132)
+                BookJacket(book: book, cover: cover, height: 132, dominantColor: dominantColor)
                 Text(book.title)
                     .font(AttenTypography.metadata.weight(.medium))
                     .foregroundStyle(AttenColor.textPrimary)
@@ -430,33 +438,43 @@ private struct AddBookTile: View {
 // MARK: - Pieces
 
 /// The 2:3 board a book is recognised by, at whatever size the caller wants.
-/// A book with no artwork gets its format's glyph rather than a blank
-/// rectangle, which is what an unjacketed book looks like on a real shelf.
+/// A book with no artwork of its own gets a generated cover rather than a
+/// blank rectangle, which is what an unjacketed book looks like on a real
+/// shelf.
 struct BookJacket: View {
     let book: BookRecord
     let cover: NSImage?
     let height: CGFloat
+    var dominantColor: OKLCHColor?
+    var isPlaying = false
+
+    private var seed: CoverSeed { CoverSeed(contentHash: AttenCore.LibraryItem.book(book).coverSeedKey) }
+
+    /// A real cover's shadow is tinted by its own dominant colour; a
+    /// generated one is tinted by the same seed its blobs are drawn from, so
+    /// neither ever falls back to a flat black shadow.
+    private var shadowTint: OKLCHColor {
+        dominantColor ?? OKLCHColor(lightness: 0.6, chroma: 0.1, hue: seed.hue)
+    }
 
     var body: some View {
-        ZStack {
+        Group {
             if let cover {
                 Image(nsImage: cover)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                AttenColor.surfaceMuted
-                Image(systemName: book.format.icon)
-                    .font(.system(size: height / 5, weight: .light))
-                    .foregroundStyle(AttenColor.textSecondary)
+                GeneratedCoverView(
+                    title: book.title,
+                    sourceLabel: book.author ?? book.format.displayName,
+                    seed: seed,
+                    state: AttenCore.LibraryItem.book(book).state,
+                    isPlaying: isPlaying
+                )
             }
         }
         .frame(width: height * AttenMetrics.coverAspectRatio, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
-                .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
-        }
-        .shadow(color: AttenColor.shadow.opacity(0.15), radius: 6, y: 2)
+        .attenCoverFrame(tint: shadowTint)
         .accessibilityHidden(true)
     }
 }

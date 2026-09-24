@@ -7,13 +7,28 @@ enum LibraryRoute: Hashable {
     case reader(UUID)
 }
 
+private extension AttenCore.LibraryItemFilter {
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .listening: "Listening"
+        case .drafts: "Drafts"
+        case .audiobooks: "Audiobooks"
+        }
+    }
+}
+
 struct LibraryView: View {
     @Bindable var model: AppModel
-    @State private var selectedFilter: LibraryFilter = .books
+    @State private var selectedFilter: AttenCore.LibraryItemFilter = .all
     @State private var isTargeted = false
     @AppStorage("Atten.libraryListView") private var showsList = false
     @AppStorage("Atten.librarySort") private var sortOrder = LibrarySort.recentlyAdded
     @State private var pendingRemoval: BookRecord?
+    @State private var pendingExport: ExportTarget?
+    /// The item a dedupe toast points at: shown while non-nil, and where the
+    /// shelf scrolls to and briefly highlights.
+    @State private var duplicateBookID: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -51,6 +66,13 @@ struct LibraryView: View {
             receive(providers)
         }
         .task { shelf.refreshNarrationCounts() }
+        .onChange(of: shelf.duplicateImport) { _, event in
+            guard let event else { return }
+            duplicateBookID = event.bookID
+        }
+        .sheet(item: $pendingExport) { target in
+            ExportSheet(model: model, target: target)
+        }
         .confirmationDialog(
             "Remove “\(pendingRemoval?.title ?? "")” from Library?",
             isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }),
@@ -102,37 +124,45 @@ struct LibraryView: View {
 
     private var shelfPage: some View {
         GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                    header
-                    LibraryStatusArea(shelf: shelf)
-                    if query.isEmpty, selectedFilter == .books,
-                       let book = continueBook {
-                        ContinueListeningCard(model: model, book: book)
-                    }
-                    if !shelf.books.isEmpty || !model.projects.isEmpty {
-                        searchAndFilters
-                    }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                        header
+                        LibraryStatusArea(shelf: shelf)
+                        if query.isEmpty, selectedFilter == .all,
+                           let book = continueBook {
+                            ContinueListeningHero(model: model, book: book)
+                        }
+                        if !shelf.books.isEmpty || !model.projects.isEmpty {
+                            searchAndFilters
+                        }
 
-                    if filteredBooks.isEmpty && projectItems.isEmpty {
-                        emptyState
-                    } else if !filteredBooks.isEmpty {
-                        collection(availableWidth: geometry.size.width)
+                        if filteredBooks.isEmpty && projectItems.isEmpty {
+                            emptyState
+                        } else if !filteredBooks.isEmpty {
+                            collection(availableWidth: geometry.size.width)
+                        }
+                        if !projectItems.isEmpty {
+                            LibraryProjectsSection(
+                                model: model,
+                                items: projectItems,
+                                isWide: geometry.size.width >= 820
+                            )
+                        }
+                        importHint
                     }
-                    if !projectItems.isEmpty {
-                        LibraryProjectsSection(
-                            model: model,
-                            items: projectItems,
-                            isWide: geometry.size.width >= 820
-                        )
-                    }
-                    importHint
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .attenScrollPadding()
+                    .frame(maxWidth: 1440, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 24)
-                .attenScrollPadding()
-                .frame(maxWidth: 1440, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .onChange(of: duplicateBookID) { _, id in
+                    guard let id else { return }
+                    withAnimation(AttenMotion.animation(.large, reduceMotion: reduceMotion)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+                }
             }
         }
         .background(AttenBackdrop())
@@ -143,6 +173,19 @@ struct LibraryView: View {
                     .padding(AttenSpacing.md)
                     .allowsHitTesting(false)
             }
+        }
+        .overlay(alignment: .bottom) {
+            if let duplicateBookID, let title = shelf.book(id: duplicateBookID)?.title {
+                DedupeToast(title: title) { self.duplicateBookID = nil }
+                    .padding(.bottom, AttenSpacing.lg)
+                    .transition(.opacity)
+            }
+        }
+        .animation(AttenMotion.fade(reduceMotion: reduceMotion), value: duplicateBookID)
+        .task(id: duplicateBookID) {
+            guard duplicateBookID != nil else { return }
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { duplicateBookID = nil }
         }
     }
 
@@ -224,9 +267,9 @@ struct LibraryView: View {
 
     private var filterPicker: some View {
         HStack(spacing: 6) {
-            ForEach(LibraryFilter.allCases) { filter in
+            ForEach(AttenCore.LibraryItemFilter.allCases, id: \.rawValue) { filter in
                 Button { selectedFilter = filter } label: {
-                    Text(filter == .books ? "All" : filter.title)
+                    Text(filter.title)
                         .font(AttenTypography.control)
                         .padding(.horizontal, 16)
                         .frame(height: 32)
@@ -241,26 +284,24 @@ struct LibraryView: View {
 
     private var displayControls: some View {
         HStack(spacing: 16) {
-            if selectedFilter != .recentlyAdded {
-                HStack(spacing: 8) {
-                    Text("Sort by")
-                        .foregroundStyle(AttenColor.textMuted)
-                    Menu {
-                        Picker("Sort by", selection: $sortOrder) {
-                            ForEach(LibrarySort.allCases) { order in
-                                Text(order.rawValue).tag(order)
-                            }
+            HStack(spacing: 8) {
+                Text("Sort by")
+                    .foregroundStyle(AttenColor.textMuted)
+                Menu {
+                    Picker("Sort by", selection: $sortOrder) {
+                        ForEach(LibrarySort.allCases) { order in
+                            Text(order.rawValue).tag(order)
                         }
-                    } label: {
-                        Text(sortOrder.rawValue)
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Sort books")
+                } label: {
+                    Text(sortOrder.rawValue)
                 }
-                .font(AttenTypography.metadata)
-                Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Sort books")
             }
+            .font(AttenTypography.metadata)
+            Rectangle().fill(AttenColor.border).frame(width: 1, height: 22)
             HStack(spacing: 4) {
                 layoutButton(list: false, icon: "square.grid.2x2.fill", title: "Grid view")
                 layoutButton(list: true, icon: "list.bullet", title: "List view")
@@ -299,7 +340,7 @@ struct LibraryView: View {
 
     private var emptyState: some View {
         let isFiltering = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || selectedFilter != .books
+            || selectedFilter != .all
         return VStack(spacing: AttenSpacing.md) {
             AttenEmptyState(
                 title: isFiltering ? "No books found" : "Your library is empty",
@@ -344,16 +385,26 @@ struct LibraryView: View {
             book: book,
             narrated: shelf.narratedCount(of: book),
             cover: shelf.covers.cover(for: book.id),
+            dominantColor: shelf.covers.dominantColor(for: book.id),
             progress: shelf.progress,
             isList: showsList,
+            isPlaying: model.playingBook?.id == book.id && model.isPlaying,
+            isHighlighted: duplicateBookID == book.id,
             open: { model.openInLibrary(.book(book.id)) },
             read: { model.openInLibrary(.reader(book.id)) },
-            remove: { pendingRemoval = book }
+            remove: { pendingRemoval = book },
+            export: { pendingExport = ExportTarget(book: book) }
         )
+        .id(book.id)
         .task(id: book.id) { await shelf.covers.load(book) }
         .contextMenu {
             Button("Open", systemImage: "book") { model.openInLibrary(.book(book.id)) }
             Button("Read", systemImage: "text.alignleft") { model.openInLibrary(.reader(book.id)) }
+            Divider()
+            Button("Export…", systemImage: "square.and.arrow.up") {
+                pendingExport = ExportTarget(book: book)
+            }
+            .disabled(!book.hasBookAudio)
             Divider()
             Button("Remove from Library", systemImage: "trash", role: .destructive) {
                 pendingRemoval = book
@@ -365,10 +416,11 @@ struct LibraryView: View {
         shelf.books(for: selectedFilter, query: query, sort: sortOrder)
     }
 
-    /// Legacy projects are voiced, so they sit under All and Audiobooks.
+    /// Legacy projects are always voiced and never listening, so this only
+    /// ever puts them under All and Audiobooks — the same rule `LibraryItem`
+    /// applies to a book.
     private var projectItems: [AttenCore.LibraryItem] {
-        guard selectedFilter != .recentlyAdded else { return [] }
-        let items = model.projects.map(AttenCore.LibraryItem.project)
+        let items = AttenCore.LibraryItem.filter(model.projects.map(AttenCore.LibraryItem.project), by: selectedFilter)
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return items }
         return items.filter { $0.title.localizedCaseInsensitiveContains(term) }
@@ -454,18 +506,24 @@ private struct BookCard: View {
     let book: BookRecord
     let narrated: Int
     let cover: NSImage?
+    let dominantColor: OKLCHColor?
     let progress: BookshelfModel.NarrationProgress?
     let isList: Bool
+    let isPlaying: Bool
+    let isHighlighted: Bool
     let open: () -> Void
     let read: () -> Void
     let remove: () -> Void
+    let export: () -> Void
 
-    @State private var isHovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isNarrating: Bool { progress?.bookID == book.id }
     private var isFullyNarrated: Bool {
         book.hasBookAudio && !book.needsPreparation
     }
+
+    private var libraryItem: AttenCore.LibraryItem { .book(book) }
 
     /// Matches whichever caption or meter the card is showing, so VoiceOver
     /// reports the same state a sighted reader sees.
@@ -498,9 +556,8 @@ private struct BookCard: View {
                     Group {
                     if isNarrating || (narrated > 0 && !isFullyNarrated) {
                         NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
-                    } else {
-                        Label(isFullyNarrated ? "Ready to listen" : "Audio not prepared",
-                              systemImage: isFullyNarrated ? "headphones" : "waveform")
+                    } else if isFullyNarrated {
+                        Label("Ready to listen", systemImage: "headphones")
                             .font(AttenTypography.caption)
                             .foregroundStyle(AttenColor.textSecondary)
                     }
@@ -514,7 +571,6 @@ private struct BookCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
         .accessibilityLabel(book.title)
         .accessibilityValue(
             "\(book.author ?? "Unknown author"), \(narrationStatus)"
@@ -525,6 +581,9 @@ private struct BookCard: View {
             Menu {
                 Button("Open", systemImage: "book", action: open)
                 Button("Read", systemImage: "text.alignleft", action: read)
+                Divider()
+                Button("Export…", systemImage: "square.and.arrow.up", action: export)
+                    .disabled(!book.hasBookAudio)
                 Divider()
                 Button("Remove from Library", systemImage: "trash", role: .destructive, action: remove)
             } label: {
@@ -542,6 +601,15 @@ private struct BookCard: View {
             .padding(8)
             .accessibilityLabel("Actions for \(book.title)")
         }
+        .overlay {
+            if isHighlighted {
+                RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
+                    .stroke(AttenColor.signal, lineWidth: 2)
+                    .padding(-4)
+                    .allowsHitTesting(false)
+            }
+        }
+        .animation(AttenMotion.animation(AttenMotion.state, reduceMotion: reduceMotion), value: isHighlighted)
     }
 
     private var jacket: some View {
@@ -556,15 +624,17 @@ private struct BookCard: View {
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .clipped()
                     } else {
-                        blankBoard
+                        GeneratedCoverView(
+                            title: book.title,
+                            sourceLabel: book.author ?? book.format.displayName,
+                            seed: CoverSeed(contentHash: libraryItem.coverSeedKey),
+                            state: libraryItem.state,
+                            isPlaying: isPlaying
+                        )
                     }
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(isHovering ? AttenColor.textSecondary.opacity(0.5) : AttenColor.border, lineWidth: 1)
-            }
+            .attenCoverFrame(tint: dominantColor ?? OKLCHColor(lightness: 0.6, chroma: 0.1, hue: CoverSeed(contentHash: libraryItem.coverSeedKey).hue))
             .attenMatchedCover(book.id)
             .overlay(alignment: .bottomTrailing) {
                 if !book.sourceExists {
@@ -579,35 +649,6 @@ private struct BookCard: View {
                         .help("Fully narrated")
                 }
             }
-    }
-
-    /// A quiet typeset jacket for documents without embedded artwork.
-    /// All text comes from the imported record, including the format label.
-    private var blankBoard: some View {
-        VStack(alignment: .leading, spacing: isList ? 6 : 18) {
-            Text(book.format.displayName.uppercased())
-                .font(.system(size: isList ? 5 : 8, weight: .medium))
-                .tracking(isList ? 1 : 2.8)
-                .foregroundStyle(AttenColor.textSecondary)
-            Text(book.title)
-                .font(.system(size: isList ? 9 : 23, weight: .regular, design: .serif))
-                .lineLimit(isList ? 3 : 5)
-                .multilineTextAlignment(.leading)
-                .foregroundStyle(AttenColor.textPrimary)
-            Rectangle().fill(AttenColor.separator).frame(width: isList ? 12 : 26, height: 1)
-            Spacer(minLength: 0)
-            if !isList, let author = book.author {
-                Text(author)
-                    .font(.system(size: 9, weight: .medium))
-                    .tracking(2)
-                    .lineLimit(2)
-                    .foregroundStyle(AttenColor.textSecondary)
-            }
-        }
-        .padding(isList ? 8 : 26)
-        .padding(.top, isList ? 0 : 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AttenColor.surfaceElevated)
     }
 }
 
@@ -652,6 +693,38 @@ struct NarrationMeter: View {
 }
 
 
+/// What a duplicate import gets instead of a second copy: a moment of
+/// confirmation that it is already here, over the item the shelf has just
+/// scrolled to and outlined in `signal`.
+private struct DedupeToast: View {
+    let title: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(AttenColor.success)
+            Text("“\(title)” is already in your library")
+                .font(AttenTypography.callout)
+                .foregroundStyle(AttenColor.textPrimary)
+                .lineLimit(1)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .foregroundStyle(AttenColor.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(.horizontal, AttenSpacing.md)
+        .frame(height: 44)
+        .background(AttenColor.surfaceElevated, in: Capsule())
+        .overlay { Capsule().stroke(AttenColor.separator, lineWidth: 1) }
+        .shadow(color: AttenColor.shadow.opacity(0.12), radius: 8, y: 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Already in Library: \(title)")
+    }
+}
+
 private extension NSItemProvider {
     /// Main-actor bound because an item provider is not Sendable and this is
     /// only ever reached from a drop on the shelf.
@@ -665,28 +738,3 @@ private extension NSItemProvider {
     }
 }
 
-private struct ContinueListeningCard: View {
-    @Bindable var model: AppModel
-    let book: BookRecord
-
-    var body: some View {
-        HStack(spacing: 16) {
-            Image(systemName: "headphones").font(.title2).foregroundStyle(AttenColor.accent)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Continue listening").font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
-                Text(book.title).font(.headline).lineLimit(1)
-                Text(book.hasBookAudio ? "Resume where you left off" : "Audio unavailable — open this book to prepare it again")
-                    .font(AttenTypography.caption).foregroundStyle(AttenColor.textSecondary)
-            }
-            Spacer()
-            Button("Open Book") { model.openInLibrary(.book(book.id)) }
-                .buttonStyle(AttenSecondaryButtonStyle())
-            if book.hasBookAudio {
-                Button(model.playingBook?.id == book.id && model.isPlaying ? "Pause" : "Listen") { model.listen(to: book) }
-                    .buttonStyle(AttenPrimaryButtonStyle())
-            }
-        }
-        .padding(20)
-        .background(AttenColor.surface, in: RoundedRectangle(cornerRadius: 10))
-    }
-}

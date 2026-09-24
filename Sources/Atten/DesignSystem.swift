@@ -1,3 +1,4 @@
+import AttenCore
 import AVFoundation
 import AttenCore
 import SwiftUI
@@ -95,6 +96,18 @@ extension Color {
     /// of the app — the reader's page decides its own.
     init(hex: UInt) {
         self.init(nsColor: NSColor(hex: hex))
+    }
+}
+
+extension Color {
+    /// Cover art and its dominant colour are the one place colour comes from
+    /// content rather than the palette — a generated cover's blobs, an
+    /// ambient wash, a shadow tinted by what a book's jacket actually looks
+    /// like. `CoverPalette` hands back an `OKLCHColor`; this is where it
+    /// becomes something a view can draw.
+    init(_ oklch: OKLCHColor) {
+        let srgb = oklch.srgb()
+        self.init(.sRGB, red: srgb.r, green: srgb.g, blue: srgb.b)
     }
 }
 
