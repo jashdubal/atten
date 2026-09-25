@@ -41,5 +41,17 @@ final class VoiceProfileTests: XCTestCase {
             languageCode: "e", gender: "Female", traits: ["Spanish"], quality: "Unrated"
         )
         XCTAssertEqual(VoiceProfile(voice: voice).descriptor, "Spanish")
+        XCTAssertEqual(VoiceProfile(voice: voice).traits, "")
+    }
+
+    /// The narrator card sets traits and accent on lines of their own (#98).
+    func testTraitsLeaveTheAccentForItsOwnLine() {
+        let voice = Voice(
+            id: "af_test", name: "Test", language: "English (US)",
+            languageCode: "a", gender: "Female", traits: ["warm", "expressive"], quality: "A"
+        )
+        let profile = VoiceProfile(voice: voice)
+        XCTAssertEqual(profile.traits, "Warm · Expressive")
+        XCTAssertEqual(profile.accent, "US English")
     }
 }

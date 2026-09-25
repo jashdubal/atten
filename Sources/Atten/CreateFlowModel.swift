@@ -68,6 +68,13 @@ final class CreateFlowModel {
         }
     }
 
+    /// The title the draft is saved under: the one typed, or else one taken
+    /// from its opening words, so a draft is never just "Untitled".
+    var resolvedTitle: String {
+        let typed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return typed.isEmpty ? ChapterDetection.derivedTitle(from: text) ?? "" : typed
+    }
+
     var text: String {
         get { app?.draftText ?? "" }
         set {
@@ -253,7 +260,7 @@ final class CreateFlowModel {
         do {
             let draft = try app.bookshelf.saveDraft(
                 id: draftID,
-                title: title,
+                title: resolvedTitle,
                 text: text,
                 voiceID: voice.id,
                 defaults: app.settings,
@@ -285,11 +292,11 @@ final class CreateFlowModel {
         guard let app, canGenerate else { return }
         saveTask?.cancel()
         errorMessage = nil
-        let displayTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = resolvedTitle
         do {
             let draft = try app.bookshelf.saveDraft(
                 id: draftID,
-                title: title,
+                title: displayTitle,
                 text: text,
                 voiceID: voice.id,
                 defaults: app.settings,

@@ -128,6 +128,10 @@ final class AppModel {
             // Listening progressively hands off to the finished recording at
             // the same position, with no gap a listener would notice.
             if progressivePlayer.bookID == run.bookID {
+                // Catching up at the finish means every word has been heard:
+                // the recording waits at its start rather than playing on
+                // from its last frame.
+                let heardAll = progressivePlayer.state == .catchingUp
                 let handoff = progressivePlayer.handoff()
                 // Only a listener actually mid-narration needs handing off —
                 // otherwise nothing was following along, and switching the
@@ -136,7 +140,10 @@ final class AppModel {
                 // nothing loaded to steal and keeps its place.
                 let isShowingNarration = queue.current == nil && section == .nowPlaying
                 if handoff.wasPlaying || isShowingNarration, let book = bookshelf.book(id: run.bookID) {
-                    play(tracks: book.narrationTracks, atPosition: handoff.position, autoplay: handoff.wasPlaying)
+                    play(
+                        tracks: book.narrationTracks, atPosition: heardAll ? 0 : handoff.position,
+                        autoplay: handoff.wasPlaying && !heardAll
+                    )
                 }
             }
             createFlow.narrationFinished(run.bookID)
@@ -1081,7 +1088,9 @@ final class AppModel {
             player.isMeteringEnabled = true
             player.prepareToPlay()
             player.rate = Float(playbackRate)
-            player.currentTime = min(max(0, position), player.duration)
+            // A recording heard to its end starts over rather than sitting
+            // on its last frame.
+            player.currentTime = position >= player.duration ? 0 : max(0, position)
             if let secondsBeforeEnd {
                 player.currentTime = max(0, player.duration - secondsBeforeEnd)
             }
@@ -1112,6 +1121,9 @@ final class AppModel {
         stopPlaybackTimer()
         playbackPosition = playbackDuration
         saveListeningPosition()
+        // Back to the start with the play glyph, not a -0:00 left showing.
+        audioPlayer?.currentTime = 0
+        playbackPosition = 0
         publishNowPlaying()
     }
 
@@ -1145,7 +1157,7 @@ final class AppModel {
                 pause: { [weak self] in self?.remotePlayOrPause(playing: false) },
                 toggle: { [weak self] in
                     guard let self else { return }
-                    queue.current != nil ? toggleActivePlayback() : progressivePlayer.toggle()
+                    queue.current != nil ? toggleActivePlayback() : remotePlayOrPause(playing: !progressivePlayer.isPlaying)
                 },
                 next: { [weak self] in self?.playNext() },
                 previous: { [weak self] in self?.playPrevious() },
@@ -1158,8 +1170,11 @@ final class AppModel {
         )
     }
 
-    private func remotePlayOrPause(playing: Bool) {
+    func remotePlayOrPause(playing: Bool) {
         guard queue.current != nil else {
+            // A narration nobody has pressed Play on stays silent: a stray
+            // media key or a pair of headphones reconnecting is not a Play.
+            guard progressivePlayer.state != .idle else { return }
             playing ? progressivePlayer.play() : progressivePlayer.pause()
             return
         }
@@ -1171,7 +1186,10 @@ final class AppModel {
     /// wins the display if both are somehow active at once.
     private func publishProgressiveNowPlaying() {
         guard queue.current == nil else { return }
-        guard let bookID = progressivePlayer.bookID, let book = bookshelf.book(id: bookID) else {
+        // Not until Play has been pressed on it, so the system never sends a
+        // narration nobody started its play commands.
+        guard let bookID = progressivePlayer.bookID, progressivePlayer.state != .idle,
+              let book = bookshelf.book(id: bookID) else {
             nowPlaying.clear()
             return
         }
