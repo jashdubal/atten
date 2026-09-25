@@ -20,9 +20,15 @@ struct NarrationQueueIndicator: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(shelf.isNarrating ? AttenColor.signal : AttenColor.text3)
                         .frame(width: 18)
-                    Text(status)
+                    // One line, count first; the count alone where the words
+                    // do not fit. As a word and a number either side of a
+                    // spacer, a narrow sidebar broke "Paused" in two (#111).
+                    ViewThatFits(in: .horizontal) {
+                        Text("\(shelf.queue.count) \(shortStatus)")
+                        Text("\(shelf.queue.count)")
+                    }
+                    .lineLimit(1)
                     Spacer(minLength: 0)
-                    Text("\(shelf.queue.count)")
                 }
                 .attenText(.label)
                 .foregroundStyle(AttenColor.text2)
@@ -41,6 +47,13 @@ struct NarrationQueueIndicator: View {
             }
             .accessibilityLabel("Narration queue, \(status), \(shelf.queue.count) \(shelf.queue.count == 1 ? "book" : "books")")
         }
+    }
+
+    /// The lit waveform already says one is generating; the count is of the
+    /// whole queue, so the words say that rather than "3 generating".
+    private var shortStatus: String {
+        if shelf.isNarrating { return "in queue" }
+        return status.lowercased()
     }
 
     private var status: String {

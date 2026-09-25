@@ -100,6 +100,7 @@ struct VoicesView: View {
                         Text(engine ?? "All engines")
                     }
                     .menuStyle(.borderlessButton)
+                    .tint(AttenColor.text2)
                     .fixedSize()
                 }
                 .font(AttenTypography.callout)

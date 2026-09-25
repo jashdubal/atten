@@ -151,6 +151,7 @@ struct ModelsView: View {
                 Text(value)
             }
             .menuStyle(.borderlessButton)
+            .tint(AttenColor.text2)
             .fixedSize()
         }
         .font(AttenTypography.callout)
@@ -261,6 +262,7 @@ private struct ModelRow: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
+                .tint(AttenColor.text2)
                 .help("Delete \(model.id)")
                 .accessibilityLabel("Delete \(model.id)")
             } else {
@@ -273,6 +275,7 @@ private struct ModelRow: View {
     private var cancelButton: some View {
         Button(action: onCancel) { Image(systemName: "xmark") }
             .buttonStyle(.borderless)
+            .tint(AttenColor.text2)
             .help("Cancel and remove partial files")
             .accessibilityLabel("Cancel download of \(model.id)")
     }

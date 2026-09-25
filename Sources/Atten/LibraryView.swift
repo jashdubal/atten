@@ -332,6 +332,9 @@ struct LibraryView: View {
                     Text(sortOrder.rawValue)
                 }
                 .menuStyle(.borderlessButton)
+                // A borderless menu draws its label in the tint, and the
+                // app's tint is `signal`, which is not for chrome.
+                .tint(AttenColor.text2)
                 .fixedSize()
                 .help("Sort books")
             }
@@ -639,6 +642,7 @@ private struct BookCard: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
+            .tint(AttenColor.text1)
             .fixedSize()
             .background(cover != nil && !isList ? AttenColor.surface.opacity(0.92) : .clear,
                         in: RoundedRectangle(cornerRadius: 4))
@@ -717,7 +721,7 @@ struct NarrationMeter: View {
             .frame(height: 5)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(label)
-                    .lineLimit(isRunning || queued != nil ? 1 : nil)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
                 // "Queued" alone has nothing to count yet.
                 if label != queued {
@@ -739,7 +743,7 @@ struct NarrationMeter: View {
         if let queued { return queued == "Queued" && narrated == 0 ? queued : "\(queued) · \(narrated) of \(total)" }
         if total == 0 { return "No chapters" }
         if narrated == total { return "Audiobook · \(total) chapters" }
-        return "\(narrated) of \(total) chapters narrated"
+        return "\(narrated) of \(total) chapters"
     }
 }
 
