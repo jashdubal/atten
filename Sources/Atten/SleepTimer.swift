@@ -35,7 +35,7 @@ final class SleepTimer {
         var chapter: String?
     }
 
-    static let fadeDuration: TimeInterval = 10
+    nonisolated static let fadeDuration: TimeInterval = 10
 
     private(set) var choice: Choice?
     /// Whole seconds left, for the readout. Nil when the end of the chapter
@@ -114,7 +114,7 @@ final class SleepTimer {
     }
 
     /// Full volume until the last ten seconds, then down to silence.
-    static func volume(remaining: TimeInterval) -> Float {
+    nonisolated static func volume(remaining: TimeInterval) -> Float {
         Float(min(1, max(0, remaining / fadeDuration)))
     }
 }
