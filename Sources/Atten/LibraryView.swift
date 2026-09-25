@@ -659,7 +659,7 @@ private struct BookCard: View {
 
     private var jacket: some View {
         Color.clear
-            .aspectRatio(0.72, contentMode: .fit)
+            .aspectRatio(AttenMetrics.coverAspectRatio, contentMode: .fit)
             .overlay {
                 GeometryReader { geometry in
                     if let cover {
