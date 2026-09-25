@@ -49,6 +49,15 @@ final class ProgressivePlayer {
         return ActiveSentence(chapterIndex: entry.chapterIndex, wordsBefore: entry.wordsBefore, wordCount: entry.wordCount)
     }
 
+    /// Where the chapter being heard ends, once the next one has begun.
+    var chapterEnd: TimeInterval? { timeline.chapterEnd(at: position) }
+
+    /// The sleep timer's fade.
+    var volume: Float {
+        get { node.volume }
+        set { node.volume = newValue }
+    }
+
     private var timeline = ProgressiveTimeline()
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()

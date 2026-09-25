@@ -235,6 +235,7 @@ struct SettingsView: View {
                 ShortcutRow(action: "Play or pause (anywhere)", keys: "⌥Space")
                 ShortcutRow(action: "Skip back 15 seconds", keys: "←")
                 ShortcutRow(action: "Skip forward 15 seconds", keys: "→")
+                ShortcutRow(action: "Bookmark the sentence playing", keys: "⌘D")
                 ShortcutRow(action: "Cancel generation", keys: "Esc")
             }
         }

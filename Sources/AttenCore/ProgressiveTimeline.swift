@@ -57,6 +57,14 @@ public struct ProgressiveTimeline: Sendable {
         placed.lastIndex { $0.start <= time }
     }
 
+    /// Where the chapter playing at `time` ends: where the next chapter's
+    /// first segment starts. Nil while nothing after it has been narrated.
+    public func chapterEnd(at time: TimeInterval) -> TimeInterval? {
+        guard let index = index(at: time) else { return nil }
+        let chapter = placed[index].chapterIndex
+        return placed[(index + 1)...].first { $0.chapterIndex != chapter }?.start
+    }
+
     /// The same segments, as `NarrationTimings` sees them, for finding the
     /// exact word sounding at a moment rather than only the sentence.
     public var narrationTimings: NarrationTimings {
