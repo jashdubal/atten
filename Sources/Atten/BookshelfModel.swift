@@ -778,6 +778,18 @@ final class BookshelfModel {
         persist()
     }
 
+    /// Marks a spot heard in the player. Two sentences of one paragraph are
+    /// the same place to the Reader but two marks to a listener, so only the
+    /// same sentence twice is refused.
+    func addBookmark(at location: ReadingLocation, excerpt: String, in bookID: UUID) {
+        guard let index = books.firstIndex(where: { $0.id == bookID }),
+              !books[index].bookmarks.contains(where: { $0.location.isAt(location) && $0.excerpt == excerpt })
+        else { return }
+        books[index].bookmarks.append(Bookmark(location: location, excerpt: excerpt))
+        books[index].bookmarks.sort { $0.location.precedes($1.location) }
+        persist()
+    }
+
     func removeBookmark(_ bookmarkID: UUID, from bookID: UUID) {
         guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         books[index].bookmarks.removeAll { $0.id == bookmarkID }

@@ -64,14 +64,14 @@ struct ReadAlongView: View {
             VStack {
                 ReadAlongHeader(model: model, scroll: scroll)
                 Spacer()
-                ReadAlongTransport(model: model, namespace: namespace)
+                ReadAlongTransport(model: model, namespace: namespace, script: script, playhead: playhead)
             }
             .padding(.horizontal, AttenSpacing.lg)
             .padding(.vertical, AttenSpacing.sm)
         }
         .background {
             ReadAlongClock(model: model, script: script, playhead: playhead)
-            ReadAlongKeys(model: model)
+            ReadAlongKeys(model: model, script: script, playhead: playhead)
         }
     }
 
@@ -451,12 +451,24 @@ enum PlayerMatch {
 
 // MARK: - Transport
 
-private struct ReadAlongTransport: View {
+struct ReadAlongTransport: View {
     @Bindable var model: AppModel
     let namespace: Namespace.ID
+    let script: ReadAlongScript
+    let playhead: ReadAlongPlayhead
+
+    @State private var isShowingChapters = false
+    @State private var isShowingBookmarks = false
+    @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
 
     private var hasChapters: Bool {
         (model.playingBook?.playbackChapters.count ?? 0) > 1 || model.queue.tracks.count > 1
+    }
+
+    /// The recording's own chapters, when it has more than one.
+    private var chapters: [ListeningMap.Chapter] {
+        guard let map = model.listeningMap, map.chapters.count > 1 else { return [] }
+        return map.chapters
     }
 
     var body: some View {
@@ -468,19 +480,27 @@ private struct ReadAlongTransport: View {
                     position: model.playbackPosition,
                     duration: model.playbackDuration,
                     seek: model.seek(to:),
-                    neutral: true
+                    neutral: true,
+                    chapters: chapters
                 )
                 Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
                     .frame(minWidth: 44, alignment: .trailing)
             }
             .attenText(.label)
             .foregroundStyle(AttenColor.text2)
+            // The scrubber names the chapter under the pointer just below
+            // itself, over the row of buttons.
+            .zIndex(1)
 
             ZStack {
-                HStack {
+                HStack(spacing: 0) {
                     VoiceLevelGlyph(model: model)
+                    if !chapters.isEmpty { chapterButton }
+                    if model.playingBook != nil { bookmarkButton }
                     Spacer()
+                    SleepTimerControl(timer: model.sleepTimer)
                     speed
+                        .padding(.leading, AttenSpacing.xs)
                 }
                 HStack(spacing: AttenSpacing.xs) {
                     if hasChapters {
@@ -510,6 +530,58 @@ private struct ReadAlongTransport: View {
         .matchedGeometryEffect(id: "player", in: namespace)
     }
 
+    private var chapterButton: some View {
+        PlayerToolButton(systemImage: "list.bullet", label: "Chapters") { isShowingChapters = true }
+            .popover(isPresented: $isShowingChapters, arrowEdge: .top) { chapterList }
+    }
+
+    private var chapterList: some View {
+        let map = model.listeningMap
+        return PlayerChapterList(
+            chapters: chapters,
+            current: map?.chapterIndex(at: model.playbackPosition)
+        ) { chapter in
+            model.seek(to: chapter.start)
+            if !model.isPlaying { model.toggleActivePlayback() }
+            isShowingChapters = false
+        }
+    }
+
+    private var bookmarkButton: some View {
+        PlayerToolButton(systemImage: "bookmark", label: "Bookmarks") { isShowingBookmarks = true }
+            .popover(isPresented: $isShowingBookmarks, arrowEdge: .top) { bookmarkList }
+    }
+
+    private var bookmarkList: some View {
+        let book = model.playingBook
+        let map = model.listeningMap
+        let entries = (book?.bookmarks ?? []).map { bookmark in
+            PlayerBookmarkList.Entry(
+                bookmark: bookmark,
+                chapterTitle: book.flatMap { book in
+                    book.chapters.indices.contains(bookmark.location.chapterIndex)
+                        ? book.chapters[bookmark.location.chapterIndex].title : nil
+                } ?? book?.title ?? "",
+                time: map?.chapters.contains { $0.index == bookmark.location.chapterIndex } == true
+                    ? model.time(of: bookmark, script: script) : nil
+            )
+        }
+        return PlayerBookmarkList(
+            entries: entries,
+            add: { model.addBookmark(sentence: playhead.sentence, of: script) },
+            jump: { entry in
+                guard let time = entry.time else { return }
+                model.seek(to: time)
+                if !model.isPlaying { model.toggleActivePlayback() }
+                isShowingBookmarks = false
+            },
+            remove: { entry in
+                guard let book else { return }
+                model.bookshelf.removeBookmark(entry.bookmark.id, from: book.id)
+            }
+        )
+    }
+
     private func transportButton(
         _ systemImage: String,
         _ label: String,
@@ -532,7 +604,21 @@ private struct ReadAlongTransport: View {
 
     /// Speed is cheap to change and undoable, so it sits here, one click
     /// away, rather than being asked for before anything plays.
-    private var speed: some View {
+    @ViewBuilder private var speed: some View {
+        if isOffscreenRender {
+            speedLabel
+        } else {
+            speedMenu
+        }
+    }
+
+    private var speedLabel: some View {
+        Text(PlaybackFormat.rateText(model.playbackRate))
+            .attenText(.label)
+            .foregroundStyle(AttenColor.text2)
+    }
+
+    private var speedMenu: some View {
         Menu {
             ForEach(PlaybackFormat.rates, id: \.self) { rate in
                 Button {
@@ -546,9 +632,7 @@ private struct ReadAlongTransport: View {
                 }
             }
         } label: {
-            Text(PlaybackFormat.rateText(model.playbackRate))
-                .attenText(.label)
-                .foregroundStyle(AttenColor.text2)
+            speedLabel
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -636,12 +720,19 @@ private struct VoiceLevel<Content: View>: View {
 
 // MARK: - Keyboard
 
-/// Space plays and pauses; the arrows skip fifteen seconds.
+/// Space plays and pauses; the arrows skip fifteen seconds; ⌘D marks the
+/// sentence being spoken, as it marks the page in the Reader.
 private struct ReadAlongKeys: View {
     let model: AppModel
+    let script: ReadAlongScript
+    let playhead: ReadAlongPlayhead
 
     var body: some View {
         ZStack {
+            Button("Add bookmark") {
+                model.addBookmark(sentence: playhead.sentence, of: script)
+            }
+            .keyboardShortcut("d", modifiers: .command)
             Button("Play or pause", action: model.toggleActivePlayback)
                 .keyboardShortcut(.space, modifiers: [])
             Button("Back 15 seconds") { model.skip(by: -NowPlayingCenter.skipInterval) }
