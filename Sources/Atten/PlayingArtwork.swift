@@ -16,7 +16,7 @@ struct PlayingArtwork: View {
 
         @MainActor
         init?(model: AppModel) {
-            if let book = model.playingBook {
+            if let book = model.playingBook ?? model.progressiveBook {
                 id = book.id.uuidString
                 title = book.title
                 self.book = book
@@ -67,8 +67,8 @@ struct PlayingArtwork: View {
             RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
                 .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
         }
-        .task(id: model.playingBook?.id) {
-            if let book = model.playingBook { await model.bookshelf.covers.load(book) }
+        .task(id: (model.playingBook ?? model.progressiveBook)?.id) {
+            if let book = model.playingBook ?? model.progressiveBook { await model.bookshelf.covers.load(book) }
         }
         .accessibilityHidden(true)
     }

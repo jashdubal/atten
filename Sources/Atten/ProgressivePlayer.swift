@@ -52,13 +52,21 @@ final class ProgressivePlayer {
     /// Where the chapter being heard ends, once the next one has begun.
     var chapterEnd: TimeInterval? { timeline.chapterEnd(at: position) }
 
+    /// The position right now, read from the engine rather than the last
+    /// poll, for the read-along player to follow word by word.
+    var currentTime: TimeInterval {
+        guard state == .playing, let last = node.lastRenderTime,
+              let playerTime = node.playerTime(forNodeTime: last) else { return position }
+        return min(anchor + Double(playerTime.sampleTime) / playerTime.sampleRate, duration)
+    }
+
     /// The sleep timer's fade.
     var volume: Float {
         get { node.volume }
         set { node.volume = newValue }
     }
 
-    private var timeline = ProgressiveTimeline()
+    private(set) var timeline = ProgressiveTimeline()
     private let engine = AVAudioEngine()
     private let node = AVAudioPlayerNode()
     private var format: AVAudioFormat?
@@ -205,9 +213,8 @@ final class ProgressivePlayer {
     }
 
     private func refreshPosition() {
-        guard state == .playing, let last = node.lastRenderTime,
-              let playerTime = node.playerTime(forNodeTime: last) else { return }
-        position = min(anchor + Double(playerTime.sampleTime) / playerTime.sampleRate, duration)
+        guard state == .playing else { return }
+        position = currentTime
         onChange?()
     }
 

@@ -168,12 +168,17 @@ struct GlobalPlayer: View {
             progressivePlayPause
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(title)
-                    .font(AttenTypography.callout.weight(.semibold))
-                    .foregroundStyle(AttenColor.text1)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { model.openNowPlaying() } label: {
+                    Text(title)
+                        .font(AttenTypography.callout.weight(.semibold))
+                        .foregroundStyle(AttenColor.text1)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .help("Open Now Playing")
+                .accessibilityLabel("Open Now Playing for \(title)")
                 ScrubBar(position: player.position, duration: player.duration, seek: player.seek(to:), neutral: true)
             }
             .frame(minWidth: 120, maxWidth: .infinity)
@@ -182,9 +187,7 @@ struct GlobalPlayer: View {
                 .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.text2)
 
-            // The full player has nothing to show until narration finishes,
-            // so a timer for listening as it narrates is set here.
-            SleepTimerControl(timer: model.sleepTimer)
+            expandButton
         }
         .padding(.leading, AttenSpacing.sm)
         .padding(.trailing, AttenSpacing.md)

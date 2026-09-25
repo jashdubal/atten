@@ -85,6 +85,76 @@ final class PlayerRenderTests: XCTestCase {
         }
     }
 
+    /// The whole player part way through a narration: the sentences heard so
+    /// far, the word being spoken underlined, and the rest of the chapter
+    /// waiting dimmed after them.
+    func testFullPlayerMidNarrationRendersInBothAppearances() async throws {
+        guard let renderDirPath = ProcessInfo.processInfo.environment["ATTEN_RENDER_DIR"] else {
+            throw XCTSkip("Set ATTEN_RENDER_DIR to render player screenshots")
+        }
+        let renderDir = URL(fileURLWithPath: renderDirPath, isDirectory: true)
+        try FileManager.default.createDirectory(at: renderDir, withIntermediateDirectories: true)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AttenPlayerRenderTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "AttenPlayerRenderTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = AppModel(
+            directories: AppDirectories(applicationSupport: directory),
+            settingsStore: SettingsStore(defaults: defaults),
+            generator: ImmediateGenerator()
+        )
+
+        let heard = [
+            "Rain fell on the harbour all that week. The boats knocked together at their moorings.",
+            "Nobody came down to the water. The gulls kept to the roofs and watched.",
+        ]
+        let waiting = "By the Thursday the tide had turned, and with it the wind.\n\nMorning came grey and slow over the breakwater."
+        let book = BookRecord(
+            title: "The Harbour Year", author: "M. Aldous", format: .epub,
+            sourcePath: directory.appendingPathComponent("harbour.epub").path,
+            chapters: [
+                BookChapter(title: "The Harbour", text: heard.joined(separator: "\n\n") + "\n\n" + waiting),
+                BookChapter(title: "Low Water", text: "The mud flats shone. Somebody was digging for bait."),
+            ],
+            voiceID: "af_heart", speed: 1, audioFormat: .wav
+        )
+        try Data("book".utf8).write(to: book.sourceURL)
+        try await BookLibraryStore(fileURL: AppDirectories(applicationSupport: directory).booksFile).save([book])
+        await model.bookshelf.load()
+        var start = 0.0
+        for (index, text) in heard.enumerated() {
+            let url = try ListeningTests.silentAudio(seconds: 6, in: directory)
+            model.progressivePlayer.receive(bookID: book.id, chapterIndex: 0, segment: SegmentReady(
+                url: url, timing: TimedSegment(index: index, text: text, start: start, duration: 6, words: [])
+            ))
+            start += 6
+        }
+        model.progressivePlayer.seek(to: 7.9)
+        model.sleepTimer.set(.endOfChapter, ticking: false)
+        defer { model.progressivePlayer.stop() }
+        XCTAssertEqual(ReadAlongSession(model: model).source, .progressive(book: book.id))
+
+        for dark in [false, true] {
+            try write(
+                try await renderImage(FullPlayer(model: model), dark: dark, size: CGSize(width: 820, height: 1100)),
+                to: renderDir.appendingPathComponent("player-narrating-\(dark ? "dark" : "light").png")
+            )
+        }
+    }
+
+    private struct FullPlayer: View {
+        let model: AppModel
+        @Namespace private var namespace
+
+        var body: some View {
+            ReadAlongView(model: model, namespace: namespace)
+        }
+    }
+
     /// The foot of the player: a list open over the transport.
     private struct Stage: View {
         let model: AppModel
@@ -109,13 +179,15 @@ final class PlayerRenderTests: XCTestCase {
 
     private enum RenderError: Error { case empty }
 
-    private func renderImage(_ view: some View, dark: Bool) async throws -> NSImage {
+    private func renderImage(
+        _ view: some View, dark: Bool, size: CGSize = CGSize(width: 728, height: 560)
+    ) async throws -> NSImage {
         NSApplication.shared.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         let renderer = ImageRenderer(content:
             view
                 .environment(\.colorScheme, dark ? .dark : .light)
                 .environment(\.attenIsOffscreenRender, true)
-                .frame(width: 728, height: 560)
+                .frame(width: size.width, height: size.height)
         )
         renderer.scale = 2
         for _ in 0..<6 {
