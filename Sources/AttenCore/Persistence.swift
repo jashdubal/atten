@@ -5,6 +5,9 @@ public struct AppDirectories: Sendable {
     public let projectsFile: URL
     public let defaultExports: URL
     public let booksFile: URL
+    /// Playback positions, kept apart from `books.json` so saving one does
+    /// not rewrite the whole library (`ListeningPositionStore`).
+    public let positionsFile: URL
     /// Atten's own copies of imported books, and the narrations generated from
     /// them. Both live beside the project history so one backup covers the app.
     public let bookSources: URL
@@ -23,6 +26,7 @@ public struct AppDirectories: Sendable {
         self.projectsFile = base.appendingPathComponent("projects.json")
         self.defaultExports = base.appendingPathComponent("Exports", isDirectory: true)
         self.booksFile = base.appendingPathComponent("books.json")
+        self.positionsFile = base.appendingPathComponent("positions.json")
         self.bookSources = base.appendingPathComponent("Library", isDirectory: true)
         self.narrations = base.appendingPathComponent("Narrations", isDirectory: true)
     }

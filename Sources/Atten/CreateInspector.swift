@@ -10,24 +10,25 @@ struct CreateInspector: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isGenerating: Bool { flow.state == .generating }
+    private var isQueued: Bool { flow.state == .queued }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                NarratorCard(model: model, flow: flow, isLocked: isGenerating)
-                if !isGenerating { advanced }
+                NarratorCard(model: model, flow: flow, isLocked: isGenerating || isQueued)
+                if !isGenerating && !isQueued { advanced }
                 Spacer(minLength: 0)
             }
             .padding(AttenSpacing.lg)
             Rectangle().fill(AttenColor.hairline).frame(height: 1)
             Group {
-                if isGenerating { generatingFooter } else { footer }
+                if isGenerating { generatingFooter } else if isQueued { queuedFooter } else { footer }
             }
             .padding(AttenSpacing.lg)
             // Clear of the player's ring, which floats at the bottom.
             .padding(.bottom, model.playerTitle == nil ? 0 : AttenMetrics.playerHeight)
         }
-        .animation(AttenMotion.transitionAnimation(AttenMotion.state, reduceMotion: reduceMotion), value: isGenerating)
+        .animation(AttenMotion.transitionAnimation(AttenMotion.state, reduceMotion: reduceMotion), value: flow.state)
     }
 
     private var advanced: some View {
@@ -92,6 +93,27 @@ struct CreateInspector: View {
             .keyboardShortcut(.return, modifiers: .command)
             .disabled(!flow.canGenerate)
         }
+    }
+
+    /// Waiting behind another narration: where in line, what it will take,
+    /// and the way out of the line.
+    private var queuedFooter: some View {
+        let status = "\(flow.isQueuePaused ? "Paused" : "Queued") · position \(flow.queuePosition ?? 1)"
+        return VStack(alignment: .leading, spacing: AttenSpacing.sm) {
+            Label(status, systemImage: flow.isQueuePaused ? "pause.circle" : "clock")
+                .attenText(.callout)
+                .fontWeight(.semibold)
+                .foregroundStyle(AttenColor.text1)
+            Text("\(ListenEstimator.audioLabel(flow.listenDuration)) · \(ListenEstimator.generationLabel(flow.generationDuration))")
+                .attenText(.callout)
+                .foregroundStyle(AttenColor.text2)
+                .monospacedDigit()
+            Button("Remove from Queue", action: flow.removeFromQueue)
+                .buttonStyle(AttenTertiaryButtonStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(status)
     }
 
     private var generatingFooter: some View {
