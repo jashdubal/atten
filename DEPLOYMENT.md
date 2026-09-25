@@ -255,6 +255,16 @@ bundle. Books, projects, and listening state use that directory; settings use
 run and a separate validation bundle identifier to isolate window restoration.
 Never point a test reset at a real user's library.
 
+## Pre-tag checklist
+
+- [ ] `CFBundleShortVersionString` in `macOS/Info.plist` matches the version being tagged.
+- [ ] `CHANGELOG.md` has an entry for the version.
+- [ ] `packaging/RELEASE_NOTES.md` reflects the version being released.
+- [ ] `scripts/smoke-packaged-backend` passes against the packaged build.
+- [ ] The release build is signed with the Developer ID identity.
+- [ ] Notarization — **blocked on the Apple Developer account.**
+- [ ] Tag pushed and `.github/workflows/release.yml` has published all four assets.
+
 ## Candidate status
 
 The September 2026 candidate uses the installed Developer ID identity and passes
