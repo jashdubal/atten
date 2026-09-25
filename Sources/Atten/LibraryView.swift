@@ -421,6 +421,7 @@ struct LibraryView: View {
             cover: shelf.covers.cover(for: book.id),
             dominantColor: shelf.covers.dominantColor(for: book.id),
             progress: shelf.progress,
+            queued: shelf.isQueued(book.id) ? (shelf.isPaused(book.id) ? "Paused" : "Queued") : nil,
             isList: showsList,
             isPlaying: model.playingBook?.id == book.id && model.isPlaying,
             isHighlighted: duplicateBookID == book.id,
@@ -542,6 +543,8 @@ private struct BookCard: View {
     let cover: NSImage?
     let dominantColor: OKLCHColor?
     let progress: BookshelfModel.NarrationProgress?
+    /// "Queued" or "Paused" while the book waits in the narration queue.
+    let queued: String?
     let isList: Bool
     let isPlaying: Bool
     let isHighlighted: Bool
@@ -562,6 +565,7 @@ private struct BookCard: View {
     /// Matches whichever caption or meter the card is showing, so VoiceOver
     /// reports the same state a sighted reader sees.
     private var narrationStatus: String {
+        if let queued { return "\(queued), \(narrated) of \(book.chapters.count) chapters narrated" }
         if isNarrating || (narrated > 0 && !isFullyNarrated) {
             return "\(narrated) of \(book.chapters.count) chapters narrated"
         }
@@ -575,6 +579,9 @@ private struct BookCard: View {
                 : AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
             layout {
                 jacket.frame(width: isList ? 64 : nil)
+                    // Waiting is not generating: no colour until its turn.
+                    .grayscale(queued == nil ? 0 : 1)
+                    .opacity(queued == nil ? 1 : 0.7)
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(book.title)
@@ -599,8 +606,8 @@ private struct BookCard: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Group {
-                    if isNarrating || (narrated > 0 && !isFullyNarrated) {
-                        NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating)
+                    if isNarrating || queued != nil || (narrated > 0 && !isFullyNarrated) {
+                        NarrationMeter(narrated: narrated, total: book.chapters.count, isRunning: isNarrating, queued: queued)
                     } else if isFullyNarrated {
                         Label("Ready to listen", systemImage: "headphones")
                             .font(AttenTypography.callout)
@@ -701,6 +708,7 @@ struct NarrationMeter: View {
     let narrated: Int
     let total: Int
     let isRunning: Bool
+    var queued: String?
 
     private var fraction: Double { total > 0 ? min(1, max(0, Double(narrated) / Double(total))) : 0 }
 
@@ -710,7 +718,7 @@ struct NarrationMeter: View {
                 Capsule().fill(AttenColor.progressTrack)
                     .overlay(alignment: .leading) {
                         Capsule()
-                            .fill(narrated >= total && total > 0 ? AttenColor.success : AttenColor.accent)
+                            .fill(narrated >= total && total > 0 ? AttenColor.success : (queued == nil ? AttenColor.accent : AttenColor.text3))
                             .frame(width: geometry.size.width * fraction)
                     }
             }
@@ -731,6 +739,7 @@ struct NarrationMeter: View {
 
     private var label: String {
         if isRunning { return "Narrating… \(narrated) of \(total) chapters" }
+        if let queued { return "\(queued) · \(narrated) of \(total) chapters" }
         if total == 0 { return "No chapters" }
         if narrated == total { return "Audiobook · \(total) chapters" }
         return "\(narrated) of \(total) chapters narrated"

@@ -68,6 +68,9 @@ final class BookshelfModel {
 
     private(set) var books: [BookRecord] = []
     private(set) var progress: NarrationProgress?
+    /// Narrations in the order they take the engine, the running one
+    /// included until it ends.
+    private(set) var queue: [QueuedNarration] = []
     private(set) var isImporting = false
     private(set) var duplicateImport: DuplicateImportEvent?
     /// How many chapters of each book have narration on disk.
@@ -111,6 +114,9 @@ final class BookshelfModel {
     /// playback) can let go.
     @ObservationIgnored var onNarrationEnded: ((UUID) -> Void)?
     @ObservationIgnored private var retiredAudio: Set<URL> = []
+    /// Set on quit, so the narration being stopped keeps its place in the
+    /// queue and nothing after it starts.
+    @ObservationIgnored private var isShuttingDown = false
 
     init(directories: AppDirectories, generator: any TTSGenerating,
          synthesis: SynthesisCoordinator = SynthesisCoordinator(),
@@ -224,6 +230,7 @@ final class BookshelfModel {
                 }
             }.value
             refreshNarrationCounts()
+            restoreQueue()
             if let recovered = await store.recoveredFileURL {
                 errorMessage = "Some library records could not be read. The original is preserved at \(recovered.path)."
             }
@@ -452,8 +459,13 @@ final class BookshelfModel {
 
     /// Resumes chapter checkpoints, then publishes one recording for the book.
     /// A request from any chapter prepares the whole audiobook.
+    /// While another book is narrating, this one joins the queue instead.
     func narrate(_ bookID: UUID, chapters requested: [Int]? = nil, useMPS: Bool) {
-        guard narrationTask == nil, let book = book(id: bookID) else { return }
+        if narrationTask != nil {
+            enqueue(bookID, useMPS: useMPS)
+            return
+        }
+        guard let book = book(id: bookID) else { return }
         let pending = Array(book.chapters.indices)
             .filter { book.chapters.indices.contains($0) && !book.chapters[$0].isNarrated }
         guard (!book.hasBookAudio || book.needsPreparation), !book.chapters.isEmpty else { return }
@@ -467,6 +479,7 @@ final class BookshelfModel {
             errorMessage = "Wait for \(synthesis.activity ?? "the current task") to finish, or stop it first."
             return
         }
+        admit(bookID, useMPS: useMPS)
         setNarrationState(.preparing, for: bookID)
         errorMessage = nil
         successMessage = nil
@@ -490,6 +503,7 @@ final class BookshelfModel {
                 narrationTask = nil
                 progress = nil
                 onNarrationEnded?(bookID)
+                narrationEnded(bookID)
             }
             do {
                 try FileManager.default.createDirectory(
@@ -503,6 +517,12 @@ final class BookshelfModel {
                 let totalWords = pending.reduce(0) { $0 + book.chapters[$1].text.count }
                 for index in pending {
                     try Task.checkCancellation()
+                    // Pausing waits for a chapter boundary, so every chapter
+                    // finished so far is kept.
+                    if isPaused(bookID) {
+                        setNarrationState(.interrupted, for: bookID)
+                        return
+                    }
                     guard let position = books.firstIndex(where: { $0.id == bookID }) else { return }
                     let current = books[position]
                     let chapter = current.chapters[index]
@@ -670,6 +690,118 @@ final class BookshelfModel {
         generator.cancel()
     }
 
+    // MARK: - Queue
+
+    /// The book narrating now, if any.
+    var narratingBookID: UUID? { progress?.bookID }
+
+    /// Waiting for the engine or paused, but not running.
+    func isQueued(_ bookID: UUID) -> Bool {
+        narratingBookID != bookID && queue.contains { $0.bookID == bookID }
+    }
+
+    func isPaused(_ bookID: UUID) -> Bool {
+        queue.first { $0.bookID == bookID }?.isPaused == true
+    }
+
+    /// Narration can be asked for when the engine is free, or when what holds
+    /// it is another narration the request can queue behind.
+    var canStartNarration: Bool { !synthesis.isBusy || narrationTask != nil }
+
+    /// A running narration finishes the chapter it is on, then stops.
+    func pauseNarration(_ bookID: UUID) {
+        guard let index = queue.firstIndex(where: { $0.bookID == bookID }) else { return }
+        queue[index].isPaused = true
+        saveQueue()
+    }
+
+    func resumeNarration(_ bookID: UUID) {
+        guard canStartNarration, let index = queue.firstIndex(where: { $0.bookID == bookID }) else { return }
+        queue[index].isPaused = false
+        saveQueue()
+        startNext()
+    }
+
+    /// Removing the running narration stops it, keeping every finished chapter.
+    func removeFromQueue(_ bookID: UUID) {
+        if narratingBookID == bookID {
+            cancelNarration()
+            return
+        }
+        queue.removeAll { $0.bookID == bookID }
+        saveQueue()
+    }
+
+    /// Order decides what runs next; the running narration is not interrupted.
+    func moveQueue(fromOffsets source: IndexSet, toOffset destination: Int) {
+        queue.move(fromOffsets: source, toOffset: destination)
+        saveQueue()
+    }
+
+    /// Words still to be spoken: every chapter not yet narrated, less what the
+    /// engine has already said of the one in progress.
+    func remainingWords(for bookID: UUID) -> Int {
+        guard let book = book(id: bookID) else { return 0 }
+        let words = book.chapters.filter { !$0.isNarrated }.reduce(0) { $0 + ListenEstimator.wordCount($1.text) }
+        return max(0, words - (progress?.bookID == bookID ? progress?.spokenWords ?? 0 : 0))
+    }
+
+    private func enqueue(_ bookID: UUID, useMPS: Bool) {
+        guard let book = book(id: bookID), !isFullyNarrated(book) else { return }
+        if let index = queue.firstIndex(where: { $0.bookID == bookID }) {
+            queue[index].isPaused = false
+        } else {
+            queue.append(QueuedNarration(bookID: bookID, useMPS: useMPS))
+        }
+        saveQueue()
+    }
+
+    /// A narration that starts at once goes to the front, running.
+    private func admit(_ bookID: UUID, useMPS: Bool) {
+        if let index = queue.firstIndex(where: { $0.bookID == bookID }) {
+            queue[index].isPaused = false
+        } else {
+            queue.insert(QueuedNarration(bookID: bookID, useMPS: useMPS), at: 0)
+        }
+        saveQueue()
+    }
+
+    /// A paused narration keeps its place; anything else that ended — done,
+    /// stopped or failed — leaves, and the next one waiting starts.
+    private func narrationEnded(_ bookID: UUID) {
+        guard !isShuttingDown else { return }
+        if !isPaused(bookID) || book(id: bookID).map(isFullyNarrated) ?? true {
+            queue.removeAll { $0.bookID == bookID }
+        }
+        saveQueue()
+        startNext()
+    }
+
+    /// Starts the first narration that is not paused. One that cannot start —
+    /// already narrated, its voice not downloaded — leaves the queue, and
+    /// the shelf's message says why.
+    private func startNext() {
+        while narrationTask == nil, !synthesis.isBusy, let next = queue.first(where: { !$0.isPaused }) {
+            narrate(next.bookID, useMPS: next.useMPS)
+            if narrationTask == nil {
+                queue.removeAll { $0.bookID == next.bookID }
+                saveQueue()
+            }
+        }
+    }
+
+    /// A queue left by the last launch comes back paused: nothing starts
+    /// generating until it is asked to again.
+    private func restoreQueue() {
+        queue = NarrationQueueFile.load(from: NarrationQueueFile.url(in: directories))
+            .filter { entry in book(id: entry.bookID).map { !isFullyNarrated($0) } ?? false }
+            .map { var entry = $0; entry.isPaused = true; return entry }
+    }
+
+    private func saveQueue() {
+        try? NarrationQueueFile.save(queue, to: NarrationQueueFile.url(in: directories))
+    }
+
     /// Most voices run on the bundled engine; the rest name one model that has
     /// to be downloaded once. Saying so beats starting a run of 135 chapters
     /// that can only fail on the first.
@@ -830,6 +962,7 @@ final class BookshelfModel {
     func remove(_ bookID: UUID) {
         guard let index = books.firstIndex(where: { $0.id == bookID }) else { return }
         if progress?.bookID == bookID { cancelNarration() }
+        else if queue.contains(where: { $0.bookID == bookID }) { removeFromQueue(bookID) }
         importErrorMessage = nil
         importSuccessMessage = nil
         narrationErrorMessage = nil
@@ -899,8 +1032,12 @@ final class BookshelfModel {
     }
 
     func stopAndSave() async throws {
+        isShuttingDown = true
         cancelNarration()
         await narrationTask?.value
+        // What a relaunch would restore, should the quit be called off.
+        for index in queue.indices { queue[index].isPaused = true }
+        isShuttingDown = false
         try await flushPersistence()
     }
 

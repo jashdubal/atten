@@ -47,6 +47,7 @@ final class AppModel {
     /// Plays whichever narration is being generated, as its segments land.
     let progressivePlayer = ProgressivePlayer()
     let sleepTimer = SleepTimer()
+    let narrationNotifier = NarrationNotifier()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -138,6 +139,13 @@ final class AppModel {
                 }
             }
             createFlow.narrationFinished(run.bookID)
+            if let book = bookshelf.book(id: run.bookID) {
+                narrationNotifier.narrationFinished(bookID: book.id, title: book.title)
+            }
+        }
+        SystemNotifications.shared.open = { [weak self] bookID in
+            self?.section = .library
+            self?.openInLibrary(.book(bookID))
         }
         self.bookshelf.onSegmentReady = { [weak self] bookID, chapterIndex, segment in
             self?.progressivePlayer.receive(bookID: bookID, chapterIndex: chapterIndex, segment: segment)
