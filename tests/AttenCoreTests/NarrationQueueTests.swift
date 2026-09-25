@@ -217,6 +217,64 @@ final class NarrationQueueTests: XCTestCase {
         XCTAssertEqual(delivered, 0)
     }
 
+    // MARK: - Clicking a notification
+
+    func testANotificationCarriesItsBookInUserInfo() {
+        let bookID = UUID()
+        let content = SystemNotifications.content(title: "Ready", bookID: bookID)
+        XCTAssertEqual(content.userInfo["bookID"] as? String, bookID.uuidString)
+    }
+
+    func testAClickThatLaunchedAttenOpensItsBookOnceTheShelfIsReady() {
+        let notifications = SystemNotifications()
+        let bookID = UUID()
+        var opened: [UUID] = []
+
+        // Delivered before a relaunch; clicked while Atten is still starting.
+        notifications.route(SystemNotifications.content(title: "Ready", bookID: bookID).userInfo)
+        XCTAssertEqual(notifications.pendingBookID, bookID)
+
+        notifications.open = { opened.append($0) }
+        XCTAssertEqual(opened, [bookID])
+        XCTAssertNil(notifications.pendingBookID)
+
+        // Once running, a click opens its book at once.
+        let later = UUID()
+        notifications.route(["bookID": later.uuidString])
+        XCTAssertEqual(opened, [bookID, later])
+
+        // Anything else is ignored.
+        notifications.route(["bookID": "not a book"])
+        notifications.route([:])
+        XCTAssertEqual(opened, [bookID, later])
+        XCTAssertNil(notifications.pendingBookID)
+    }
+
+    func testStartingAttenRoutesAPendingClickToTheBook() async throws {
+        let book = try draft("Clicked")
+        try await shelf.flushPersistence()
+        let suite = "AttenNotificationTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = SettingsStore(defaults: defaults)
+        var settings = store.load(defaultOutputDirectory: directories.defaultExports)
+        settings.checksForUpdates = false
+        try store.save(settings)
+
+        let previous = SystemNotifications.shared.open
+        defer { SystemNotifications.shared.open = previous }
+        SystemNotifications.shared.open = nil
+        SystemNotifications.shared.route(["bookID": book.id.uuidString])
+
+        let model = AppModel(directories: directories, settingsStore: store, generator: ImmediateGenerator())
+        model.section = .studio
+        await model.start()
+        XCTAssertEqual(model.section, .library)
+        XCTAssertEqual(model.libraryPath.last, .book(book.id))
+        XCTAssertNotNil(model.bookshelf.book(id: book.id)?.lastOpenedAt, "The shelf had loaded when the book was opened")
+        XCTAssertNil(SystemNotifications.shared.pendingBookID)
+    }
+
     // MARK: - Helpers
 
     private func draft(_ title: String, chapters: Int = 1, extraWords: Int = 0) throws -> BookRecord {

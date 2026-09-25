@@ -104,6 +104,10 @@ struct AttenApp: App {
 final class AttenAppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        SystemNotifications.shared.startListening()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         model.prepareForTermination()

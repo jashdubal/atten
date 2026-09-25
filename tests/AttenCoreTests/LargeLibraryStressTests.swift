@@ -142,4 +142,57 @@ final class LargeLibraryStressTests: XCTestCase {
         XCTAssertLessThan(cardTime, 0.25)
         XCTAssertLessThan(repeatTime, 0.01)
     }
+
+    /// Bytes written per minute of playback. A position was saved every 5 s
+    /// by rewriting all of `books.json`; now it goes to `positions.json`,
+    /// written at most once per 5 s, and `books.json` is left alone.
+    func testAMinuteOfPlaybackWritesPositionsNotTheLibrary() async throws {
+        try StressFixtures.skipUnlessEnabled()
+        let root = try StressFixtures.dataDirectory("positions")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directories = AppDirectories(applicationSupport: root)
+        try directories.prepare()
+        let books = try StressFixtures.library(count: 1_000, chapters: 30, wordsPerChapter: 300, narratedEvery: 5, in: directories)
+        let library = BookLibraryStore(fileURL: directories.booksFile)
+        try await library.save(books)
+        let saves = Int(60 / ListeningPositionStore.minimumInterval)
+
+        // Before: each save rewrote the whole shelf.
+        var before = 0
+        let (_, beforeTime) = try await StressFixtures.time {
+            for _ in 0..<saves {
+                try await library.save(books)
+                before += (try FileManager.default.attributesOfItem(atPath: directories.booksFile.path)[.size] as? Int) ?? 0
+            }
+        }
+        StressFixtures.report("before: books.json × \(saves) per minute", beforeTime, "\(before / 1_024) KB/min")
+
+        // After, with one book ever listened to and then with all thousand.
+        let clock = ManualClock()
+        let shelf = BookshelfModel(directories: directories, generator: ImmediateGenerator(), positionClock: clock.clock)
+        await shelf.load()
+        let booksJSON = try Data(contentsOf: directories.booksFile)
+        let playing = try XCTUnwrap(shelf.books.first { $0.hasBookAudio })
+        var results: [Int] = []
+        for listened in [1, 1_000] {
+            for book in shelf.books.prefix(listened) { shelf.saveListeningPosition(1, for: book.id) }
+            try await shelf.flushPersistence()
+            let (startBytes, startWrites) = (await shelf.positions.bytesWritten, await shelf.positions.writeCount)
+            let (_, afterTime) = try await StressFixtures.time {
+                for tick in 1...saves {
+                    clock.advance(by: ListeningPositionStore.minimumInterval)
+                    shelf.saveListeningPosition(Double(tick * 5), for: playing.id)
+                    try await shelf.flushPersistence()
+                }
+            }
+            let bytes = await shelf.positions.bytesWritten - startBytes
+            let writes = await shelf.positions.writeCount - startWrites
+            XCTAssertEqual(writes, saves)
+            results.append(bytes)
+            StressFixtures.report("after: positions.json, \(listened) book(s) listened", afterTime, "\(bytes) B/min in \(writes) writes")
+        }
+        XCTAssertEqual(try Data(contentsOf: directories.booksFile), booksJSON, "Playback never rewrote books.json")
+        StressFixtures.report("reduction, worst case", 0, String(format: "%.0f×", Double(before) / Double(max(1, results.max() ?? 1))))
+        XCTAssertLessThan(results.max() ?? .max, before / 50)
+    }
 }

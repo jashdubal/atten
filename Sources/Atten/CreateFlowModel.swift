@@ -4,7 +4,7 @@ import Foundation
 import Observation
 import UniformTypeIdentifiers
 
-/// The four states Create moves through.
+/// The states Create moves through.
 enum CreateState: Equatable {
     /// Nothing yet: a place to drop, paste or start writing.
     case empty
@@ -12,6 +12,9 @@ enum CreateState: Equatable {
     case editing
     /// The draft is being narrated; the text is read-only in place.
     case generating
+    /// The draft waits in the narration queue behind another book, read-only
+    /// like `generating` so what was queued is what gets narrated.
+    case queued
     /// Narration finished; the cover is on its way to the Library.
     case done
 }
@@ -42,8 +45,9 @@ final class CreateFlowModel {
     var errorMessage: String?
     var isCasting = false
     var isDropTargeted = false
-    /// The draft being narrated, which may no longer be the one being written.
-    @ObservationIgnored private var narratingID: UUID?
+    /// Drafts narrating or queued from here, which may no longer include the
+    /// one being written.
+    @ObservationIgnored private var narratingIDs: Set<UUID> = []
     /// The draft that just finished, while its cover is shown.
     private(set) var finishedBookID: UUID?
     /// The narration "Added to Library" is offering to undo.
@@ -76,12 +80,25 @@ final class CreateFlowModel {
     var state: CreateState {
         if finishedBookID != nil { return .done }
         if isGenerating { return .generating }
+        if queuePosition != nil { return .queued }
         return isWriting || !text.isEmpty ? .editing : .empty
     }
 
     private var isGenerating: Bool {
         guard let draftID else { return false }
         return app?.bookshelf.progress?.bookID == draftID
+    }
+
+    /// Where the draft waits in the narration queue, counting from 1 for
+    /// the next to run.
+    var queuePosition: Int? {
+        guard let draftID, let shelf = app?.bookshelf, shelf.isQueued(draftID) else { return nil }
+        return shelf.queue.filter { $0.bookID != shelf.narratingBookID }.firstIndex { $0.bookID == draftID }.map { $0 + 1 }
+    }
+
+    var isQueuePaused: Bool {
+        guard let draftID else { return false }
+        return app?.bookshelf.isPaused(draftID) == true
     }
 
     private var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -256,7 +273,9 @@ final class CreateFlowModel {
         guard let app else { return nil }
         if trimmedText.isEmpty { return "Add text to generate" }
         if importingName != nil { return "Importing…" }
-        if app.synthesis.isBusy { return "Another narration is running" }
+        // Behind another narration the draft queues; anything else holding
+        // the engine has to finish first.
+        if !app.bookshelf.canStartNarration { return "Another narration is running" }
         return nil
     }
 
@@ -286,7 +305,14 @@ final class CreateFlowModel {
         }
         guard let draftID else { return }
         app.bookshelf.narrate(draftID, useMPS: app.settings.useMPS)
-        if isGenerating { narratingID = draftID } else { errorMessage = app.bookshelf.errorMessage }
+        if isGenerating || state == .queued { narratingIDs.insert(draftID) } else { errorMessage = app.bookshelf.errorMessage }
+    }
+
+    /// Takes the draft out of the queue; the text becomes editable again.
+    func removeFromQueue() {
+        guard let draftID, state == .queued else { return }
+        app?.bookshelf.removeFromQueue(draftID)
+        narratingIDs.remove(draftID)
     }
 
     func cancel() {
@@ -362,8 +388,7 @@ final class CreateFlowModel {
     // MARK: - Done
 
     func narrationFinished(_ bookID: UUID) {
-        guard let app, bookID == narratingID else { return }
-        narratingID = nil
+        guard let app, narratingIDs.remove(bookID) != nil else { return }
         // "Added to Library" says it; the shelf's banner would say it twice.
         app.bookshelf.successMessage = nil
         app.bookshelf.narrationSuccessMessage = nil

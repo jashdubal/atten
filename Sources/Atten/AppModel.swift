@@ -144,10 +144,6 @@ final class AppModel {
                 narrationNotifier.narrationFinished(bookID: book.id, title: book.title)
             }
         }
-        SystemNotifications.shared.open = { [weak self] bookID in
-            self?.section = .library
-            self?.openInLibrary(.book(bookID))
-        }
         self.bookshelf.onSegmentReady = { [weak self] bookID, chapterIndex, segment in
             self?.progressivePlayer.receive(bookID: bookID, chapterIndex: chapterIndex, segment: segment)
         }
@@ -220,6 +216,11 @@ final class AppModel {
         }
         library.start()
         await bookshelf.load()
+        // After the shelf has loaded, so a click that launched Atten finds its book.
+        SystemNotifications.shared.open = { [weak self] bookID in
+            self?.section = .library
+            self?.openInLibrary(.book(bookID))
+        }
         if let book = bookshelf.books.filter({ $0.hasBookAudio && $0.lastListenedAt != nil })
             .max(by: { ($0.lastListenedAt ?? .distantPast) < ($1.lastListenedAt ?? .distantPast) }),
            let track = book.narrationTracks.first {

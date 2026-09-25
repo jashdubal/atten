@@ -94,6 +94,9 @@ final class BookshelfModel {
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let store: BookLibraryStore
+    @ObservationIgnored let positions: ListeningPositionStore
+    /// Position changes reach the store in the order they were made.
+    @ObservationIgnored private var positionUpdate: Task<Void, Never>?
     let synthesis: SynthesisCoordinator
     let covers: BookCoverStore
     typealias AudioAssembler = @Sendable ([URL], URL) throws -> BookAudioAssembler.Result
@@ -129,11 +132,13 @@ final class BookshelfModel {
 
     init(directories: AppDirectories, generator: any TTSGenerating,
          synthesis: SynthesisCoordinator = SynthesisCoordinator(),
-         assembler: @escaping AudioAssembler = { try BookAudioAssembler.assemble($0, in: $1) }) {
+         assembler: @escaping AudioAssembler = { try BookAudioAssembler.assemble($0, in: $1) },
+         positionClock: ListeningPositionStore.Clock = .system) {
         self.assembleAudio = assembler
         self.synthesis = synthesis
         self.directories = directories
         self.store = BookLibraryStore(fileURL: directories.booksFile)
+        self.positions = ListeningPositionStore(fileURL: directories.positionsFile, clock: positionClock)
         self.covers = BookCoverStore(
             directory: directories.bookSources.appendingPathComponent("Covers", isDirectory: true)
         )
@@ -222,7 +227,9 @@ final class BookshelfModel {
 
     func load() async {
         do {
+            let saved = await positions.load()
             let loaded = try await store.load().sorted { $0.addedAt > $1.addedAt }
+                .map { var book = $0; book.adopt(saved[book.id]); return book }
             books = await Task.detached(priority: .utility) {
                 loaded.map { original in
                     var book = original
@@ -678,6 +685,7 @@ final class BookshelfModel {
                     throw error
                 }
                 committed = true
+                updatePositions { await $0.forget(bookID) }
                 let obsolete = snapshot.chapters.compactMap(\.audioURL) + [previous.audioURL].compactMap { $0 }
                 for url in Set(obsolete) where url != result.url {
                     retiredAudio.insert(url)
@@ -923,11 +931,23 @@ final class BookshelfModel {
         persist()
     }
 
+    /// Goes to `positions.json` rather than rewriting the whole shelf; the
+    /// next full save carries it into `books.json` as well.
     func saveListeningPosition(_ position: Double, for id: UUID) {
         guard position.isFinite, let index = books.firstIndex(where: { $0.id == id }) else { return }
+        let now = Date()
         books[index].listeningPosition = max(0, position)
-        books[index].lastListenedAt = Date()
-        persist()
+        books[index].lastListenedAt = now
+        updatePositions { await $0.record(position, for: id, at: now) }
+    }
+
+    private func updatePositions(_ change: @escaping @Sendable (ListeningPositionStore) async -> Void) {
+        let previous = positionUpdate
+        let positions = positions
+        positionUpdate = Task {
+            await previous?.value
+            await change(positions)
+        }
     }
 
     // MARK: - Reading
@@ -1008,6 +1028,7 @@ final class BookshelfModel {
         removeNarrations(for: bookID, chapters: book.chapters)
         covers.forget(bookID)
         narratedCounts.removeValue(forKey: bookID)
+        updatePositions { await $0.forget(bookID) }
         persist()
         successMessage = "Removed \(book.title) from your library."
     }
@@ -1025,6 +1046,7 @@ final class BookshelfModel {
         books[index].narrationFailure = nil
         books[index].listeningPosition = 0
         books[index].lastListenedAt = nil
+        updatePositions { await $0.forget(bookID) }
         for chapter in books[index].chapters.indices {
             books[index].chapters[chapter].audioPath = nil
             books[index].chapters[chapter].startTime = nil
@@ -1065,6 +1087,8 @@ final class BookshelfModel {
 
     func flushPersistence() async throws {
         try await pendingSave?.value
+        await positionUpdate?.value
+        try await positions.flush()
     }
 
     func stopAndSave() async throws {
