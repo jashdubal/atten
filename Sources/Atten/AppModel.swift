@@ -46,6 +46,7 @@ final class AppModel {
     let createFlow = CreateFlowModel()
     /// Plays whichever narration is being generated, as its segments land.
     let progressivePlayer = ProgressivePlayer()
+    let sleepTimer = SleepTimer()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -129,9 +130,11 @@ final class AppModel {
                 // Only a listener actually mid-narration needs handing off —
                 // otherwise nothing was following along, and switching the
                 // player over would silently steal whatever it already had
-                // loaded.
-                if handoff.wasPlaying, let book = bookshelf.book(id: run.bookID) {
-                    play(tracks: book.narrationTracks, atPosition: handoff.position)
+                // loaded. A full player open on the narration, paused, has
+                // nothing loaded to steal and keeps its place.
+                let isShowingNarration = queue.current == nil && section == .nowPlaying
+                if handoff.wasPlaying || isShowingNarration, let book = bookshelf.book(id: run.bookID) {
+                    play(tracks: book.narrationTracks, atPosition: handoff.position, autoplay: handoff.wasPlaying)
                 }
             }
             createFlow.narrationFinished(run.bookID)
@@ -146,6 +149,7 @@ final class AppModel {
             self?.publishProgressiveNowPlaying()
         }
         createFlow.app = self
+        connectSleepTimer()
     }
 
     var selectedVoice: Voice {
@@ -598,6 +602,12 @@ final class AppModel {
     }
 
     var playbackRate: Double { settings.playbackRate }
+
+    /// Only the sleep timer's fade changes this.
+    func setPlaybackVolume(_ volume: Float) {
+        audioPlayer?.volume = volume
+        progressivePlayer.volume = volume
+    }
 
     func closePlayer() {
         stopPlayback()
@@ -1157,6 +1167,10 @@ final class AppModel {
         }
         nowPlaying.update(
             track: PlaybackTrack(id: bookID, url: book.sourceURL, title: book.title, subtitle: "Narrating…"),
+            chapter: progressivePlayer.activeSentence.flatMap { sentence in
+                book.chapters.count > 1 && book.chapters.indices.contains(sentence.chapterIndex)
+                    ? book.chapters[sentence.chapterIndex].title : nil
+            },
             isPlaying: progressivePlayer.isPlaying,
             position: progressivePlayer.position,
             duration: progressivePlayer.duration,
@@ -1167,8 +1181,10 @@ final class AppModel {
     }
 
     private func publishNowPlaying() {
+        publishedChapterTitle = playingChapterTitle
         nowPlaying.update(
             track: queue.current,
+            chapter: publishedChapterTitle,
             isPlaying: isPlaying,
             position: playbackPosition,
             duration: playbackDuration,
@@ -1183,6 +1199,7 @@ final class AppModel {
     /// about, so Now Playing is refreshed when something changes rather than
     /// several times a second.
     @ObservationIgnored private var lastPositionSave = Date.distantPast
+    @ObservationIgnored private var publishedChapterTitle: String?
 
     func saveListeningPosition() {
         guard let book = playingBook, book.audioURL == bookshelf.book(id: book.id)?.audioURL else { return }
@@ -1197,6 +1214,7 @@ final class AppModel {
                 guard let self, let player = self.audioPlayer else { return }
                 self.playbackPosition = player.currentTime
                 if Date().timeIntervalSince(self.lastPositionSave) >= 5 { self.saveListeningPosition() }
+                if self.playingChapterTitle != self.publishedChapterTitle { self.publishNowPlaying() }
             }
         }
         RunLoop.main.add(timer, forMode: .common)

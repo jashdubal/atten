@@ -74,6 +74,7 @@ final class NowPlayingCenter {
 
     func update(
         track: PlaybackTrack?,
+        chapter: String? = nil,
         isPlaying: Bool,
         position: TimeInterval,
         duration: TimeInterval,
@@ -89,8 +90,8 @@ final class NowPlayingCenter {
         centre.nextTrackCommand.isEnabled = hasNext
         centre.previousTrackCommand.isEnabled = hasPrevious
 
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-            MPMediaItemPropertyTitle: track.title,
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: chapter ?? track.title,
             MPMediaItemPropertyArtist: track.subtitle ?? "Atten",
             MPMediaItemPropertyPlaybackDuration: duration,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
@@ -98,6 +99,10 @@ final class NowPlayingCenter {
             // runs between updates.
             MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? rate : 0,
         ]
+        // A book's chapter is the title, the way an album's track is, and
+        // the book is the album it belongs to.
+        if chapter != nil { info[MPMediaItemPropertyAlbumTitle] = track.title }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         MPNowPlayingInfoCenter.default().playbackState = isPlaying ? .playing : .paused
     }
 

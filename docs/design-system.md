@@ -142,6 +142,9 @@ serif, for prose someone reads rather than scans). Apply a step with
   15s (in the Read-Along player), ⌘F search the Library. The Library's ⌘F is
   only in the view hierarchy on the shelf page, and the Reader mounts its own
   ⌘F only while it's on screen, so the two never contend for the same key.
+  ⌘D bookmarks in both the Reader (the page) and the Read-Along player (the
+  sentence being spoken); each mounts it only while on screen, and the two
+  are never on screen together.
   See Settings → Shortcuts for the full list.
 
 ## The don'ts

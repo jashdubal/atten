@@ -1,3 +1,4 @@
+import AttenCore
 import SwiftUI
 
 private enum PlayerColor {
@@ -167,12 +168,17 @@ struct GlobalPlayer: View {
             progressivePlayPause
 
             VStack(alignment: .leading, spacing: 0) {
-                Text(title)
-                    .font(AttenTypography.callout.weight(.semibold))
-                    .foregroundStyle(AttenColor.text1)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { model.openNowPlaying() } label: {
+                    Text(title)
+                        .font(AttenTypography.callout.weight(.semibold))
+                        .foregroundStyle(AttenColor.text1)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .help("Open Now Playing")
+                .accessibilityLabel("Open Now Playing for \(title)")
                 ScrubBar(position: player.position, duration: player.duration, seek: player.seek(to:), neutral: true)
             }
             .frame(minWidth: 120, maxWidth: .infinity)
@@ -180,6 +186,8 @@ struct GlobalPlayer: View {
             Text(player.state == .catchingUp ? "Catching up…" : PlaybackFormat.timeText(player.position))
                 .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.text2)
+
+            expandButton
         }
         .padding(.leading, AttenSpacing.sm)
         .padding(.trailing, AttenSpacing.md)
@@ -310,9 +318,13 @@ struct ScrubBar: View {
     let duration: TimeInterval
     let seek: (TimeInterval) -> Void
     var neutral = false
+    /// Ticked where each begins, and named under the pointer. Empty for
+    /// anything with one chapter or none.
+    var chapters: [ListeningMap.Chapter] = []
 
     @State private var dragged: TimeInterval?
     @State private var isHovering = false
+    @State private var hovered: CGFloat?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var shown: TimeInterval { dragged ?? position }
@@ -336,6 +348,13 @@ struct ScrubBar: View {
                 Capsule()
                     .fill(neutral ? AttenColor.textMuted : AttenColor.progress)
                     .frame(width: width * fraction, height: thickness)
+                ForEach(chapters.dropFirst(), id: \.index) { chapter in
+                    Capsule()
+                        .fill(AttenColor.text3)
+                        .frame(width: 2, height: thickness + 6)
+                        .offset(x: width * tickFraction(chapter.start) - 1)
+                        .allowsHitTesting(false)
+                }
                 if isActive {
                     Circle()
                         .fill(neutral ? AttenColor.textMuted : AttenColor.progress)
@@ -346,6 +365,11 @@ struct ScrubBar: View {
             }
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
+            .overlay(alignment: .topLeading) { chapterLabel(width: width) }
+            .onContinuousHover { phase in
+                guard !chapters.isEmpty else { return }
+                if case let .active(point) = phase { hovered = point.x } else { hovered = nil }
+            }
             .animation(AttenMotion.animation(AttenMotion.fast, reduceMotion: reduceMotion), value: isActive)
             // A click anywhere on the track goes there, which is why the
             // gesture starts at zero distance rather than waiting for a drag.
@@ -367,6 +391,38 @@ struct ScrubBar: View {
         .accessibilityValue(PlaybackFormat.timeText(shown))
         .accessibilityAdjustableAction { direction in
             seek(shown + (direction == .increment ? 10 : -10))
+        }
+    }
+
+    private func tickFraction(_ time: TimeInterval) -> Double {
+        duration > 0 ? min(1, max(0, time / duration)) : 0
+    }
+
+    /// The chapter and time under the pointer, or under the thumb while it
+    /// is dragged. Below the track, because the glass around the player
+    /// clips anything above it.
+    @ViewBuilder private func chapterLabel(width: CGFloat) -> some View {
+        let time = dragged ?? hovered.map { self.time(at: $0, width: width) }
+        if !chapters.isEmpty, let time,
+           let index = ListeningMap(chapters: chapters).chapterIndex(at: time) {
+            let text = "\(chapters[index].title) · \(PlaybackFormat.timeText(time))"
+            let x = width * tickFraction(time)
+            Text(text)
+                .attenText(.label)
+                .foregroundStyle(AttenColor.text1)
+                .lineLimit(1)
+                .padding(.horizontal, AttenSpacing.xs)
+                .padding(.vertical, AttenSpacing.xxs)
+                .attenElevated(.floating, radius: AttenRadius.small)
+                .fixedSize()
+                .alignmentGuide(.leading) { label in
+                    // Centred on the pointer, but never off either end.
+                    let left = min(max(0, x - label.width / 2), max(0, width - label.width))
+                    return -left
+                }
+                .offset(y: 20)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 
