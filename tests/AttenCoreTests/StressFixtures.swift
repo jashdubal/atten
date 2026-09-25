@@ -245,10 +245,9 @@ enum StressFixtures {
         return (value, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
     }
 
-    static func time<T>(
-        isolation: isolated (any Actor)? = #isolation,
-        _ body: () async throws -> T
-    ) async rethrows -> (T, Double) {
+    /// The stress tests run on the main actor, and so does what they time.
+    @MainActor
+    static func time<T>(_ body: @MainActor () async throws -> T) async rethrows -> (T, Double) {
         let start = ContinuousClock.now
         let value = try await body()
         let elapsed = ContinuousClock.now - start
@@ -258,14 +257,13 @@ enum StressFixtures {
     /// The process's physical footprint in megabytes — what Activity Monitor
     /// calls its memory.
     static func footprintMB() -> Double {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        var usage = rusage_info_v4()
+        let result = withUnsafeMutablePointer(to: &usage) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(getpid(), RUSAGE_INFO_V4, $0)
             }
         }
-        return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
+        return result == 0 ? Double(usage.ri_phys_footprint) / 1_048_576 : 0
     }
 
 
