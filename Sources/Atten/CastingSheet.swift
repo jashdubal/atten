@@ -52,9 +52,9 @@ struct CastingSheet: View {
             .padding(.bottom, AttenSpacing.md)
 
             VStack(alignment: .leading, spacing: AttenSpacing.xs) {
-                chips("Language", options: ranked(profiles.map(\.accent)), selection: $accent)
-                chips("Gender", options: ranked(profiles.map(\.gender)), selection: $gender)
-                chips("Tone", options: ranked(VoiceCatalog.all.flatMap(Self.tones(of:))).filter { tone in
+                FilterChipRow(title: "Language", options: FilterChipRow.ranked(profiles.map(\.accent)), selection: $accent)
+                FilterChipRow(title: "Gender", options: FilterChipRow.ranked(profiles.map(\.gender)), selection: $gender)
+                FilterChipRow(title: "Tone", options: FilterChipRow.ranked(VoiceCatalog.all.flatMap(Self.tones(of:))).filter { tone in
                     VoiceCatalog.all.count { Self.tones(of: $0).contains(tone) } > 1
                 }, label: { $0.prefix(1).uppercased() + $0.dropFirst() }, selection: $tone)
             }
@@ -94,66 +94,6 @@ struct CastingSheet: View {
         }
         .frame(width: 780, height: 640)
         .background(AttenColor.bg)
-    }
-
-    /// Most common first, so the chips a person is likeliest to want lead.
-    private func ranked(_ values: [String]) -> [String] {
-        let counts = Dictionary(values.map { ($0, 1) }, uniquingKeysWith: +)
-        return counts.keys.sorted { counts[$0]! != counts[$1]! ? counts[$0]! > counts[$1]! : $0 < $1 }
-    }
-
-    private func chips(
-        _ title: String,
-        options: [String],
-        label: @escaping (String) -> String = { $0 },
-        selection: Binding<String?>
-    ) -> some View {
-        HStack(spacing: AttenSpacing.sm) {
-            Text(title)
-                .attenText(.label)
-                .foregroundStyle(AttenColor.text3)
-                .frame(width: 72, alignment: .leading)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: AttenSpacing.xxs) {
-                    FilterChip(title: "All", isSelected: selection.wrappedValue == nil) { selection.wrappedValue = nil }
-                    ForEach(options, id: \.self) { option in
-                        FilterChip(title: label(option), isSelected: selection.wrappedValue == option) {
-                            selection.wrappedValue = selection.wrappedValue == option ? nil : option
-                        }
-                    }
-                }
-                .padding(.vertical, AttenSpacing.xxs)
-            }
-        }
-    }
-}
-
-private struct FilterChip: View {
-    let title: String
-    let isSelected: Bool
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        let shape = Capsule()
-        Button(action: action) {
-            Text(title)
-                .attenText(.callout)
-                .foregroundStyle(isSelected ? AttenColor.text1 : AttenColor.text2)
-                .padding(.horizontal, AttenSpacing.sm)
-                .frame(height: 26)
-                .background(
-                    AttenColor.text1.opacity(isSelected ? AttenState.pressedFill / 2 : (isHovering ? AttenState.hoverFill / 2 : 0)),
-                    in: shape
-                )
-                .overlay { shape.strokeBorder(AttenColor.hairline, lineWidth: 1) }
-                .contentShape(shape)
-        }
-        .buttonStyle(.plain)
-        .attenFocusRing(cornerRadius: 13)
-        .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: AttenMotion.hover), value: isHovering)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

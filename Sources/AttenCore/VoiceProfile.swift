@@ -34,10 +34,10 @@ public struct VoiceProfile: Equatable, Sendable {
         let resolvedAccent = Self.accent(fromLanguage: voice.language)
         accent = resolvedAccent
         displayName = Self.displayName(fromCatalogName: voice.name)
-        // A trait equal to the accent (many non-English voices are given a
-        // single trait naming their language, e.g. "Spanish") would otherwise
-        // repeat it right next to the accent it already restates.
-        let distinctTraits = voice.traits.filter { $0.caseInsensitiveCompare(resolvedAccent) != .orderedSame }
+        // A capitalised trait names where the voice is from ("Spanish",
+        // "British", "Chinese"), which the accent beside it already says; only
+        // the lowercase ones describe how it sounds.
+        let distinctTraits = voice.traits.filter { $0.first?.isLowercase == true }
         traits = distinctTraits.map { $0.capitalized }.joined(separator: " · ")
         descriptor = (distinctTraits.map { $0.capitalized } + [resolvedAccent]).joined(separator: " · ")
         tones = Set(voice.traits.map { $0.lowercased() })
