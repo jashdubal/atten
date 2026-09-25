@@ -160,10 +160,18 @@ private struct NarratorCard: View {
                         .attenText(.body)
                         .fontWeight(.semibold)
                         .foregroundStyle(AttenColor.text1)
-                    Text(profile.descriptor)
+                    // Traits and accent on lines of their own, so neither
+                    // wraps into the other at the inspector's width.
+                    if !profile.traits.isEmpty {
+                        Text(profile.traits)
+                            .attenText(.callout)
+                            .foregroundStyle(AttenColor.text2)
+                            .lineLimit(1)
+                    }
+                    Text(profile.accent)
                         .attenText(.callout)
                         .foregroundStyle(AttenColor.text2)
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }

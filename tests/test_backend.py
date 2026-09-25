@@ -647,6 +647,8 @@ class ServeTests(unittest.TestCase):
         self.assertEqual([e["text"] for e in first if e["event"] == "segment"], ["Hello", "there"])
         self.assertTrue(Path(second[-1]["path"]).is_file())
         self.assertEqual(CountingKokoro.loads, 1)
+        loading = [e for e in first + second if e["event"] == "info" and "speech model" in e["message"]]
+        self.assertEqual(loading, [{"event": "info", "id": "first", "message": "Loading the speech model."}])
 
     def test_a_serve_request_carries_its_pause(self):
         self.send({"id": "paused", "op": "generate", "text": "Hello there", "format": "wav",

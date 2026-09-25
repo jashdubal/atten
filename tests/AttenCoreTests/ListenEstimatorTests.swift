@@ -80,7 +80,21 @@ final class ListenEstimatorTests: XCTestCase {
         XCTAssertEqual(ListenEstimator.wordsLabel(2431), "2,431 WORDS")
     }
 
-    func testFormattingRoundsUpToAtLeastOneMinute() {
-        XCTAssertEqual(ListenEstimator.listenLabel(10), "≈ 1 MIN LISTEN")
+    /// Fifteen words is seconds of audio, not "≈ 1 min" (#98).
+    func testUnderAMinuteIsWrittenInSeconds() {
+        XCTAssertEqual(ListenEstimator.audioLabel(6), "≈ 6 s of audio")
+        XCTAssertEqual(ListenEstimator.generationLabel(4.2), "~4 s to generate")
+        XCTAssertEqual(ListenEstimator.remainingLabel(0.2), "~1 s remaining")
+        XCTAssertEqual(ListenEstimator.listenLabel(10), "≈ 10 SEC LISTEN")
+        XCTAssertEqual(ListenEstimator.audioLabel(59.4), "≈ 59 s of audio")
+        XCTAssertEqual(ListenEstimator.audioLabel(59.6), "≈ 1 min of audio")
+        XCTAssertEqual(ListenEstimator.audioLabel(90), "≈ 2 min of audio")
+    }
+
+    func testFifteenWordsReadInSeconds() {
+        let estimator = ListenEstimator()
+        let audio = estimator.listenDuration(words: 15, voiceID: "af_heart")
+        XCTAssertEqual(ListenEstimator.audioLabel(audio), "≈ 6 s of audio")
+        XCTAssertEqual(ListenEstimator.generationLabel(estimator.generationTime(audioSeconds: audio)), "~6 s to generate")
     }
 }

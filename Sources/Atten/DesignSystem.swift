@@ -869,13 +869,13 @@ struct StatusIndicator: View {
 struct AttenEmptyState: View {
     let title: String
     let systemImage: String
-    let detail: String
+    let detail: String?
 
     var body: some View {
         ContentUnavailableView(
             title,
             systemImage: systemImage,
-            description: Text(detail)
+            description: detail.map(Text.init)
         )
         .foregroundStyle(AttenColor.textSecondary)
         .frame(maxWidth: .infinity, minHeight: 300)

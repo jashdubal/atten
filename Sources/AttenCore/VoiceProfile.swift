@@ -13,6 +13,9 @@ public struct VoiceProfile: Equatable, Sendable {
     public let displayName: String
     /// Traits plus accent, e.g. "Warm · Expressive · US English".
     public let descriptor: String
+    /// The traits alone, e.g. "Warm · Expressive"; empty when the voice has
+    /// none beyond its accent.
+    public let traits: String
     public let accent: String
     public let gender: String
     public let language: String
@@ -35,6 +38,7 @@ public struct VoiceProfile: Equatable, Sendable {
         // single trait naming their language, e.g. "Spanish") would otherwise
         // repeat it right next to the accent it already restates.
         let distinctTraits = voice.traits.filter { $0.caseInsensitiveCompare(resolvedAccent) != .orderedSame }
+        traits = distinctTraits.map { $0.capitalized }.joined(separator: " · ")
         descriptor = (distinctTraits.map { $0.capitalized } + [resolvedAccent]).joined(separator: " · ")
         tones = Set(voice.traits.map { $0.lowercased() })
         hue = Self.hue(forVoiceID: voice.id)

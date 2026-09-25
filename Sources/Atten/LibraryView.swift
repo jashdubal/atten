@@ -367,21 +367,13 @@ struct LibraryView: View {
     private var emptyState: some View {
         let isFiltering = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || selectedFilter != .all
-        return VStack(spacing: AttenSpacing.md) {
-            AttenEmptyState(
-                title: isFiltering ? "No books found" : "Your library is empty",
-                systemImage: isFiltering ? "line.3.horizontal.decrease.circle" : "books.vertical",
-                detail: !isFiltering
-                    ? "Add a PDF, EPUB, Word, Markdown or text file — or drop one here — and Atten reads it into sections you can listen to."
-                    : "Try another search or filter, or add a supported document."
-            )
-            if !isFiltering {
-                Button("Add a Book") { model.openBookImportPanel() }
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .fixedSize()
-                    .padding(.bottom, AttenSpacing.lg)
-            }
-        }
+        // An empty shelf is only its title and a quiet icon: the header
+        // already says how to add a book.
+        return AttenEmptyState(
+            title: isFiltering ? "No books found" : "Your library is empty",
+            systemImage: isFiltering ? "line.3.horizontal.decrease.circle" : "books.vertical",
+            detail: isFiltering ? "Try another search or filter, or add a supported document." : nil
+        )
     }
 
     @ViewBuilder private func collection(availableWidth: CGFloat) -> some View {

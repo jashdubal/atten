@@ -29,6 +29,30 @@ The packaged backend therefore cannot fall back to a user Python environment or
 Hugging Face cache. Repository development still uses `ATTEN_BACKEND_ROOT` and
 `cli.py`.
 
+### The persistent engine
+
+Since 0.4.0 the app keeps one `atten-backend serve` process running rather than
+starting the helper for every generation, so Kokoro loads once. It reads one
+JSON request per line on stdin and answers with the same events as before, each
+tagged with its request id, one request at a time.
+
+- It starts with the first generation, preview or sample, and must print
+  `ready` within 30 seconds.
+- It exits when its stdin closes: after 10 minutes with no request, or when
+  Atten quits. It finishes the segment it is on first.
+- A cancel it has not honoured within 2 seconds gets it terminated. The next
+  request, or a crash, starts a new one.
+- A helper too old to serve is run once per generation, as before.
+- MP3 export runs `atten-backend transcode` as a separate short-lived process.
+
+Keeping the process alive needs no entitlements. Atten is not sandboxed, and
+the helper is an ordinary child process signed with the hardened runtime and
+no entitlements, like every other Mach-O in the bundle. For 0.4.0 an ad-hoc
+build was re-signed with the hardened runtime and passed the smoke test below
+with library validation relaxed and nothing else. That relaxation is only
+needed because ad-hoc signatures carry no Team ID; a Developer ID signing
+gives every file one Team ID, which satisfies library validation.
+
 ## Maintainer prerequisites
 
 - Apple Silicon Mac running macOS 14 or newer.
@@ -57,20 +81,25 @@ Then run:
 ```bash
 swift test
 python3.12 -m unittest discover -s tests -p 'test_*.py' -v
-scripts/build-release --version 0.3.2
+scripts/build-release --version 0.4.0
 ```
 
 To reuse an already downloaded pinned model snapshot:
 
 ```bash
 ATTEN_MODEL_SOURCE="$HOME/.cache/huggingface/hub/models--hexgrad--Kokoro-82M/snapshots/f3ff3571791e39611d31c381e3a41a3af07b4987" \
-  scripts/build-release --version 0.3.2
+  scripts/build-release --version 0.4.0
 ```
 
-Set `RUN_SYNTHESIS_SMOKE=1` to generate MP3 and WAV samples for every supported
-language from the packaged helper with an empty home directory and offline
-environment. `ALLOW_DIRTY=1` is available only for local packaging validation;
-never use it for a published build. Dirty candidates archive the actual working
+Every build runs `scripts/smoke-packaged-backend --quick` against the packaged
+helper with an empty home directory and offline environment. It starts
+`serve`, sends two generate requests and cancels the second, checks each
+event's request id and that the model loads once, runs a long-pause
+generation, and transcodes an M4A to MP3. Set `RUN_SYNTHESIS_SMOKE=1` to also
+generate MP3 and WAV samples for every supported language.
+
+`ALLOW_DIRTY=1` is available only for local packaging validation; never use it
+for a published build. Dirty candidates archive the actual working
 source, including new nonignored files. `ATTEN_LOCAL_VALIDATION=1` explicitly
 selects ad-hoc signing and skips notarization; never distribute those artifacts.
 A normal release build signs all nested Mach-O components with hardened runtime
@@ -111,8 +140,8 @@ The workflow config is implemented; this local work did not configure remote sec
 2. Create and push a matching annotated tag:
 
    ```bash
-   git tag -a v0.3.2 -m "Atten 0.3.2"
-   git push origin v0.3.2
+   git tag -a v0.4.0 -m "Atten 0.4.0"
+   git push origin v0.4.0
    ```
 
 3. `.github/workflows/release.yml` checks that the tag and plist versions
@@ -225,6 +254,16 @@ bundle. Books, projects, and listening state use that directory; settings use
 `Atten.Validation.<directory-name>`. Use a unique final directory name per test
 run and a separate validation bundle identifier to isolate window restoration.
 Never point a test reset at a real user's library.
+
+## Pre-tag checklist
+
+- [ ] `CFBundleShortVersionString` in `macOS/Info.plist` matches the version being tagged.
+- [ ] `CHANGELOG.md` has an entry for the version.
+- [ ] `packaging/RELEASE_NOTES.md` reflects the version being released.
+- [ ] `scripts/smoke-packaged-backend` passes against the packaged build.
+- [ ] The release build is signed with the Developer ID identity.
+- [ ] Notarization — **blocked on the Apple Developer account.**
+- [ ] Tag pushed and `.github/workflows/release.yml` has published all four assets.
 
 ## Candidate status
 
