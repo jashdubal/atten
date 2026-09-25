@@ -97,6 +97,33 @@ final class ProgressiveReadAlongTests: XCTestCase {
         XCTAssertNil(ReadAlongSession(model: model).source)
     }
 
+    /// A listener who caught up with the narration has heard all of it:
+    /// the finished recording waits at its start with the play glyph rather
+    /// than playing on from its last frame (#98).
+    func testHandoffAfterHearingEverythingWaitsAtTheStart() async throws {
+        let (model, directory) = try makeModel()
+        let book = try await shelve(in: model, directory: directory, withAudio: true)
+        let url = try ListeningTests.silentAudio(seconds: 0.1, in: directory)
+        model.progressivePlayer.receive(bookID: book.id, chapterIndex: 0, segment: SegmentReady(
+            url: url, timing: TimedSegment(index: 0, text: "Rain fell.", start: 0, duration: 0.1, words: [])
+        ))
+        model.progressivePlayer.play()
+        for _ in 0..<200 where model.progressivePlayer.state != .catchingUp {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(model.progressivePlayer.state, .catchingUp)
+        defer { model.closePlayer() }
+
+        model.bookshelf.onNarrationFinished?(BookshelfModel.NarrationRun(
+            bookID: book.id, voiceID: book.voiceID, words: 2, audioSeconds: 0.1, wallSeconds: 1
+        ))
+
+        let session = ReadAlongSession(model: model)
+        XCTAssertEqual(session.source, .queue(track: book.id))
+        XCTAssertEqual(session.position, 0)
+        XCTAssertFalse(session.isPlaying)
+    }
+
     // MARK: - Scrubber and chapters
 
     func testTheScrubberReachesOnlyWhatHasBeenGenerated() async throws {

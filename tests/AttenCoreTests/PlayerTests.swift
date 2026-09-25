@@ -157,6 +157,33 @@ final class PlayerTests: XCTestCase {
         XCTAssertEqual(PlaybackFormat.timeText(-5), "0:00")
     }
 
+    /// Playing to the end goes back to the start with the play glyph, rather
+    /// than sitting on -0:00 with the pause glyph still showing (#98).
+    func testPlayingToTheEndGoesBackToTheStart() async throws {
+        let model = try makeModel()
+        model.play(tracks: try await makeTracks(count: 1), startingAt: 0)
+        XCTAssertTrue(model.isPlaying)
+        for _ in 0..<200 where model.isPlaying {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertEqual(model.playbackPosition, 0)
+        XCTAssertEqual(model.playbackRemaining, model.playbackDuration, accuracy: 0.001)
+        XCTAssertNotNil(model.playerTitle, "the finished track stays ready to play again")
+    }
+
+    /// A recording opened at its very end — a finished book restored at
+    /// launch — opens at its start instead.
+    func testARecordingOpenedAtItsEndOpensAtTheStart() async throws {
+        let model = try makeModel()
+        let tracks = try await makeTracks(count: 1)
+        model.play(tracks: tracks, atPosition: 0.1, autoplay: false)
+
+        XCTAssertEqual(model.playbackPosition, 0)
+        XCTAssertFalse(model.isPlaying)
+    }
+
     // MARK: -
 
     /// Real (if silent) WAVs: an unplayable file is dropped by the player and

@@ -64,6 +64,19 @@ final class ChapterDetectionTests: XCTestCase {
         XCTAssertEqual(extent.utf16Offset, 6)
     }
 
+    func testADraftIsCalledByItsOpeningWords() {
+        XCTAssertEqual(ChapterDetection.derivedTitle(from: "\n  Hello there. How are you?\nMore."), "Hello there")
+        XCTAssertEqual(ChapterDetection.derivedTitle(from: "# The Title\n\nBody."), "The Title")
+        XCTAssertEqual(ChapterDetection.derivedTitle(from: "Is it raining? Yes."), "Is it raining?")
+        XCTAssertEqual(
+            ChapterDetection.derivedTitle(from: "The creek is bright this morning, and the meadow is ready for a new story."),
+            "The creek is bright this morning, and the meadow is ready…"
+        )
+        XCTAssertNil(ChapterDetection.derivedTitle(from: " \n\n "))
+        let long = String(repeating: "x", count: 80)
+        XCTAssertEqual(ChapterDetection.derivedTitle(from: long), String(repeating: "x", count: 60) + "…")
+    }
+
     func testEstimateLabels() {
         XCTAssertEqual(ListenEstimator.audioLabel(16 * 60), "≈ 16 min of audio")
         XCTAssertEqual(ListenEstimator.remainingLabel(90), "~2 min remaining")
@@ -136,6 +149,19 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertEqual(model.bookshelf.books.count, 1)
     }
 
+    /// A draft nobody named is saved under its opening words, not
+    /// "Untitled"; a typed title still wins (#98).
+    func testAnUntitledDraftTakesItsTitleFromItsText() throws {
+        flow.text = "A walk to the creek. It was cold."
+        flow.saveNow()
+        let id = try XCTUnwrap(flow.draftID)
+        XCTAssertEqual(model.bookshelf.book(id: id)?.title, "A walk to the creek")
+
+        flow.title = "Morning"
+        flow.saveNow()
+        XCTAssertEqual(model.bookshelf.book(id: id)?.title, "Morning")
+    }
+
     func testNothingIsSavedUntilThereAreWords() {
         flow.startWriting()
         flow.saveNow()
@@ -161,6 +187,37 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertNotNil(model.settings.listenWordsPerMinuteByVoice[book.voiceID])
         XCTAssertNotEqual(model.settings.listenRealTimeFactor, ListenEstimator.defaultRealTimeFactor)
         XCTAssertNil(model.bookshelf.successMessage)
+    }
+
+    /// P3: a finished generation lands in the Library with its Undo toast
+    /// and nothing plays until someone presses Play. P5: segments arriving
+    /// leave progressive playback idle, and a system play command (a media
+    /// key, headphones reconnecting) does not count as that Play (#98).
+    func testGeneratingPlaysNothingAndOpensNoPlayer() async throws {
+        model.section = .studio
+        var statesWhileNarrating: [ProgressivePlayer.State] = []
+        let receive = model.bookshelf.onSegmentReady
+        model.bookshelf.onSegmentReady = { [weak model] bookID, chapter, segment in
+            receive?(bookID, chapter, segment)
+            model?.remotePlayOrPause(playing: true)
+            if let state = model?.progressivePlayer.state { statesWhileNarrating.append(state) }
+        }
+        flow.loadSample()
+        flow.generate()
+        try await waitForNarration()
+
+        XCTAssertEqual(statesWhileNarrating, [.idle])
+        XCTAssertEqual(flow.state, .done)
+        XCTAssertEqual(model.section, .studio)
+        XCTAssertNil(model.queue.current)
+        XCTAssertFalse(model.isPlaying)
+
+        flow.leaveForLibrary()
+        XCTAssertEqual(model.section, .library)
+        XCTAssertNotNil(flow.toastBookID)
+        XCTAssertNil(model.playerTitle)
+        XCTAssertFalse(model.isPlaying)
+        XCTAssertFalse(model.progressivePlayer.isPlaying)
     }
 
     func testFinishingAfterLeavingCreateClearsItForTheNextDraft() async throws {

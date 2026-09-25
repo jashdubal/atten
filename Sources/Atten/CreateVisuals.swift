@@ -109,6 +109,11 @@ struct GeneratedCover: View {
     /// Off for a thumbnail too small to print the title legibly.
     var showsTitle = true
 
+    /// Narrower than this the title can only print as fragments ("Unt /
+    /// itl…"), so every thumbnail — mini player, list row, queue — is
+    /// text-free whatever its call site asks for.
+    static let minimumTitledWidth: CGFloat = 80
+
     /// How far the cover has risen out of silence: 0 while silent, 1 once
     /// voiced, and whatever `.generating` reports in between.
     private var colorProgress: Double {
@@ -133,7 +138,7 @@ struct GeneratedCover: View {
                         .opacity(0.75)
                         .blur(radius: size.width * 0.12)
                 }
-                if showsTitle {
+                if showsTitle, size.width >= Self.minimumTitledWidth {
                     VStack(alignment: .leading, spacing: size.width * 0.02) {
                         Text(title)
                             .font(.system(size: max(12, size.width * 0.1), weight: .regular, design: .serif))

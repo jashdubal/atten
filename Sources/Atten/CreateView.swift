@@ -155,7 +155,7 @@ private struct CreateEditorColumn: View {
         let isGenerating = flow.state == .generating
         let isLocked = isGenerating || flow.state == .queued
         VStack(spacing: 0) {
-            TextField("Title", text: $flow.title, prompt: Text("Untitled").foregroundStyle(AttenColor.text3))
+            TextField("Title", text: $flow.title, prompt: Text(flow.resolvedTitle.isEmpty ? "Untitled" : flow.resolvedTitle).foregroundStyle(AttenColor.text3))
                 .textFieldStyle(.plain)
                 .attenText(.title1)
                 .foregroundStyle(AttenColor.text1)
