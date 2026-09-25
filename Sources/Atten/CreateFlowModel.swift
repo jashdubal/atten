@@ -109,12 +109,21 @@ final class CreateFlowModel {
         return first.map { String($0.prefix(240)) }
     }
 
+    /// `firstSentence` with the draft's pronunciations applied — the same
+    /// substitution `narrate` sends the engine, so a preview says a word the
+    /// way generation will and, since the cache is keyed on this text, a
+    /// changed pronunciation makes a fresh preview rather than replaying the
+    /// old one.
+    private var spokenFirstSentence: String? {
+        firstSentence.map { PronouncedText($0, pronunciations: pronunciations).spoken }
+    }
+
     func preview(_ voice: Voice) {
-        app?.previewVoice(voice, speaking: firstSentence)
+        app?.previewVoice(voice, speaking: spokenFirstSentence)
     }
 
     func previewURL(for voice: Voice) -> URL? {
-        app?.voicePreviewURL(voice, speaking: firstSentence)
+        app?.voicePreviewURL(voice, speaking: spokenFirstSentence)
     }
 
     // MARK: - Estimates

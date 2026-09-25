@@ -42,6 +42,16 @@ extension View {
 private struct AttenCoverFrame: ViewModifier {
     let tint: OKLCHColor
 
+    // `AttenColor.cover` keeps a cover's own colours fixed across appearances,
+    // but `tint`'s lightness (~0.6, for the glow a cover's dominant colour or
+    // seed hue is drawn at) is a mid tone meant to be seen, not cast — used
+    // as-is, it reads as a solid rectangle offset to the shadow's lower right
+    // against a dark appearance's near-black backdrop, where a light mode
+    // background is close enough to it that the same offset just fades.
+    private var shadowTint: OKLCHColor {
+        OKLCHColor(lightness: min(tint.lightness, 0.25), chroma: tint.chroma, hue: tint.hue)
+    }
+
     func body(content: Content) -> some View {
         content
             .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
@@ -54,7 +64,7 @@ private struct AttenCoverFrame: ViewModifier {
             // shadow — visible in dark appearance as a second, rectangular
             // outline offset to the cover's lower right.
             .compositingGroup()
-            .shadow(color: AttenColor.cover(tint).opacity(0.35), radius: 6, y: 2)
+            .shadow(color: AttenColor.cover(shadowTint).opacity(0.35), radius: 6, y: 2)
     }
 }
 

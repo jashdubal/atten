@@ -186,6 +186,53 @@ tests -p 'test_*.py'` (40 tests) and `swift build -c release` all pass after
 these fixes. The live on-screen check with the real GUI is still owed once
 the portrait monitor is back.
 
+## Addendum — 2026-09-24: cleanup from #71 and #73 (#75)
+
+Closes #75.
+
+- **The cover shadow's dark-appearance halo, still there after #73's
+  `.compositingGroup()` fix.** That fix removed the double-shadow outline, but
+  the one remaining shadow kept using `AttenColor.cover(tint)` at `tint`'s own
+  lightness (~0.6 for a generated cover's seed hue, or a real cover's
+  extracted dominant colour) — a colour meant to be seen at, not cast a shadow
+  in. `AttenColor.cover` fixes a colour's appearance on purpose ("Covers are
+  content and keep their colours in both appearances"), so that mid lightness
+  reads as an ordinary dim shadow next to light mode's near-white page, but as
+  a lighter halo next to dark mode's near-black one, most visible where the
+  shadow's `y: 2` offset carries it past the cover's own edge. `AttenCoverFrame`
+  now shadows with a copy of `tint` whose lightness is capped at 0.25 before
+  it reaches `AttenColor.cover`, keeping the hue the shadow is tinted by
+  without keeping a highlight's lightness (`LibraryCoverChrome.swift`).
+  Re-rendered `library-qa-shelf-{dark,light}.jpg` and
+  `library-qa-toast-{dark,light}.jpg`; the pre-fix renders are kept alongside
+  as `library-qa-{shelf,toast}-before-cleanup-{dark,light}.jpg` for
+  comparison.
+- **Pronunciation in previews.** `CreateFlowModel.preview(_:)` and
+  `previewURL(for:)` — the narrator card's Preview button and, through it,
+  every card in the casting sheet — sent the draft's first sentence straight
+  to the generator, so a preview never said a pronunciation the way `narrate`
+  (`BookshelfModel.swift`) would. Both now run that sentence through the same
+  `PronouncedText` substitution first. The preview cache is already keyed on
+  a hash of the sentence it was asked to speak (`AppModel.voicePreviewURL`),
+  so sending it the pronounced text — rather than adding pronunciations as a
+  separate key input — both fixes the substitution and makes the cache miss
+  exactly when what the voice would actually say changes, and not otherwise
+  (`CreateFlowModel.swift`).
+- **Pronunciation list padding.** `PronunciationList`'s own `ScrollView(
+  .vertical)` (Create → Advanced) has no `attenScrollPadding()`, but it
+  doesn't need one: that call exists so a page-level scroll view's last row
+  doesn't land under the floating player, and this box is a small, internally
+  height-capped list inside `CreateInspector`'s column, which already reserves
+  `AttenMetrics.playerHeight` under its own footer whenever the player is
+  showing — clearance this box sits well above regardless of how many rows it
+  holds. Left as-is; the existing comment saying so stands. `swift test`'s
+  `ScrollPaddingTests` doesn't flag it either, since its regex only matches a
+  bare `ScrollView {`, not this one's `ScrollView(.vertical) {`.
+
+`swift test`, `uv run python -m unittest discover -s tests -p 'test_*.py'`
+and `swift build -c release` all pass. No GUI: the live on-screen check is
+the coordinator's, same as the addendum above.
+
 ## Implemented
 
 - Library and Create are the primary workspaces. Library opens by default and
