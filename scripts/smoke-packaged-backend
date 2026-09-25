@@ -81,6 +81,113 @@ for voice in "${voices[@]}"; do
     done
 done
 
+# The app keeps one `serve` process for every generation, and exports MP3
+# through `transcode`, so both run here exactly as the app drives them.
+/usr/bin/env -i \
+    HOME="$WORK/home" \
+    PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+    ATTEN_MODEL_ROOT="$MODEL" \
+    HF_HUB_OFFLINE=1 \
+    PYTHONNOUSERSITE=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HTTP_PROXY="http://127.0.0.1:1" \
+    HTTPS_PROXY="http://127.0.0.1:1" \
+    ALL_PROXY="http://127.0.0.1:1" \
+    /usr/bin/python3 - "$HELPER" "$WORK/serve" "$SMOKE_DEVICE" <<'PY'
+import json, queue, subprocess, sys, threading
+from pathlib import Path
+
+helper, output, device = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+text = "The quick brown fox jumps over the lazy dog.\nThen it rests in the shade."
+
+
+def check(condition, message):
+    if not condition:
+        engine.kill()
+        sys.exit(f"serve: {message}")
+
+
+engine = subprocess.Popen([helper, "serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+lines = queue.Queue()
+seen = []
+
+
+def relay():
+    for line in engine.stdout:
+        lines.put(line)
+    lines.put(b"")
+
+
+threading.Thread(target=relay, daemon=True).start()
+
+
+def next_event(timeout):
+    try:
+        line = lines.get(timeout=timeout)
+    except queue.Empty:
+        check(False, f"no event within {timeout}s")
+    if not line:
+        check(False, f"the engine exited with status {engine.wait()}")
+    try:
+        event = json.loads(line)
+    except ValueError:
+        check(False, f"stdout carried a line that is not an event: {line!r}")
+    seen.append(event)
+    return event
+
+
+def send(**request):
+    engine.stdin.write(json.dumps(request).encode() + b"\n")
+    engine.stdin.flush()
+
+
+def generate(request_id, **extra):
+    send(id=request_id, op="generate", text=text, voice="af_heart", format="wav", device=device,
+         output=str(output), filename=request_id, segments_dir=str(output / request_id), **extra)
+
+
+def finish(*ids):
+    """Events up to the end of every request in `ids`, keyed by request."""
+    events = {request_id: [] for request_id in ids}
+    while any(not e or e[-1]["event"] not in ("completed", "cancelled", "error") for e in events.values()):
+        event = next_event(600)
+        check(event.get("id") in events, f"an event carried no request's id: {event}")
+        events[event["id"]].append(event)
+    return events
+
+
+# The app gives the engine 30 seconds to say it is ready.
+check(next_event(30)["event"] == "ready", "the first event was not ready")
+generate("first")
+generate("second")
+send(id="second", op="cancel")
+events = finish("first", "second")
+check(events["first"][-1]["event"] == "completed", f"first did not complete: {events['first'][-1]}")
+check(events["second"][-1]["event"] == "cancelled", f"second was not cancelled: {events['second'][-1]}")
+check(not (output / "second.wav").exists(), "the cancelled request left audio behind")
+first = [e for e in events["first"] if e["event"] == "segment"]
+check(len(first) == 2 and all(e["words"] for e in first), f"segments lack word timings: {first}")
+
+generate("paused", pause="long")
+paused = [e for e in finish("paused")["paused"] if e["event"] == "segment"]
+check(seen[-1]["event"] == "completed", f"paused did not complete: {seen[-1]}")
+check(paused[1]["start"] - first[1]["start"] > 0.5, "a long pause did not lengthen the paragraph break")
+
+loads = [e for e in seen if e["event"] == "info" and "speech model" in e["message"]]
+check(len(loads) == 1, f"expected one model load across three requests, saw {len(loads)}")
+engine.stdin.close()
+check(engine.wait(timeout=60) == 0, "the engine did not exit cleanly when its input closed")
+
+m4a, mp3 = output / "first.m4a", output / "first.mp3"
+subprocess.run(["afconvert", "-f", "m4af", "-d", "aac", str(output / "first.wav"), str(m4a)], check=True)
+result = subprocess.run([helper, "transcode", "--input", str(m4a), "--output", str(mp3), "--json"],
+                        capture_output=True, text=True)
+check(result.returncode == 0 and mp3.stat().st_size > 0, f"transcode failed: {result.stdout}{result.stderr}")
+check(json.loads(result.stdout.splitlines()[-1])["event"] == "completed", "transcode did not complete")
+PY
+echo "Packaged serve, cancel, long pause and MP3 transcode passed."
+
 if [[ "$quick" -eq 1 ]]; then
     echo "Packaged offline synthesis passed."
 else
