@@ -628,28 +628,6 @@ struct AttenSearchField: View {
     }
 }
 
-struct PageHeader: View {
-    let eyebrow: String
-    let title: String
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-            Text(eyebrow.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(1.4)
-                .foregroundStyle(AttenColor.accent)
-            Text(title)
-                .font(AttenTypography.title2)
-                .foregroundStyle(AttenColor.textPrimary)
-            Text(detail)
-                .font(AttenTypography.body)
-                .foregroundStyle(AttenColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
 struct InspectorSection<Content: View>: View {
     let title: String
     @ViewBuilder let content: Content
@@ -879,33 +857,6 @@ struct AttenEmptyState: View {
         )
         .foregroundStyle(AttenColor.textSecondary)
         .frame(maxWidth: .infinity, minHeight: 300)
-    }
-}
-
-struct FormRow<Content: View>: View {
-    let label: String
-    let detail: String?
-    @ViewBuilder let content: Content
-
-    init(label: String, detail: String? = nil, @ViewBuilder content: () -> Content) {
-        self.label = label
-        self.detail = detail
-        self.content = content()
-    }
-
-    var body: some View {
-        LabeledContent {
-            content
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                if let detail {
-                    Text(detail)
-                        .font(AttenTypography.callout)
-                        .foregroundStyle(AttenColor.textSecondary)
-                }
-            }
-        }
     }
 }
 

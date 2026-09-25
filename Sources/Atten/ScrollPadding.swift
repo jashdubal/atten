@@ -9,10 +9,5 @@ extension View {
         padding(.bottom, clearance)
     }
 
-    /// The same room for a `Form`, whose rows cannot be padded from outside.
-    func attenFormScrollPadding() -> some View {
-        contentMargins(.bottom, clearance, for: .scrollContent)
-    }
-
     private var clearance: CGFloat { AttenMetrics.playerHeight + AttenSpacing.lg }
 }

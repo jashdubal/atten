@@ -54,4 +54,35 @@ final class VoiceProfileTests: XCTestCase {
         XCTAssertEqual(profile.traits, "Warm · Expressive")
         XCTAssertEqual(profile.accent, "US English")
     }
+
+    /// Voices lists each voice by this name alone, with the accent on the
+    /// line below (#108), so no bundled name may keep its language.
+    func testNoBundledDisplayNameCarriesItsLanguage() {
+        for voice in VoiceCatalog.bundled {
+            let profile = VoiceProfile(voice: voice)
+            XCTAssertFalse(profile.displayName.contains("("), voice.id)
+            XCTAssertFalse(profile.displayName.localizedCaseInsensitiveContains(voice.language), voice.id)
+        }
+        let arabic = Voice(
+            id: "ar_mariam", name: "Mariam (مريم - Arabic)", language: "Arabic",
+            languageCode: "ar", gender: "Female", traits: ["natural", "Arabic"], quality: "Unrated"
+        )
+        XCTAssertEqual(VoiceProfile(voice: arabic).displayName, "Mariam")
+    }
+
+    /// "Natural · Chinese · Mandarin Chinese" said where the voice is from
+    /// twice; the accent says it once.
+    func testDescriptorLeavesWhereAVoiceIsFromToTheAccent() {
+        let mandarin = Voice(
+            id: "zf_xiaoyan", name: "Xiaoyan (Mandarin)", language: "Chinese (Mandarin)",
+            languageCode: "z", gender: "Female", traits: ["natural", "Chinese"], quality: "Unrated"
+        )
+        XCTAssertEqual(VoiceProfile(voice: mandarin).descriptor, "Natural · Mandarin Chinese")
+        let british = Voice(
+            id: "bf_emma", name: "Emma", language: "English (UK)",
+            languageCode: "b", gender: "Female", traits: ["warm", "British"], quality: "B-"
+        )
+        XCTAssertEqual(VoiceProfile(voice: british).descriptor, "Warm · UK English")
+        XCTAssertEqual(VoiceProfile(voice: british).traits, "Warm")
+    }
 }
