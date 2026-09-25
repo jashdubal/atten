@@ -66,7 +66,9 @@ final class BookshelfModel {
         let bookID: UUID
     }
 
-    private(set) var books: [BookRecord] = []
+    private(set) var books: [BookRecord] = [] {
+        didSet { shelfQueryCache = nil }
+    }
     private(set) var progress: NarrationProgress?
     /// Narrations in the order they take the engine, the running one
     /// included until it ends.
@@ -119,6 +121,11 @@ final class BookshelfModel {
     /// Set on quit, so the narration being stopped keeps its place in the
     /// queue and nothing after it starts.
     @ObservationIgnored private var isShuttingDown = false
+    /// The last answer `books(for:query:sort:)` gave. The Library asks the
+    /// same question more than once per draw, and again on every progress
+    /// tick while a book narrates; at a thousand books the search and the
+    /// localized sort cost tens of milliseconds on the main actor each time.
+    @ObservationIgnored private var shelfQueryCache: (key: String, books: [BookRecord])?
 
     init(directories: AppDirectories, generator: any TTSGenerating,
          synthesis: SynthesisCoordinator = SynthesisCoordinator(),
@@ -178,7 +185,14 @@ final class BookshelfModel {
     /// `filteredBooks(for:query:)` plus the shelf's sort order, in one place
     /// so the Library view and its tests agree on the combination.
     func books(for filter: AttenCore.LibraryItemFilter, query: String = "", sort: LibrarySort) -> [BookRecord] {
-        sort.sorted(filteredBooks(for: filter, query: query))
+        // Reading `books` before the cache keeps a view that asks observing
+        // the shelf, even when the answer comes from the cache.
+        guard !books.isEmpty else { return [] }
+        let key = "\(filter.rawValue)\u{0}\(sort.rawValue)\u{0}\(query)"
+        if let cached = shelfQueryCache, cached.key == key { return cached.books }
+        let result = sort.sorted(filteredBooks(for: filter, query: query))
+        shelfQueryCache = (key, result)
+        return result
     }
 
     func isFullyNarrated(_ book: BookRecord) -> Bool {
@@ -189,10 +203,21 @@ final class BookshelfModel {
     /// when the Library is opened, so narration deleted in Finder while Atten
     /// was on another screen does not leave a play button that does nothing.
     func refreshNarrationCounts() {
+        // Once a book is one recording, every chapter points at that one
+        // file, so each file is asked about once rather than once a chapter.
+        var onDisk: [String: Bool] = [:]
+        func exists(_ path: String) -> Bool {
+            if let known = onDisk[path] { return known }
+            let found = FileManager.default.fileExists(atPath: path)
+            onDisk[path] = found
+            return found
+        }
         narratedCounts = Dictionary(
-            books.map { ($0.id, $0.narratedCount) },
+            books.map { book in (book.id, book.chapters.count { $0.audioPath.map(exists) ?? false }) },
             uniquingKeysWith: { first, _ in first }
         )
+        // Which books count as audiobooks rests on the same files.
+        shelfQueryCache = nil
     }
 
     func load() async {

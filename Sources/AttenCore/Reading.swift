@@ -72,7 +72,7 @@ extension BookChapter {
             .filter { !$0.isEmpty }
     }
 
-    public var wordCount: Int { text.split(whereSeparator: \.isWhitespace).count }
+    public var wordCount: Int { ListenEstimator.wordCount(text) }
 }
 
 extension BookRecord {

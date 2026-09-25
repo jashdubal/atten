@@ -15,7 +15,7 @@ struct ContinueListeningHero: View {
     private var isLoaded: Bool { model.playingBook?.id == book.id }
     private var isPlaying: Bool { isLoaded && model.isPlaying }
 
-    private var seed: CoverSeed { CoverSeed(contentHash: AttenCore.LibraryItem.book(book).coverSeedKey) }
+    private var seed: CoverSeed { CoverSeed.cached(contentHash: AttenCore.LibraryItem.book(book).coverSeedKey) }
 
     private var rawTint: OKLCHColor {
         shelf.covers.dominantColor(for: book.id) ?? OKLCHColor(lightness: 0.6, chroma: 0.12, hue: seed.hue)
@@ -108,7 +108,7 @@ struct BookJacket: View {
     var dominantColor: OKLCHColor?
     var isPlaying = false
 
-    private var seed: CoverSeed { CoverSeed(contentHash: AttenCore.LibraryItem.book(book).coverSeedKey) }
+    private var seed: CoverSeed { CoverSeed.cached(contentHash: AttenCore.LibraryItem.book(book).coverSeedKey) }
 
     /// A real cover's shadow is tinted by its own dominant colour; a
     /// generated one is tinted by the same seed its blobs are drawn from, so

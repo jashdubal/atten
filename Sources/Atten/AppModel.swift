@@ -263,8 +263,8 @@ final class AppModel {
               !hasAnnouncedQuarantinedHistory else { return }
         hasAnnouncedQuarantinedHistory = true
         reportStartupProblem("""
-        Atten could not read its project history, so the old file was kept at \
-        \(quarantined.path) and a fresh history was started. \
+        Atten could not read all of its project history, so a copy of the file \
+        was kept at \(quarantined.path) and everything still readable was kept. \
         Your audio files were not touched.
         """)
     }

@@ -20,10 +20,14 @@ enum NarrationQueueFile {
     }
 
     /// Nothing to resume is the answer for a missing or unreadable file:
-    /// the books themselves keep every chapter already narrated.
+    /// the books themselves keep every chapter already narrated. A damaged
+    /// file keeps the entries it finished writing, and a copy of it is kept
+    /// as `queue.json.corrupt` before the next save replaces it.
     static func load(from url: URL) -> [QueuedNarration] {
         guard let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([QueuedNarration].self, from: data)) ?? []
+        if let queue = try? JSONDecoder().decode([QueuedNarration].self, from: data) { return queue }
+        try? CorruptFileBackup.preserve(url)
+        return JSONArraySalvage.decode(QueuedNarration.self, from: data, using: JSONDecoder())
     }
 
     static func save(_ queue: [QueuedNarration], to url: URL) throws {

@@ -120,7 +120,7 @@ struct GeneratedCover: View {
     }
 
     var body: some View {
-        let seed = CoverSeed(contentHash: contentHash)
+        let seed = CoverSeed.cached(contentHash: contentHash)
         GeometryReader { geometry in
             let size = geometry.size
             ZStack(alignment: .bottomLeading) {

@@ -52,6 +52,18 @@ def _disk_is_full(directory, margin=8 * 1024 * 1024):
         return False
 
 
+def _full_disk_error(error, directory):
+    """A plain "the disk is full" for a write that failed because it is, or
+    None. libsndfile reports a full disk as its own "System error", so the
+    disk itself is asked rather than the message read."""
+    if getattr(error, "errno", None) == errno.ENOSPC or _disk_is_full(directory):
+        return RuntimeError(
+            f"The disk holding '{directory}' is full, so the audio "
+            "could not be saved. Free some space or choose another folder."
+        )
+    return None
+
+
 def _remove_abandoned_partials(directory, older_than_seconds=24 * 60 * 60):
     """Clears partial files left by a run that was killed before it finished.
 
@@ -237,12 +249,18 @@ class SoundFileAudioIO:
                     else:
                         raise RuntimeError("M4A decoding requires afconvert or ffmpeg.")
                     subprocess.run(command, check=True, capture_output=True)
-                with sf.SoundFile(str(decoded)) as audio:
-                    with sf.SoundFile(str(temporary), mode="w", samplerate=audio.samplerate,
-                                      channels=audio.channels) as output:
-                        for block in audio.blocks(blocksize=audio.samplerate * 30, dtype="float32"):
-                            output.write(block)
-                os.replace(temporary, destination)
+                try:
+                    with sf.SoundFile(str(decoded)) as audio:
+                        with sf.SoundFile(str(temporary), mode="w", samplerate=audio.samplerate,
+                                          channels=audio.channels) as output:
+                            for block in audio.blocks(blocksize=audio.samplerate * 30, dtype="float32"):
+                                output.write(block)
+                    os.replace(temporary, destination)
+                except Exception as error:
+                    full = _full_disk_error(error, destination.parent)
+                    if full:
+                        raise full from error
+                    raise
         finally:
             temporary.unlink(missing_ok=True)
         return destination.resolve()
@@ -390,11 +408,20 @@ class GenerationService:
                         segment_path = Path(temporary_directory) / f"segment-{index}.{request.output_format}"
                     else:
                         segment_path = segments_directory / f"seg-{index:05d}.wav"
-                    self.audio_io.write(segment_path, audio)
+                    try:
+                        self.audio_io.write(segment_path, audio)
+                        if segments_directory is not None:
+                            # Close and sync the WAV before announcing that it can be read.
+                            with segment_path.open("rb") as segment_file:
+                                os.fsync(segment_file.fileno())
+                    except Exception as error:
+                        # A narration keeps its segments on the library's
+                        # disk, which can fill up long before the export does.
+                        full = _full_disk_error(error, segment_path.parent)
+                        if full:
+                            raise full from error
+                        raise
                     if segments_directory is not None:
-                        # Close and sync the WAV before announcing that it can be read.
-                        with segment_path.open("rb") as segment_file:
-                            os.fsync(segment_file.fileno())
                         duration = len(audio) / self.audio_io.sample_rate
                         words = []
                         for token in getattr(result, "tokens", None) or []:
@@ -427,16 +454,9 @@ class GenerationService:
                     self.audio_io.merge(temporary_output, segment_paths)
                     os.replace(temporary_output, output_path)
                 except Exception as error:
-                    # libsndfile reports a full disk as its own "System error",
-                    # so the disk itself is asked rather than the message read.
-                    if (
-                        getattr(error, "errno", None) == errno.ENOSPC
-                        or _disk_is_full(output_directory)
-                    ):
-                        raise RuntimeError(
-                            f"The disk holding '{output_directory}' is full, so the audio "
-                            "could not be saved. Free some space or choose another folder."
-                        ) from error
+                    full = _full_disk_error(error, output_directory)
+                    if full:
+                        raise full from error
                     raise
         finally:
             temporary_output.unlink(missing_ok=True)

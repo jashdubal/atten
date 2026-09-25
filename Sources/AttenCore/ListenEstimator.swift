@@ -29,8 +29,20 @@ public struct ListenEstimator: Equatable, Sendable {
         self.realTimeFactor = realTimeFactor
     }
 
+    /// Whitespace-separated words, counted without making them: splitting a
+    /// thousand-page book into an array of words just to count it took a
+    /// third of a second, and a book's page counts it every time it draws.
     public static func wordCount(_ text: String) -> Int {
-        text.split(whereSeparator: \.isWhitespace).count
+        var count = 0
+        var inWord = false
+        for scalar in text.unicodeScalars {
+            let isSpace = scalar.isASCII
+                ? scalar.value == 32 || (9...13).contains(scalar.value)
+                : scalar.properties.isWhitespace
+            if !isSpace, !inWord { count += 1 }
+            inWord = !isSpace
+        }
+        return count
     }
 
     public func wordsPerMinute(forVoiceID voiceID: String) -> Double {

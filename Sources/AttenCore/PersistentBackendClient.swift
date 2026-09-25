@@ -119,7 +119,7 @@ public final class PersistentBackendClient: TTSGenerating, @unchecked Sendable {
         guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BackendError.invalidRequest("Enter some text before generating speech.")
         }
-        guard let installation else { throw BackendError.backendNotFound }
+        guard let installation, installation.isPresent else { throw BackendError.backendNotFound }
 
         let job = Job(id: id)
         lock.withLock { jobsByID[id] = job }
@@ -480,7 +480,12 @@ private final class ServeProcess: @unchecked Sendable {
     }
 
     private func handleExit(_ process: Process) {
-        settleReadiness(.failure(Unavailable.unavailable))
+        // Killed before it was ready is a crash, not a backend too old to
+        // serve: taking it for one gave up the resident engine for the rest of
+        // the session and failed the request with no message at all.
+        settleReadiness(.failure(
+            process.terminationReason == .uncaughtSignal ? crashError(process) : Unavailable.unavailable
+        ))
         let request = lock.withLock { () -> Pending? in
             exited = true
             defer { pending = nil }

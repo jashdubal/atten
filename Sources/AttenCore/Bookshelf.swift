@@ -242,7 +242,7 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
     public var narrationQueue: [URL] { if hasBookAudio, let audioURL { return [audioURL] }; return chapters.compactMap { $0.isNarrated ? $0.audioURL : nil } }
 
     public var wordCount: Int {
-        chapters.reduce(0) { $0 + $1.text.split(whereSeparator: \.isWhitespace).count }
+        chapters.reduce(0) { $0 + $1.wordCount }
     }
 
     public init(from decoder: Decoder) throws {
@@ -284,8 +284,10 @@ public struct BookRecord: Codable, Identifiable, Equatable, Sendable {
 }
 
 /// Stores the shelf beside the project history. A damaged shelf loses at most
-/// the books whose entries no longer decode; the rest are kept, and a book can
-/// always be added again from its source file.
+/// the books whose entries no longer decode, or that a cut-short save never
+/// finished writing; the rest are kept, the damaged file is copied aside as
+/// `books.json.corrupt`, and a book can always be added again from its
+/// source file.
 public actor BookLibraryStore {
     private let fileURL: URL
     private let encoder = JSONEncoder()
@@ -306,11 +308,9 @@ public actor BookLibraryStore {
             loadFailed = false
             return books
         }
-        let recovery = fileURL.deletingPathExtension().appendingPathExtension("recovered-\(UUID().uuidString).json")
-        try FileManager.default.copyItem(at: fileURL, to: recovery)
-        recoveredFileURL = recovery
+        recoveredFileURL = try CorruptFileBackup.preserve(fileURL)
         loadFailed = false
-        return (try? decoder.decode([Salvaged].self, from: data))?.compactMap(\.record) ?? []
+        return JSONArraySalvage.decode(BookRecord.self, from: data, using: decoder)
     }
 
     public func save(_ books: [BookRecord]) throws {
@@ -320,13 +320,5 @@ public actor BookLibraryStore {
             withIntermediateDirectories: true
         )
         try encoder.encode(books).write(to: fileURL, options: .atomic)
-    }
-
-    private struct Salvaged: Decodable {
-        let record: BookRecord?
-
-        init(from decoder: Decoder) throws {
-            record = try? BookRecord(from: decoder)
-        }
     }
 }

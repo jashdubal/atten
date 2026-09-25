@@ -112,7 +112,7 @@ public final class ProcessBackendClient: TTSGenerating, @unchecked Sendable {
         guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BackendError.invalidRequest("Enter some text before generating speech.")
         }
-        guard let installation else { throw BackendError.backendNotFound }
+        guard let installation, installation.isPresent else { throw BackendError.backendNotFound }
 
         let inputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("atten-input-\(UUID().uuidString).txt")
@@ -291,6 +291,17 @@ public enum BackendInstallation: Equatable, Sendable {
     public var isQuarantined: Bool {
         guard case let .bundled(helper, _) = self else { return false }
         return BundleQuarantine.isQuarantined(helper)
+    }
+
+    /// Whether the engine is still where it was found. An installation is
+    /// located once, at launch, and a helper deleted or no longer runnable
+    /// since then — an interrupted update, a permissions change — would
+    /// otherwise be launched anyway and fail in the launcher's own words.
+    public var isPresent: Bool {
+        switch self {
+        case let .bundled(helper, _): FileManager.default.isExecutableFile(atPath: helper.path)
+        case let .development(root): FileManager.default.isReadableFile(atPath: root.appendingPathComponent("cli.py").path)
+        }
     }
 
     var entrypointArguments: [String] {
