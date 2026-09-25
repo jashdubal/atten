@@ -2,8 +2,8 @@ import AppKit
 import AttenCore
 import SwiftUI
 
-/// Create's four states: an empty stage, the editor with its inspector, the
-/// same editor read-only while it is narrated, and the finished cover.
+/// Create's states: an empty stage, the editor with its inspector, the same
+/// editor read-only while it is queued or narrated, and the finished cover.
 struct CreateView: View {
     @Bindable var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -17,7 +17,7 @@ struct CreateView: View {
             case .empty:
                 CreateEmptyStage(flow: flow)
                     .transition(.opacity)
-            case .editing, .generating:
+            case .editing, .generating, .queued:
                 editor
                     .transition(.opacity)
             case .done:
@@ -153,12 +153,13 @@ private struct CreateEditorColumn: View {
     var body: some View {
         let extent = flow.spokenExtent
         let isGenerating = flow.state == .generating
+        let isLocked = isGenerating || flow.state == .queued
         VStack(spacing: 0) {
             TextField("Title", text: $flow.title, prompt: Text("Untitled").foregroundStyle(AttenColor.text3))
                 .textFieldStyle(.plain)
                 .attenText(.title1)
                 .foregroundStyle(AttenColor.text1)
-                .disabled(isGenerating)
+                .disabled(isLocked)
                 .frame(maxWidth: Self.columnWidth, alignment: .leading)
                 .padding(.horizontal, AttenSpacing.lg)
                 .padding(.top, AttenSpacing.xl)
@@ -167,7 +168,7 @@ private struct CreateEditorColumn: View {
             AlignedTextEditor(
                 text: $flow.text,
                 accessibilityLabel: "Text to narrate",
-                spokenLength: isGenerating ? (extent?.utf16Offset ?? 0) : nil,
+                spokenLength: isLocked ? (extent?.utf16Offset ?? 0) : nil,
                 playingRange: isGenerating ? flow.playingSentenceRange.map { NSRange(location: $0.location, length: $0.length) } : nil,
                 focusesOnAppear: flow.text.isEmpty
             )

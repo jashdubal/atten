@@ -47,6 +47,7 @@ final class AppModel {
     /// Plays whichever narration is being generated, as its segments land.
     let progressivePlayer = ProgressivePlayer()
     let sleepTimer = SleepTimer()
+    let narrationNotifier = NarrationNotifier()
 
     @ObservationIgnored private let directories: AppDirectories
     @ObservationIgnored private let repository: ProjectRepository
@@ -114,6 +115,7 @@ final class AppModel {
             self?.installedModelsChanged()
         }
         self.bookshelf.isAudioInUse = { [weak self] url in self?.activeAudioURL == url }
+        self.bookshelf.listenEstimator = { [weak self] in self?.settings.listenEstimator ?? ListenEstimator() }
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }
@@ -138,6 +140,9 @@ final class AppModel {
                 }
             }
             createFlow.narrationFinished(run.bookID)
+            if let book = bookshelf.book(id: run.bookID) {
+                narrationNotifier.narrationFinished(bookID: book.id, title: book.title)
+            }
         }
         self.bookshelf.onSegmentReady = { [weak self] bookID, chapterIndex, segment in
             self?.progressivePlayer.receive(bookID: bookID, chapterIndex: chapterIndex, segment: segment)
@@ -211,6 +216,11 @@ final class AppModel {
         }
         library.start()
         await bookshelf.load()
+        // After the shelf has loaded, so a click that launched Atten finds its book.
+        SystemNotifications.shared.open = { [weak self] bookID in
+            self?.section = .library
+            self?.openInLibrary(.book(bookID))
+        }
         if let book = bookshelf.books.filter({ $0.hasBookAudio && $0.lastListenedAt != nil })
             .max(by: { ($0.lastListenedAt ?? .distantPast) < ($1.lastListenedAt ?? .distantPast) }),
            let track = book.narrationTracks.first {
@@ -254,8 +264,8 @@ final class AppModel {
               !hasAnnouncedQuarantinedHistory else { return }
         hasAnnouncedQuarantinedHistory = true
         reportStartupProblem("""
-        Atten could not read its project history, so the old file was kept at \
-        \(quarantined.path) and a fresh history was started. \
+        Atten could not read all of its project history, so a copy of the file \
+        was kept at \(quarantined.path) and everything still readable was kept. \
         Your audio files were not touched.
         """)
     }

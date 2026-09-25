@@ -106,6 +106,8 @@ struct GeneratedCover: View {
     var sourceLabel: String?
     var state: AttenCore.LibraryItemState = .voiced
     var isPlaying = false
+    /// Off for a thumbnail too small to print the title legibly.
+    var showsTitle = true
 
     /// How far the cover has risen out of silence: 0 while silent, 1 once
     /// voiced, and whatever `.generating` reports in between.
@@ -118,7 +120,7 @@ struct GeneratedCover: View {
     }
 
     var body: some View {
-        let seed = CoverSeed(contentHash: contentHash)
+        let seed = CoverSeed.cached(contentHash: contentHash)
         GeometryReader { geometry in
             let size = geometry.size
             ZStack(alignment: .bottomLeading) {
@@ -131,19 +133,21 @@ struct GeneratedCover: View {
                         .opacity(0.75)
                         .blur(radius: size.width * 0.12)
                 }
-                VStack(alignment: .leading, spacing: size.width * 0.02) {
-                    Text(title)
-                        .font(.system(size: max(12, size.width * 0.1), weight: .regular, design: .serif))
-                        .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)))
-                        .lineLimit(4)
-                    if let sourceLabel {
-                        Text(sourceLabel.uppercased())
-                            .attenText(.label)
-                            .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)).opacity(0.72))
-                            .lineLimit(1)
+                if showsTitle {
+                    VStack(alignment: .leading, spacing: size.width * 0.02) {
+                        Text(title)
+                            .font(.system(size: max(12, size.width * 0.1), weight: .regular, design: .serif))
+                            .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)))
+                            .lineLimit(4)
+                        if let sourceLabel {
+                            Text(sourceLabel.uppercased())
+                                .attenText(.label)
+                                .foregroundStyle(AttenColor.cover(OKLCHColor(lightness: 0.97, chroma: 0.01, hue: seed.hue)).opacity(0.72))
+                                .lineLimit(1)
+                        }
                     }
+                    .padding(size.width * 0.09)
                 }
-                .padding(size.width * 0.09)
             }
         }
         .aspectRatio(AttenMetrics.coverAspectRatio, contentMode: .fit)

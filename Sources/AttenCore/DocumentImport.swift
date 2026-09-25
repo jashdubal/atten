@@ -508,14 +508,9 @@ enum XHTMLText {
     /// in two — which the voice reads as a pause in the middle of a thought.
     private static func strippingTags(from source: String) -> String {
         guard let tag else { return source }
-        var result = source
-        let full = NSRange(source.startIndex..<source.endIndex, in: source)
-        for match in tag.matches(in: source, range: full).reversed() {
-            guard let range = Range(match.range, in: source) else { continue }
-            let name = tagName(in: source[range])
-            result.replaceSubrange(range, with: blocks.contains(name) ? "\n" : "")
+        return replacingMatches(of: tag, in: source) { match, text in
+            blocks.contains(tagName(in: Substring(text.substring(with: match.range)))) ? "\n" : ""
         }
-        return result
     }
 
     /// The element a tag opens or closes, taken off the front of `<p class=…>`
@@ -583,6 +578,29 @@ enum XHTMLText {
     }
 }
 
+/// `source` with each match of `pattern` replaced by what `replacement`
+/// answers for it, or left as it is when that is nil. The result is built
+/// front to back: splicing each replacement into the string in place moved
+/// everything after it every time, which made cleaning up one long chapter
+/// quadratic — tens of seconds for a single-file book.
+private func replacingMatches(
+    of pattern: NSRegularExpression,
+    in source: String,
+    with replacement: (NSTextCheckingResult, NSString) -> String?
+) -> String {
+    let text = source as NSString
+    let result = NSMutableString(capacity: text.length)
+    var copied = 0
+    for match in pattern.matches(in: source, range: NSRange(location: 0, length: text.length)) {
+        guard let replaced = replacement(match, text) else { continue }
+        result.append(text.substring(with: NSRange(location: copied, length: match.range.location - copied)))
+        result.append(replaced)
+        copied = match.range.location + match.range.length
+    }
+    result.append(text.substring(from: copied))
+    return result as String
+}
+
 private func localName(_ name: String) -> String {
     (name.split(separator: ":").last.map(String.init) ?? name).lowercased()
 }
@@ -612,16 +630,10 @@ enum HTMLEntities {
 
     static func substituteNamed(in source: String) -> String {
         guard let pattern else { return source }
-        let full = NSRange(source.startIndex..<source.endIndex, in: source)
-        var result = source
-        for match in pattern.matches(in: source, range: full).reversed() {
-            guard let whole = Range(match.range, in: source),
-                  let nameRange = Range(match.range(at: 1), in: source) else { continue }
-            let name = String(source[nameRange])
-            guard !reserved.contains(name) else { continue }
-            result.replaceSubrange(whole, with: named[name] ?? "")
+        return replacingMatches(of: pattern, in: source) { match, text in
+            let name = text.substring(with: match.range(at: 1))
+            return reserved.contains(name) ? nil : named[name] ?? ""
         }
-        return result
     }
 
     private static let numeric = try? NSRegularExpression(pattern: "&#(x?)([0-9A-Fa-f]+);")
@@ -631,15 +643,11 @@ enum HTMLEntities {
     static func decodeRemaining(in source: String) -> String {
         var text = substituteNamed(in: source)
         if let numeric {
-            let full = NSRange(text.startIndex..<text.endIndex, in: text)
-            for match in numeric.matches(in: text, range: full).reversed() {
-                guard let whole = Range(match.range, in: text),
-                      let prefix = Range(match.range(at: 1), in: text),
-                      let digits = Range(match.range(at: 2), in: text) else { continue }
-                let radix = text[prefix].isEmpty ? 10 : 16
-                guard let value = UInt32(text[digits], radix: radix),
-                      let scalar = Unicode.Scalar(value) else { continue }
-                text.replaceSubrange(whole, with: String(Character(scalar)))
+            text = replacingMatches(of: numeric, in: text) { match, text in
+                let radix = match.range(at: 1).length == 0 ? 10 : 16
+                guard let value = UInt32(text.substring(with: match.range(at: 2)), radix: radix),
+                      let scalar = Unicode.Scalar(value) else { return nil }
+                return String(Character(scalar))
             }
         }
         for (entity, replacement) in [

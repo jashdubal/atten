@@ -180,7 +180,7 @@ final class CreateFlowTests: XCTestCase {
         flow.generate()
         model.newDraft()
         flow.text = "The second draft."
-        XCTAssertEqual(flow.generateDisabledReason, "Another narration is running")
+        XCTAssertTrue(flow.canGenerate, "It can queue behind the first")
         try await waitForNarration()
 
         XCTAssertNotNil(flow.toastBookID)

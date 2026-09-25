@@ -44,6 +44,10 @@ enum BookAudioAssembler {
                     segments += timings.offset(by: start, startingAt: segments.count).segments
                 }
             }
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            throw DiskSpace.explain(error, writingTo: directory)
         }
         try Task.checkCancellation()
         if FileManager.default.fileExists(atPath: destination.path) {
