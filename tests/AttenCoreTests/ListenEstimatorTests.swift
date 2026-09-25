@@ -75,7 +75,7 @@ final class ListenEstimatorTests: XCTestCase {
     }
 
     func testFormattingHelpers() {
-        XCTAssertEqual(ListenEstimator.listenLabel(16 * 60), "≈ 16 MIN LISTEN")
+        XCTAssertEqual(ListenEstimator.listenLabel(16 * 60), "≈ 16 min LISTEN")
         XCTAssertEqual(ListenEstimator.generationLabel(2 * 60), "~2 min to generate")
         XCTAssertEqual(ListenEstimator.wordsLabel(2431), "2,431 WORDS")
     }
@@ -85,7 +85,7 @@ final class ListenEstimatorTests: XCTestCase {
         XCTAssertEqual(ListenEstimator.audioLabel(6), "≈ 6 s of audio")
         XCTAssertEqual(ListenEstimator.generationLabel(4.2), "~4 s to generate")
         XCTAssertEqual(ListenEstimator.remainingLabel(0.2), "~1 s remaining")
-        XCTAssertEqual(ListenEstimator.listenLabel(10), "≈ 10 SEC LISTEN")
+        XCTAssertEqual(ListenEstimator.listenLabel(10), "≈ 10 s LISTEN")
         XCTAssertEqual(ListenEstimator.audioLabel(59.4), "≈ 59 s of audio")
         XCTAssertEqual(ListenEstimator.audioLabel(59.6), "≈ 1 min of audio")
         XCTAssertEqual(ListenEstimator.audioLabel(90), "≈ 2 min of audio")

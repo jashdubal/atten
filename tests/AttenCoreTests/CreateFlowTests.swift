@@ -67,11 +67,14 @@ final class ChapterDetectionTests: XCTestCase {
     func testADraftIsCalledByItsOpeningWords() {
         XCTAssertEqual(ChapterDetection.derivedTitle(from: "\n  Hello there. How are you?\nMore."), "Hello there")
         XCTAssertEqual(ChapterDetection.derivedTitle(from: "# The Title\n\nBody."), "The Title")
-        XCTAssertEqual(ChapterDetection.derivedTitle(from: "Is it raining? Yes."), "Is it raining?")
+        XCTAssertEqual(ChapterDetection.derivedTitle(from: "Is it raining? Yes."), "Is it raining")
+        // The clause cut and the six-word cap agree here (the comma lands on
+        // word six), so the derived title is much shorter than the sentence.
         XCTAssertEqual(
             ChapterDetection.derivedTitle(from: "The creek is bright this morning, and the meadow is ready for a new story."),
-            "The creek is bright this morning, and the meadow is ready…"
+            "The creek is bright this morning"
         )
+        XCTAssertEqual(ChapterDetection.derivedTitle(from: "One two three four five six seven eight."), "One two three four five six")
         XCTAssertNil(ChapterDetection.derivedTitle(from: " \n\n "))
         let long = String(repeating: "x", count: 80)
         XCTAssertEqual(ChapterDetection.derivedTitle(from: long), String(repeating: "x", count: 60) + "…")
