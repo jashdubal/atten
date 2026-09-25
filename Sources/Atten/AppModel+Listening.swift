@@ -27,10 +27,17 @@ extension AppModel {
     /// Marks the sentence being spoken, in the book's own bookmark list, so
     /// the Reader shows it as well.
     func addBookmark(sentence index: Int?, of script: ReadAlongScript) {
+        guard let book = playingBook, let map = listeningMap else { return }
+        addBookmark(sentence: index, of: script, in: book, map: map, at: playbackPosition)
+    }
+
+    /// The same, for a recording other than the ordinary player's: a
+    /// narration heard while it is generated.
+    func addBookmark(
+        sentence index: Int?, of script: ReadAlongScript, in book: BookRecord, map: ListeningMap, at position: TimeInterval
+    ) {
         let sentence = index.flatMap { script.sentences.indices.contains($0) ? script.sentences[$0] : nil }
-        guard let book = playingBook, let map = listeningMap,
-              let location = map.location(at: sentence?.start ?? playbackPosition, sentence: sentence?.text)
-        else { return }
+        guard let location = map.location(at: sentence?.start ?? position, sentence: sentence?.text) else { return }
         let spoken = sentence.map { ListeningMap.normalized($0.text) } ?? ""
         let excerpt = spoken.isEmpty
             ? map.chapters.first { $0.index == location.chapterIndex }?.title ?? book.title

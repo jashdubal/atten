@@ -16,15 +16,23 @@ struct ReadAlongView: View {
     /// Chapter names over the sentence each chapter starts on, for a book
     /// played as one recording.
     @State private var headings: [Int: String] = [:]
+    /// The text a narration has not reached yet, while it is generating.
+    @State private var remainder: [ReadAlongRemainder] = []
+    /// What `script` was built from.
+    @State private var shownSource: ReadAlongSession.Source?
     @State private var playhead = ReadAlongPlayhead()
     @State private var scroll = ReadAlongScroll()
+
+    @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
+
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
 
     var body: some View {
         ZStack {
             AttenColor.bg
                 .overlay { AmbientFieldLayer(pausedStrength: 0.5) }
                 .ignoresSafeArea()
-            if model.queue.current == nil {
+            if session.source == nil {
                 VStack(spacing: AttenSpacing.md) {
                     AttenEmptyState(title: "Nothing playing", systemImage: "waveform", detail: "")
                     Button("Library") { model.returnToShelf() }
@@ -34,32 +42,19 @@ struct ReadAlongView: View {
                 player
             }
         }
-        .task(id: model.queue.current?.id) { await loadScript() }
+        .task(id: session.scriptKey) { await loadScript() }
     }
 
     private var player: some View {
         ZStack {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ReadAlongHero(model: model, namespace: namespace, scroll: scroll)
-                        sentences
-                    }
-                    .frame(maxWidth: 680)
-                    .padding(.horizontal, AttenSpacing.xl)
-                    // Room for the transport, which is taller than the
-                    // mini player the standard clearance is sized for.
-                    .padding(.bottom, AttenSpacing.xxl)
-                    .attenScrollPadding()
-                    .frame(maxWidth: .infinity)
-                }
-                .coordinateSpace(name: ReadAlongScroll.space)
-                .onPreferenceChange(ReadAlongScroll.OffsetKey.self) { offset in
-                    MainActor.assumeIsolated { scroll.scrolled(to: offset) }
-                }
-                .background {
-                    ReadAlongFollower(proxy: proxy, playhead: playhead, scroll: scroll)
-                }
+            if isOffscreenRender {
+                // `ImageRenderer` draws no scroll view, so the page is laid
+                // out flat from the top.
+                page
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .clipped()
+            } else {
+                scrollingPage
             }
             VStack {
                 ReadAlongHeader(model: model, scroll: scroll)
@@ -75,6 +70,33 @@ struct ReadAlongView: View {
         }
     }
 
+    private var scrollingPage: some View {
+        ScrollViewReader { proxy in
+            ScrollView { page }
+                .coordinateSpace(name: ReadAlongScroll.space)
+                .onPreferenceChange(ReadAlongScroll.OffsetKey.self) { offset in
+                    MainActor.assumeIsolated { scroll.scrolled(to: offset) }
+                }
+                .background {
+                    ReadAlongFollower(proxy: proxy, playhead: playhead, scroll: scroll)
+                }
+        }
+    }
+
+    private var page: some View {
+        VStack(spacing: 0) {
+            ReadAlongHero(model: model, namespace: namespace, scroll: scroll)
+            sentences
+        }
+        .frame(maxWidth: 680)
+        .padding(.horizontal, AttenSpacing.xl)
+        // Room for the transport, which is taller than the
+        // mini player the standard clearance is sized for.
+        .padding(.bottom, AttenSpacing.xxl)
+        .attenScrollPadding()
+        .frame(maxWidth: .infinity)
+    }
+
     private var sentences: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(script.sentences) { sentence in
@@ -87,21 +109,43 @@ struct ReadAlongView: View {
                     playhead: playhead,
                     scroll: scroll
                 ) {
-                    model.seek(to: sentence.start)
+                    session.seek(to: sentence.start)
                     scroll.follow()
                 }
                 .id(sentence.id)
             }
+            // Ids of their own, apart from the sentences' the follower scrolls to.
+            ForEach(remainder) { RemainderRow(part: $0).id("remainder.\($0.id)") }
         }
     }
 
     /// Word timings sit beside a book's recording. A recording without them —
     /// and a Create project, which never has them — is followed by the
     /// sentence, with times estimated from each sentence's length.
+    ///
+    /// A narration still generating is built again with each segment, and
+    /// then handed on to its finished recording. Both are the same text going
+    /// on, so the place is held and the page left where the reader has it.
     private func loadScript() async {
-        playhead.set(nil)
+        let source = session.source
+        let isGrowing = source == shownSource
+        let isHandoff = if case let .progressive(book) = shownSource { session.book?.id == book } else { false }
+        if !isGrowing, !isHandoff { playhead.set(nil) }
+        if session.isProgressive, let book = model.progressiveBook {
+            let timeline = model.progressivePlayer.timeline
+            let (loaded, rest) = await Task.detached(priority: .userInitiated) {
+                (ReadAlongSession.script(for: timeline), ReadAlongSession.remainder(of: book, after: timeline))
+            }.value
+            guard !Task.isCancelled else { return }
+            let chapters = ReadAlongSession.listeningMap(book: book, timeline: timeline).chapters
+            show(loaded, remainder: rest, source: source, isGrowing: isGrowing, headings: book.chapters.count > 1
+                ? Self.headings(chapters.map { ($0.title, $0.start) }, in: loaded) : [:])
+            return
+        }
         guard let track = model.queue.current else {
             script = .empty
+            remainder = []
+            shownSource = nil
             return
         }
         let book = model.playingBook
@@ -124,19 +168,32 @@ struct ReadAlongView: View {
             return .empty
         }.value
         guard !Task.isCancelled else { return }
+        show(loaded, remainder: [], source: source, isGrowing: isGrowing,
+             headings: Self.headings(for: book, trackURL: track.url, in: loaded))
+    }
+
+    private func show(
+        _ loaded: ReadAlongScript, remainder: [ReadAlongRemainder], source: ReadAlongSession.Source?,
+        isGrowing: Bool, headings: [Int: String]
+    ) {
         script = loaded
-        headings = Self.headings(for: book, trackURL: track.url, in: loaded)
-        playhead.set(loaded.locate(time: model.levelMeter.currentTime))
-        scroll.follow()
+        self.remainder = remainder
+        self.headings = headings
+        shownSource = source
+        playhead.set(loaded.locate(time: session.clock))
+        if !isGrowing { scroll.follow() }
     }
 
     private static func headings(for book: BookRecord?, trackURL: URL, in script: ReadAlongScript) -> [Int: String] {
         guard let book, book.hasBookAudio, book.audioURL == trackURL,
               book.playbackChapters.count > 1 else { return [:] }
+        return headings(book.playbackChapters.map { ($0.title, $0.startTime ?? 0) }, in: script)
+    }
+
+    private static func headings(_ chapters: [(title: String, start: Double)], in script: ReadAlongScript) -> [Int: String] {
         var headings: [Int: String] = [:]
-        for chapter in book.playbackChapters {
-            let start = chapter.startTime ?? 0
-            if let first = script.sentences.first(where: { $0.start >= start - 0.05 }), headings[first.id] == nil {
+        for chapter in chapters {
+            if let first = script.sentences.first(where: { $0.start >= chapter.start - 0.05 }), headings[first.id] == nil {
                 headings[first.id] = chapter.title
             }
         }
@@ -171,18 +228,20 @@ private struct ReadAlongClock: View {
     let script: ReadAlongScript
     let playhead: ReadAlongPlayhead
 
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: nil, paused: !model.isPlaying)) { context in
+        TimelineView(.animation(minimumInterval: nil, paused: !session.isPlaying)) { context in
             let place = locate(context.date)
             Color.clear.onChange(of: place, initial: true) { _, place in playhead.set(place) }
         }
         // A seek while paused moves the playhead with no frame to notice it.
-        .onChange(of: model.playbackPosition) { _, _ in playhead.set(locate(.now)) }
+        .onChange(of: session.position) { _, _ in playhead.set(locate(.now)) }
         .accessibilityHidden(true)
     }
 
     private func locate(_: Date) -> ReadAlongPlace? {
-        script.locate(time: model.levelMeter.currentTime)
+        script.locate(time: session.clock)
     }
 }
 
@@ -346,6 +405,8 @@ private struct ReadAlongHero: View {
     let namespace: Namespace.ID
     let scroll: ReadAlongScroll
 
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
+
     var body: some View {
         let collapse = scroll.collapse
         VStack(spacing: AttenSpacing.md) {
@@ -355,7 +416,7 @@ private struct ReadAlongHero: View {
                 .scaleEffect(1 - 0.2 * collapse, anchor: .bottom)
                 .opacity(1 - collapse)
             VStack(spacing: AttenSpacing.xxs) {
-                Text(model.playerTitle ?? "")
+                Text(session.title ?? "")
                     .attenText(.title1)
                     .foregroundStyle(AttenColor.text1)
                     .multilineTextAlignment(.center)
@@ -385,13 +446,13 @@ private struct ReadAlongHero: View {
     }
 
     private var subtitle: String? {
-        let parts = [model.playerSubtitle, model.queue.position].compactMap { $0 }
+        let parts = [session.subtitle, model.queue.position].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder private var actions: some View {
         HStack(spacing: AttenSpacing.lg) {
-            if let book = model.playingBook {
+            if let book = session.book {
                 Button("Read") {
                     model.section = .library
                     model.openInLibrary(.reader(book.id))
@@ -413,17 +474,19 @@ private struct ReadAlongHeader: View {
     @Bindable var model: AppModel
     let scroll: ReadAlongScroll
 
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
+
     var body: some View {
         let shown = min(1, max(0, (scroll.collapse - 0.6) / 0.4))
         HStack(spacing: AttenSpacing.sm) {
             PlayingArtwork(model: model, height: 40)
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.playerTitle ?? "")
+                Text(session.title ?? "")
                     .attenText(.callout)
                     .fontWeight(.semibold)
                     .foregroundStyle(AttenColor.text1)
                     .lineLimit(1)
-                if let subtitle = model.playerSubtitle {
+                if let subtitle = session.subtitle {
                     Text(subtitle)
                         .attenText(.callout)
                         .foregroundStyle(AttenColor.text2)
@@ -461,29 +524,31 @@ struct ReadAlongTransport: View {
     @State private var isShowingBookmarks = false
     @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
 
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
+
     private var hasChapters: Bool {
         (model.playingBook?.playbackChapters.count ?? 0) > 1 || model.queue.tracks.count > 1
     }
 
     /// The recording's own chapters, when it has more than one.
     private var chapters: [ListeningMap.Chapter] {
-        guard let map = model.listeningMap, map.chapters.count > 1 else { return [] }
+        guard let map = session.listeningMap, map.chapters.count > 1 else { return [] }
         return map.chapters
     }
 
     var body: some View {
         VStack(spacing: AttenSpacing.xs) {
             HStack(spacing: AttenSpacing.sm) {
-                Text(PlaybackFormat.timeText(model.playbackPosition))
+                Text(PlaybackFormat.timeText(session.position))
                     .frame(minWidth: 44, alignment: .leading)
                 ScrubBar(
-                    position: model.playbackPosition,
-                    duration: model.playbackDuration,
-                    seek: model.seek(to:),
+                    position: session.position,
+                    duration: session.duration,
+                    seek: session.seek(to:),
                     neutral: true,
                     chapters: chapters
                 )
-                Text("-" + PlaybackFormat.timeText(model.playbackRemaining))
+                Text(session.isCatchingUp ? "Catching up…" : "-" + PlaybackFormat.timeText(session.remaining))
                     .frame(minWidth: 44, alignment: .trailing)
             }
             .attenText(.label)
@@ -496,11 +561,14 @@ struct ReadAlongTransport: View {
                 HStack(spacing: 0) {
                     VoiceLevelGlyph(model: model)
                     if !chapters.isEmpty { chapterButton }
-                    if model.playingBook != nil { bookmarkButton }
+                    if session.book != nil { bookmarkButton }
                     Spacer()
                     SleepTimerControl(timer: model.sleepTimer)
-                    speed
-                        .padding(.leading, AttenSpacing.xs)
+                    // A narration is heard as it is generated, at 1×.
+                    if !session.isProgressive {
+                        speed
+                            .padding(.leading, AttenSpacing.xs)
+                    }
                 }
                 HStack(spacing: AttenSpacing.xs) {
                     if hasChapters {
@@ -509,12 +577,12 @@ struct ReadAlongTransport: View {
                                         action: model.playPrevious)
                     }
                     transportButton("gobackward.15", "Back 15 seconds") {
-                        model.skip(by: -NowPlayingCenter.skipInterval)
+                        session.skip(by: -NowPlayingCenter.skipInterval)
                     }
                     ReadAlongPlayButton(model: model)
                         .matchedGeometryEffect(id: PlayerMatch.play, in: namespace)
                     transportButton("goforward.15", "Forward 15 seconds") {
-                        model.skip(by: NowPlayingCenter.skipInterval)
+                        session.skip(by: NowPlayingCenter.skipInterval)
                     }
                     if hasChapters {
                         transportButton("forward.end.fill", "Next chapter",
@@ -536,13 +604,13 @@ struct ReadAlongTransport: View {
     }
 
     private var chapterList: some View {
-        let map = model.listeningMap
+        let map = session.listeningMap
         return PlayerChapterList(
             chapters: chapters,
-            current: map?.chapterIndex(at: model.playbackPosition)
+            current: map?.chapterIndex(at: session.position)
         ) { chapter in
-            model.seek(to: chapter.start)
-            if !model.isPlaying { model.toggleActivePlayback() }
+            session.seek(to: chapter.start)
+            if !session.isPlaying { session.toggle() }
             isShowingChapters = false
         }
     }
@@ -553,8 +621,8 @@ struct ReadAlongTransport: View {
     }
 
     private var bookmarkList: some View {
-        let book = model.playingBook
-        let map = model.listeningMap
+        let book = session.book
+        let map = session.listeningMap
         let entries = (book?.bookmarks ?? []).map { bookmark in
             PlayerBookmarkList.Entry(
                 bookmark: bookmark,
@@ -563,16 +631,16 @@ struct ReadAlongTransport: View {
                         ? book.chapters[bookmark.location.chapterIndex].title : nil
                 } ?? book?.title ?? "",
                 time: map?.chapters.contains { $0.index == bookmark.location.chapterIndex } == true
-                    ? model.time(of: bookmark, script: script) : nil
+                    ? session.time(of: bookmark, script: script) : nil
             )
         }
         return PlayerBookmarkList(
             entries: entries,
-            add: { model.addBookmark(sentence: playhead.sentence, of: script) },
+            add: { session.addBookmark(sentence: playhead.sentence, of: script) },
             jump: { entry in
                 guard let time = entry.time else { return }
-                model.seek(to: time)
-                if !model.isPlaying { model.toggleActivePlayback() }
+                session.seek(to: time)
+                if !session.isPlaying { session.toggle() }
                 isShowingBookmarks = false
             },
             remove: { entry in
@@ -647,9 +715,11 @@ struct ReadAlongTransport: View {
 private struct ReadAlongPlayButton: View {
     @Bindable var model: AppModel
 
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
+
     var body: some View {
-        Button(action: model.toggleActivePlayback) {
-            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+        Button(action: session.toggle) {
+            Image(systemName: session.isPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(AttenColor.bg)
                 .frame(width: 52, height: 52)
@@ -671,9 +741,9 @@ private struct ReadAlongPlayButton: View {
         }
         .buttonStyle(.plain)
         .attenFocusRing(cornerRadius: 26)
-        .help(model.isPlaying ? "Pause (Space)" : "Play (Space)")
-        .accessibilityLabel(model.isPlaying ? "Pause" : "Play")
-        .animation(.easeInOut(duration: AttenMotion.state), value: model.isPlaying)
+        .help(session.isPlaying ? "Pause (Space)" : "Play (Space)")
+        .accessibilityLabel(session.isPlaying ? "Pause" : "Play")
+        .animation(.easeInOut(duration: AttenMotion.state), value: session.isPlaying)
     }
 }
 
@@ -727,17 +797,19 @@ private struct ReadAlongKeys: View {
     let script: ReadAlongScript
     let playhead: ReadAlongPlayhead
 
+    private var session: ReadAlongSession { ReadAlongSession(model: model) }
+
     var body: some View {
         ZStack {
             Button("Add bookmark") {
-                model.addBookmark(sentence: playhead.sentence, of: script)
+                session.addBookmark(sentence: playhead.sentence, of: script)
             }
             .keyboardShortcut("d", modifiers: .command)
-            Button("Play or pause", action: model.toggleActivePlayback)
+            Button("Play or pause", action: session.toggle)
                 .keyboardShortcut(.space, modifiers: [])
-            Button("Back 15 seconds") { model.skip(by: -NowPlayingCenter.skipInterval) }
+            Button("Back 15 seconds") { session.skip(by: -NowPlayingCenter.skipInterval) }
                 .keyboardShortcut(.leftArrow, modifiers: [])
-            Button("Forward 15 seconds") { model.skip(by: NowPlayingCenter.skipInterval) }
+            Button("Forward 15 seconds") { session.skip(by: NowPlayingCenter.skipInterval) }
                 .keyboardShortcut(.rightArrow, modifiers: [])
         }
         .opacity(0)

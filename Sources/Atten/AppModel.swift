@@ -130,9 +130,11 @@ final class AppModel {
                 // Only a listener actually mid-narration needs handing off —
                 // otherwise nothing was following along, and switching the
                 // player over would silently steal whatever it already had
-                // loaded.
-                if handoff.wasPlaying, let book = bookshelf.book(id: run.bookID) {
-                    play(tracks: book.narrationTracks, atPosition: handoff.position)
+                // loaded. A full player open on the narration, paused, has
+                // nothing loaded to steal and keeps its place.
+                let isShowingNarration = queue.current == nil && section == .nowPlaying
+                if handoff.wasPlaying || isShowingNarration, let book = bookshelf.book(id: run.bookID) {
+                    play(tracks: book.narrationTracks, atPosition: handoff.position, autoplay: handoff.wasPlaying)
                 }
             }
             createFlow.narrationFinished(run.bookID)
