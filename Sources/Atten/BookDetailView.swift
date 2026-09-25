@@ -8,8 +8,13 @@ struct BookDetailView: View {
     let openReader: () -> Void
 
     @State private var pendingVoice: Voice?
+    @State private var isCasting = false
+    /// Chosen in the casting sheet, and acted on once it has closed so a
+    /// confirmation never has to open over it.
+    @State private var castVoice: Voice?
     @State private var confirmRemoval = false
     @State private var pendingExport: ExportTarget?
+    @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
 
     private var shelf: BookshelfModel { model.bookshelf }
 
@@ -23,40 +28,44 @@ struct BookDetailView: View {
     private var isWaiting: Bool { shelf.isQueued(book.id) && !shelf.isPaused(book.id) }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: AttenSpacing.lg) {
-                AttenBackButton(title: "Library") { model.goBack() }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                header
-                LibraryStatusArea(shelf: shelf, showsPreparation: false)
-                if !book.sourceExists { missingSourceNotice }
-                controls
-                chapterList
+        Group {
+            // `ImageRenderer` draws nothing inside a `ScrollView`; see
+            // `attenIsOffscreenRender`.
+            if isOffscreenRender {
+                page.fixedSize(horizontal: false, vertical: true)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                ScrollView { page }
             }
-            .padding(.horizontal, AttenSpacing.xl)
-            .padding(.vertical, AttenSpacing.lg)
-            .attenScrollPadding()
-            .frame(maxWidth: 1120, alignment: .topLeading)
-            .frame(maxWidth: .infinity, alignment: .top)
         }
         .background(AttenBackdrop())
         .navigationTitle(book.title)
         .task(id: book.id) { await shelf.covers.load(book) }
+        .sheet(isPresented: $isCasting, onDismiss: applyCast) {
+            CastingSheet(model: model, currentVoiceID: book.voiceID) { castVoice = $0 }
+        }
+        // A new narrator means narrating again, which is what makes it worth
+        // asking about: the dialog says so, and confirming starts it.
         .confirmationDialog(
-            "Re-narrate \(book.title) with the new voice?",
+            "Regenerate \(book.title) with \(pendingVoice.map { VoiceProfile(voice: $0).displayName } ?? "the new voice")?",
             isPresented: Binding(
                 get: { pendingVoice != nil },
                 set: { if !$0 { pendingVoice = nil } }
             ),
             titleVisibility: .visible
         ) {
-            Button("Change Voice") {
-                if let pendingVoice { shelf.updateVoice(pendingVoice.id, for: book.id) }
+            Button("Change and Regenerate") {
+                if let pendingVoice {
+                    shelf.updateVoice(pendingVoice.id, for: book.id)
+                    if shelf.canStartNarration { shelf.narrate(book.id, useMPS: model.settings.useMPS) }
+                }
                 pendingVoice = nil
             }
             Button("Keep Current Voice", role: .cancel) { pendingVoice = nil }
         } message: {
-            Text("Prepare the book again to use this voice. Your existing audiobook remains available until its replacement is ready.")
+            Text(book.hasBookAudio
+                ? "Changing the narrator regenerates the whole audiobook. The current recording stays playable until the new one is ready."
+                : "Changing the narrator regenerates the chapters already narrated.")
         }
         .confirmationDialog(
             "Remove \(book.title) from your library?",
@@ -73,64 +82,63 @@ struct BookDetailView: View {
         }
     }
 
+    private var page: some View {
+        VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+            AttenBackButton(title: "Library") { model.goBack() }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            header
+            LibraryStatusArea(shelf: shelf, showsPreparation: false)
+            if !book.sourceExists { missingSourceNotice }
+            chapterList
+        }
+        .padding(.horizontal, AttenSpacing.xl)
+        .padding(.vertical, AttenSpacing.lg)
+        .attenScrollPadding()
+        .frame(maxWidth: 1120, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var isPlayingBook: Bool { model.playingBook?.id == book.id && model.isPlaying }
+
+    /// The Library card's cover, at the size of a page rather than a shelf,
+    /// under the same matched id so opening a card carries its cover here.
     private var header: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: AttenSpacing.lg) {
-                cover
-                VStack(alignment: .leading, spacing: AttenSpacing.md) {
+        HStack(alignment: .top, spacing: AttenSpacing.xl) {
+            BookJacket(
+                book: book,
+                cover: shelf.covers.cover(for: book.id),
+                height: 240,
+                dominantColor: shelf.covers.dominantColor(for: book.id),
+                isPlaying: isPlayingBook
+            )
+            .attenMatchedCover(book.id)
+
+            VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                HStack(alignment: .top, spacing: AttenSpacing.sm) {
                     titleBlock
                     actionsMenu
                 }
+                controls
+                BookNarratorCard(model: model, book: book, isLocked: progress != nil) { isCasting = true }
+                    .frame(maxWidth: 520, alignment: .leading)
             }
-            VStack(alignment: .leading, spacing: AttenSpacing.md) {
-                HStack(alignment: .top, spacing: AttenSpacing.md) {
-                    cover
-                    titleBlock
-                }
-                actionsMenu
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var cover: some View {
-        ZStack {
-            if let image = shelf.covers.cover(for: book.id) {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                LinearGradient(
-                    colors: [AttenColor.surfaceElevated, AttenColor.surfaceMuted],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                VStack(spacing: AttenSpacing.xs) {
-                    Image(systemName: book.format.icon)
-                        .font(.system(size: 26))
-                        .foregroundStyle(AttenColor.accent.opacity(0.8))
-                    Text(book.format.displayName)
-                        .font(AttenTypography.callout.weight(.semibold))
-                        .foregroundStyle(AttenColor.textSecondary)
-                }
-            }
-        }
-        .frame(width: AttenMetrics.coverGridMinimum, height: AttenMetrics.coverGridMinimum / AttenMetrics.coverAspectRatio)
-        .clipShape(RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: AttenRadius.cover, style: .continuous)
-                .strokeBorder(AttenColor.glassHighlight, lineWidth: 0.5)
-        }
-        .shadow(color: AttenColor.shadow.opacity(0.15), radius: 6, y: 2)
-        .accessibilityLabel("Cover for \(book.title)")
-    }
-
+    /// Author, then counts. A generated cover already prints the format on
+    /// its face, so it is named here only beside real art — as the Library
+    /// card does.
     private var titleBlock: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.md) {
-            PageHeader(
-                eyebrow: book.format.displayName,
-                title: book.title,
-                detail: [
+        VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+            Text(book.title)
+                .attenText(.title1)
+                .foregroundStyle(AttenColor.text1)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                [
                     book.author,
+                    shelf.covers.cover(for: book.id) == nil ? nil : book.format.displayName,
                     "\(book.chapters.count) \(book.format.sectionNoun.lowercased())\(book.chapters.count == 1 ? "" : "s")",
                     "\(book.wordCount.formatted()) words",
                     book.bookmarks.isEmpty
@@ -140,31 +148,42 @@ struct BookDetailView: View {
                 .compactMap { $0 }
                 .joined(separator: " · ")
             )
+            .attenText(.body)
+            .foregroundStyle(AttenColor.text2)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The Library card's ⋯, so a book offers the same things from its page
+    /// as from the shelf — less Open, since this is where Open leads.
     private var actionsMenu: some View {
         Menu {
+            Button("Read", systemImage: "text.alignleft", action: openReader)
+                .disabled(!book.sourceExists)
+            Divider()
             Button("Export…", systemImage: "square.and.arrow.up") {
                 pendingExport = ExportTarget(book: book)
             }
             .disabled(!book.hasBookAudio)
-            Divider()
             Button("Reveal Source in Finder", systemImage: "folder") {
                 model.revealBookSource(book)
             }
             .disabled(!book.sourceExists)
             Divider()
-            Button("Remove from Library…", systemImage: "trash", role: .destructive) {
+            Button("Remove from Library", systemImage: "trash", role: .destructive) {
                 confirmRemoval = true
             }
         } label: {
-            Label("Actions", systemImage: "ellipsis")
-                .labelStyle(.iconOnly)
-                .frame(width: 30, height: 30)
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AttenColor.textPrimary)
+                .frame(width: 28, height: 24)
+                .background(AttenColor.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: 4))
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .accessibilityLabel("Actions for \(book.title)")
     }
 
@@ -200,20 +219,12 @@ struct BookDetailView: View {
             ? "Resume Preparation" : "Prepare Audio"
     }
 
+    /// Signal belongs to voice, so only Listen is primary; preparing audio
+    /// is a secondary action until there is something to hear.
     private var controls: some View {
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
             HStack(spacing: AttenSpacing.sm) {
-                Button {
-                    if shelf.isFullyNarrated(book) { model.listen(to: book) }
-                    else { shelf.narrate(book.id, useMPS: model.settings.useMPS) }
-                } label: {
-                    Label(primaryTitle, systemImage: shelf.isFullyNarrated(book) ? (model.playingBook?.id == book.id && model.isPlaying ? "pause.fill" : "play.fill") : "waveform")
-                }
-                .buttonStyle(AttenPrimaryButtonStyle(
-                    disabledReason: progress == nil && !isWaiting ? "Another narration is running" : nil
-                ))
-                .disabled(progress != nil || isWaiting || (!shelf.isFullyNarrated(book) && !shelf.canStartNarration))
-                .help(shelf.isFullyNarrated(book) ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
+                primaryButton
 
                 // A book already started opens where it was left off, so the
                 // button says so rather than promising the first page.
@@ -250,66 +261,49 @@ struct BookDetailView: View {
                     Text("Preparation stopped: \(failure) Resume to retry. Completed chapters are saved.")
                         .font(AttenTypography.callout).foregroundStyle(AttenColor.destructive)
                 }
-                Label(shelf.isFullyNarrated(book) ? "Audiobook ready" : "\(narratedCount) of \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters") prepared",
-                      systemImage: shelf.isFullyNarrated(book) ? "checkmark.circle" : "waveform")
-                    .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
-            }
-
-            Divider().overlay(AttenColor.separator)
-
-            settings
-        }
-        .attenSurface()
-    }
-
-    private var settings: some View {
-        HStack(alignment: .bottom, spacing: AttenSpacing.lg) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Voice")
-                Picker("Narration voice", selection: voiceBinding) {
-                    ForEach(voices) { voice in
-                        Text(voice.name).tag(voice.id)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 220)
-            }
-            if let required = model.requiredModelID(for: book.voiceID) {
-                Button("Download Voice Model") { model.library.download(required) }
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .disabled(model.library.downloads[required] != nil)
-                    .help("Download once; this voice then works offline")
-            } else if let voice = VoiceCatalog.voice(id: book.voiceID) {
-                Button("Preview") { model.previewVoice(voice) }
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .disabled(model.synthesis.isBusy)
-            }
-            Spacer(minLength: 0)
-        }
-        .font(AttenTypography.callout)
-        .foregroundStyle(AttenColor.textSecondary)
-        .disabled(progress != nil)
-    }
-
-    private var voices: [Voice] {
-        _ = model.voiceCatalogRevision
-        return VoiceCatalog.all
-    }
-
-    /// Confirm replacement settings while preserving the completed recording
-    /// until its replacement is ready.
-    private var voiceBinding: Binding<String> {
-        Binding(
-            get: { book.voiceID },
-            set: { newValue in
-                guard newValue != book.voiceID else { return }
-                if narratedCount > 0 || book.hasBookAudio {
-                    pendingVoice = VoiceCatalog.voice(id: newValue)
-                } else {
-                    shelf.updateVoice(newValue, for: book.id)
+                if shelf.isFullyNarrated(book) {
+                    Label("Ready to listen", systemImage: "headphones")
+                        .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
+                } else if !isWaiting && !shelf.canStartNarration {
+                    Text("Another narration is running")
+                        .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
+                } else if narratedCount > 0 {
+                    Label("\(narratedCount) of \(book.chapters.count) \(book.chapters.count == 1 ? "chapter" : "chapters") prepared",
+                          systemImage: "waveform")
+                        .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
                 }
             }
-        )
+        }
+    }
+
+    @ViewBuilder private var primaryButton: some View {
+        let isListenable = shelf.isFullyNarrated(book)
+        let button = Button {
+            if isListenable { model.listen(to: book) }
+            else { shelf.narrate(book.id, useMPS: model.settings.useMPS) }
+        } label: {
+            Label(primaryTitle, systemImage: isListenable ? (isPlayingBook ? "pause.fill" : "play.fill") : "waveform")
+        }
+        .disabled(progress != nil || isWaiting || (!isListenable && !shelf.canStartNarration))
+        .help(isListenable ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
+        if isListenable {
+            button.buttonStyle(AttenPrimaryButtonStyle())
+        } else {
+            button.buttonStyle(AttenSecondaryButtonStyle())
+        }
+    }
+
+    /// Acts on the sheet's choice. A voice with nothing narrated in it yet
+    /// just changes; one that means narrating again asks first.
+    private func applyCast() {
+        guard let voice = castVoice else { return }
+        castVoice = nil
+        guard voice.id != book.voiceID else { return }
+        if narratedCount > 0 || book.hasBookAudio {
+            pendingVoice = voice
+        } else {
+            shelf.updateVoice(voice.id, for: book.id)
+        }
     }
 
     private var formatBinding: Binding<AudioFormat> {
@@ -371,14 +365,23 @@ private struct ChapterRow: View {
             leading
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(number). \(chapter.title)")
-                    .font(AttenTypography.callout)
-                    .foregroundStyle(AttenColor.textPrimary)
-                    .lineLimit(1)
-                Text(chapter.text.prefix(120))
-                    .font(AttenTypography.callout)
-                    .foregroundStyle(AttenColor.textSecondary)
-                    .lineLimit(1)
+                // A section named after its book (a one-section document)
+                // would repeat the page's title; its opening words say more.
+                if chapter.title == book.title {
+                    Text("\(number). \(chapter.text.prefix(120))")
+                        .font(AttenTypography.callout)
+                        .foregroundStyle(AttenColor.textPrimary)
+                        .lineLimit(1)
+                } else {
+                    Text("\(number). \(chapter.title)")
+                        .font(AttenTypography.callout)
+                        .foregroundStyle(AttenColor.textPrimary)
+                        .lineLimit(1)
+                    Text(chapter.text.prefix(120))
+                        .font(AttenTypography.callout)
+                        .foregroundStyle(AttenColor.textSecondary)
+                        .lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -397,7 +400,9 @@ private struct ChapterRow: View {
                 .disabled(book.hasBookAudio || !model.bookshelf.canStartNarration)
         }
         .task(id: chapter.audioPath) {
-            guard let url = chapter.audioURL, chapter.isNarrated else {
+            // A chapter placed in the book's recording already knows its
+            // length; measuring its file would measure the whole book.
+            guard chapter.narratedDuration == nil, let url = chapter.audioURL, chapter.isNarrated else {
                 metadata = nil
                 return
             }
@@ -434,10 +439,7 @@ private struct ChapterRow: View {
 
     private var detail: String {
         if isGenerating { return "generating…" }
-        if let start = chapter.startTime {
-            let seconds = Int(start)
-            return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
-        }
-        return metadata?.durationText ?? "—"
+        guard let duration = chapter.narratedDuration ?? metadata?.duration, duration.isFinite else { return "—" }
+        return ListenEstimator.durationLabel(duration)
     }
 }
