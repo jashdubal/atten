@@ -47,7 +47,7 @@ struct AlignedTextEditor: NSViewRepresentable {
         textView.defaultParagraphStyle = paragraph
         textView.font = style.nsFont
         textView.typingAttributes = Self.attributes(colour: AttenColor.nsTextPrimary)
-        textView.insertionPointColor = AttenColor.nsAccent
+        textView.insertionPointColor = AttenColor.nsSignal
         textView.string = text
         textView.textStorage?.setAttributes(
             Self.attributes(colour: AttenColor.nsTextPrimary),

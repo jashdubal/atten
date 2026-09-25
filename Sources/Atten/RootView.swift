@@ -120,7 +120,7 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(preferredColorScheme)
-        .tint(AttenColor.accent)
+        .tint(AttenColor.signal)
         .font(AttenTypography.body)
         .foregroundStyle(AttenColor.textPrimary)
         .background(WindowTitleHider())

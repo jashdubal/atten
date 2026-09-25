@@ -55,7 +55,7 @@ struct SettingsView: View {
             }
             .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }.tag("shortcuts")
         }
-        .tint(AttenColor.accent)
+        .tint(AttenColor.signal)
         .font(AttenTypography.body)
         .foregroundStyle(AttenColor.textPrimary)
         .preferredColorScheme(preferredColorScheme)

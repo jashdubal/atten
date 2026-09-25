@@ -255,6 +255,15 @@ bundle. Books, projects, and listening state use that directory; settings use
 run and a separate validation bundle identifier to isolate window restoration.
 Never point a test reset at a real user's library.
 
+`scripts/make-fixture-library --count N --dir DIR [--voiced-fraction 0.3]`
+fills an empty `DIR` with a realistic-looking library for this kind of QA:
+mixed formats, lengths and languages, some drafts, one queued for narration,
+a few interrupted mid-narration, and the rest fully voiced with short silent
+audio and word timings so they play and export without the speech engine. It
+refuses a non-empty `DIR` and any path under `~/Library/Application
+Support/Atten`. Point a build at the result the same way, e.g.
+`ATTEN_DATA_DIRECTORY=DIR swift run Atten`.
+
 ## Pre-tag checklist
 
 - [ ] `CFBundleShortVersionString` in `macOS/Info.plist` matches the version being tagged.
