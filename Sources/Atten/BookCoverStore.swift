@@ -6,9 +6,10 @@ import SwiftUI
 
 /// The picture on the front of a book.
 ///
-/// A shelf of books that shows no covers is a list with rounded corners. Both
-/// formats carry one: a PDF's is its first page, and an EPUB names an image in
-/// its manifest. Finding either means opening the file — unpacking a whole zip,
+/// A shelf of books that shows no covers is a list with rounded corners. An
+/// EPUB names an image in its manifest; a PDF's cover is its first page, but
+/// only when that page is a picture — a scanned jacket — and not a page of
+/// text. Finding either means opening the file — unpacking a whole zip,
 /// in the EPUB's case — so it is done once, off the main thread, and the result
 /// is kept beside the book.
 @MainActor
@@ -54,7 +55,8 @@ final class BookCoverStore {
         let found = await extractor.data(
             from: book.sourceURL,
             format: book.format,
-            cachedAt: cacheURL(book.id)
+            cachedAt: cacheURL(book.id),
+            replacing: legacyCacheURL(book.id)
         )
         guard let found, let image = NSImage(data: found) else {
             missing.insert(book.id)
@@ -72,6 +74,7 @@ final class BookCoverStore {
         dominantColors.removeValue(forKey: bookID)
         missing.remove(bookID)
         try? FileManager.default.removeItem(at: cacheURL(bookID))
+        try? FileManager.default.removeItem(at: legacyCacheURL(bookID))
     }
 
     /// An actor, so however many cards ask at once the archives are opened one
@@ -84,13 +87,14 @@ final class BookCoverStore {
         /// new enough toolchain lets through, which is why this reached CI
         /// rather than the machine it was written on. Data crosses safely, and
         /// the image is made on the main actor, where it is going to be drawn.
-        func data(from source: URL, format: BookFormat, cachedAt cached: URL) -> Data? {
+        func data(from source: URL, format: BookFormat, cachedAt cached: URL, replacing legacy: URL) -> Data? {
             // Decoded, not merely present: a cache file that cannot be read as
             // an image has to be extracted again rather than counted as a book
             // with no cover.
             if let cached = try? Data(contentsOf: cached), NSImage(data: cached) != nil {
                 return cached
             }
+            try? FileManager.default.removeItem(at: legacy)
             guard let data = BookCoverStore.extract(from: source, format: format),
                   NSImage(data: data) != nil else { return nil }
             try? FileManager.default.createDirectory(
@@ -103,11 +107,17 @@ final class BookCoverStore {
     }
 
     private func cacheURL(_ bookID: UUID) -> URL {
+        directory.appendingPathComponent("\(bookID.uuidString).v2.png")
+    }
+
+    /// Where covers were kept when any PDF's first page counted as one. Those
+    /// renders of a page of text are thrown away, not shown.
+    private func legacyCacheURL(_ bookID: UUID) -> URL {
         directory.appendingPathComponent("\(bookID.uuidString).png")
     }
 
     /// Runs off the main actor, so it touches nothing but the file it is given.
-    private nonisolated static func extract(from url: URL, format: BookFormat) -> Data? {
+    nonisolated static func extract(from url: URL, format: BookFormat) -> Data? {
         switch format {
         // A report has no cover, and inventing one would be a picture of
         // something that does not exist. The shelf draws its own card.
@@ -120,7 +130,8 @@ final class BookCoverStore {
         case .pdf:
             guard let document = PDFDocument(url: url),
                   !document.isLocked,
-                  let page = document.page(at: 0) else { return nil }
+                  let page = document.page(at: 0),
+                  isJacket(page) else { return nil }
             let bounds = page.bounds(for: .cropBox)
             guard bounds.width > 1, bounds.height > 1 else { return nil }
             // Twice the size a card draws it at, so it stays sharp on a retina
@@ -135,5 +146,73 @@ final class BookCoverStore {
                   let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
             return bitmap.representation(using: .png, properties: [:])
         }
+    }
+
+    /// Whether a PDF's first page is a picture of the book's cover rather than
+    /// its first page of reading. A scanned jacket is one image over most of
+    /// the page and carries a few words at most, even with a text layer from
+    /// OCR; a page of text is the opposite, and drawn on a shelf it is a grey
+    /// block of tiny print that could be any book.
+    private nonisolated static func isJacket(_ page: PDFPage) -> Bool {
+        let words = (page.string ?? "").split { $0.isWhitespace || $0.isNewline }.count
+        guard words < 100, let pageRef = page.pageRef else { return false }
+        let box = pageRef.getBoxRect(.cropBox)
+        guard box.width > 1, box.height > 1 else { return false }
+        return imageArea(on: pageRef) / (box.width * box.height) >= 0.5
+    }
+
+    /// The area of the page its images are painted over, in the page's own
+    /// units. An image XObject fills the unit square of whatever transform is
+    /// current when it is drawn, so following `q`, `Q` and `cm` through the
+    /// content stream is enough to measure each one.
+    private nonisolated static func imageArea(on page: CGPDFPage) -> CGFloat {
+        final class Painter {
+            var transform = CGAffineTransform.identity
+            var saved: [CGAffineTransform] = []
+            var area: CGFloat = 0
+        }
+        guard let operators = CGPDFOperatorTableCreate() else { return 0 }
+        CGPDFOperatorTableSetCallback(operators, "q") { _, info in
+            let painter = Unmanaged<Painter>.fromOpaque(info!).takeUnretainedValue()
+            painter.saved.append(painter.transform)
+        }
+        CGPDFOperatorTableSetCallback(operators, "Q") { _, info in
+            let painter = Unmanaged<Painter>.fromOpaque(info!).takeUnretainedValue()
+            painter.transform = painter.saved.popLast() ?? painter.transform
+        }
+        CGPDFOperatorTableSetCallback(operators, "cm") { scanner, info in
+            let painter = Unmanaged<Painter>.fromOpaque(info!).takeUnretainedValue()
+            var values = [CGPDFReal](repeating: 0, count: 6)
+            for index in (0..<6).reversed() {
+                guard CGPDFScannerPopNumber(scanner, &values[index]) else { return }
+            }
+            let matrix = CGAffineTransform(
+                a: values[0], b: values[1], c: values[2], d: values[3], tx: values[4], ty: values[5]
+            )
+            painter.transform = matrix.concatenating(painter.transform)
+        }
+        CGPDFOperatorTableSetCallback(operators, "Do") { scanner, info in
+            let painter = Unmanaged<Painter>.fromOpaque(info!).takeUnretainedValue()
+            var name: UnsafePointer<CChar>?
+            var object: CGPDFObjectRef?
+            var stream: CGPDFStreamRef?
+            var subtype: UnsafePointer<CChar>?
+            guard CGPDFScannerPopName(scanner, &name), let name,
+                  let object = CGPDFContentStreamGetResource(CGPDFScannerGetContentStream(scanner), "XObject", name),
+                  CGPDFObjectGetValue(object, .stream, &stream), let stream,
+                  let dictionary = CGPDFStreamGetDictionary(stream),
+                  CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype,
+                  String(cString: subtype) == "Image" else { return }
+            let t = painter.transform
+            painter.area += abs(t.a * t.d - t.b * t.c)
+        }
+        let painter = Painter()
+        let content = CGPDFContentStreamCreateWithPage(page)
+        let scanner = CGPDFScannerCreate(content, operators, Unmanaged.passUnretained(painter).toOpaque())
+        CGPDFScannerScan(scanner)
+        CGPDFScannerRelease(scanner)
+        CGPDFContentStreamRelease(content)
+        CGPDFOperatorTableRelease(operators)
+        return painter.area
     }
 }

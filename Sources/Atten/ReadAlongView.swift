@@ -704,6 +704,7 @@ struct ReadAlongTransport: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .tint(AttenColor.text2)
         .fixedSize()
         .help("Listening speed")
         .accessibilityLabel("Listening speed")
