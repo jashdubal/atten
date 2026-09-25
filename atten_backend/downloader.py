@@ -120,7 +120,7 @@ def download_xtts_model(progress_callback: Optional[Callable[[dict], None]] = No
         temp_target = xtts_dir / f".{filename}.part"
         existing_bytes = temp_target.stat().st_size if temp_target.exists() else 0
 
-        headers = {"User-Agent": "Atten/0.2.1"}
+        headers = {"User-Agent": "Atten/0.4.0"}
         if existing_bytes > 0:
             headers["Range"] = f"bytes={existing_bytes}-"
 
@@ -228,7 +228,7 @@ def get_hf_repo_files(clean_id: str) -> List[tuple]:
     # Try tree endpoint first (has accurate file sizes and all files recursively)
     try:
         tree_url = f"https://huggingface.co/api/models/{clean_id}/tree/main?recursive=true"
-        req = urllib.request.Request(tree_url, headers={"User-Agent": "Atten/0.2.1"})
+        req = urllib.request.Request(tree_url, headers={"User-Agent": "Atten/0.4.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             all_files = [(item["path"], int(item.get("size", 0))) for item in data if item.get("type") == "file"]
@@ -239,7 +239,7 @@ def get_hf_repo_files(clean_id: str) -> List[tuple]:
     if not all_files:
         try:
             info_url = f"https://huggingface.co/api/models/{clean_id}"
-            req = urllib.request.Request(info_url, headers={"User-Agent": "Atten/0.2.1"})
+            req = urllib.request.Request(info_url, headers={"User-Agent": "Atten/0.4.0"})
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 all_files = [(s.get("rfilename", ""), 0) for s in data.get("siblings", [])]
@@ -351,7 +351,7 @@ def download_hf_model(model_id: str, progress_callback: Optional[Callable[[dict]
         temp_target = dest_dir / f".{filename.replace('/', '_')}.part"
         existing_bytes = temp_target.stat().st_size if temp_target.exists() else 0
 
-        headers = {"User-Agent": "Atten/0.2.1"}
+        headers = {"User-Agent": "Atten/0.4.0"}
         if existing_bytes > 0:
             headers["Range"] = f"bytes={existing_bytes}-"
 

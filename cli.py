@@ -335,6 +335,8 @@ class RequestServer:
                 raise ValueError("Please provide either raw text or a source file path.")
             key = (args.device, args.model)
             if key not in self._services:
+                # Said once per model, so a check can see the process keep it.
+                log_info("Loading the speech model.", "🧠")
                 self._services[key] = self._service_factory(
                     device_mode=args.device, model_id=args.model
                 )
