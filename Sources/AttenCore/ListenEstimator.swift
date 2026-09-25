@@ -91,6 +91,11 @@ public struct ListenEstimator: Equatable, Sendable {
         "~\(amount(duration)) remaining"
     }
 
+    /// A real, measured length rather than an estimate, so no "≈".
+    public static func durationLabel(_ duration: TimeInterval) -> String {
+        amount(duration)
+    }
+
     public static func wordsLabel(_ words: Int) -> String {
         "\(groupedNumber(words)) WORDS"
     }

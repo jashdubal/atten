@@ -153,28 +153,7 @@ private struct NarratorCard: View {
         let voice = flow.voice
         let profile = VoiceProfile(voice: voice)
         VStack(alignment: .leading, spacing: AttenSpacing.md) {
-            HStack(spacing: AttenSpacing.sm) {
-                VoiceWaveformAvatar(profile: profile, size: 48, isSpeaking: isPlayingPreview(of: voice))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(profile.displayName)
-                        .attenText(.body)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(AttenColor.text1)
-                    // Traits and accent on lines of their own, so neither
-                    // wraps into the other at the inspector's width.
-                    if !profile.traits.isEmpty {
-                        Text(profile.traits)
-                            .attenText(.callout)
-                            .foregroundStyle(AttenColor.text2)
-                            .lineLimit(1)
-                    }
-                    Text(profile.accent)
-                        .attenText(.callout)
-                        .foregroundStyle(AttenColor.text2)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
+            NarratorIdentity(profile: profile, isSpeaking: isPlayingPreview(of: voice))
             if !isLocked {
                 HStack(spacing: AttenSpacing.xs) {
                     PreviewButton(model: model, flow: flow, voice: voice)
@@ -200,18 +179,23 @@ private struct NarratorCard: View {
 }
 
 /// Plays how `voice` says the draft's first sentence, making it the first
-/// time it is asked for.
+/// time it is asked for. With no draft — a book being recast — it says
+/// Atten's own line instead.
 struct PreviewButton: View {
     @Bindable var model: AppModel
-    let flow: CreateFlowModel
+    let flow: CreateFlowModel?
     let voice: Voice
     var showsTitle = true
 
+    private var previewURL: URL? {
+        flow.map { $0.previewURL(for: voice) } ?? model.voicePreviewURL(voice)
+    }
+
     var body: some View {
         let isMaking = model.voicePreviewID == voice.id
-        let isPlaying = model.isPlaying && model.activeAudioURL == flow.previewURL(for: voice)
+        let isPlaying = model.isPlaying && model.activeAudioURL == previewURL
         Button {
-            flow.preview(voice)
+            if let flow { flow.preview(voice) } else { model.previewVoice(voice) }
         } label: {
             HStack(spacing: AttenSpacing.xxs) {
                 if isMaking {
@@ -228,7 +212,7 @@ struct PreviewButton: View {
     }
 
     private var hasCachedPreview: Bool {
-        flow.previewURL(for: voice).map { FileManager.default.fileExists(atPath: $0.path) } ?? false
+        previewURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
     }
 }
 

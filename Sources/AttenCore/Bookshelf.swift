@@ -109,6 +109,13 @@ public struct BookChapter: Codable, Identifiable, Equatable, Sendable {
 
     public var audioURL: URL? { audioPath.map { URL(fileURLWithPath: $0) } }
 
+    /// How long this chapter runs in the book's recording: its own span, not
+    /// where it starts. Nil until the book has been narrated in one piece.
+    public var narratedDuration: TimeInterval? {
+        guard let startTime, let endTime, startTime.isFinite, endTime.isFinite, endTime > startTime else { return nil }
+        return endTime - startTime
+    }
+
     /// Narration counts only while the file is still there. A user who empties
     /// the narrations folder should see the chapter offer to generate again
     /// rather than a play button that does nothing.
