@@ -170,11 +170,13 @@ final class ListeningPositionTests: XCTestCase {
         for second in 1...4 {
             clock.advance(by: 1)
             await store.record(Double(second + 1), for: id, at: clock.now)
+            // The scheduled write registers its sleep asynchronously; advancing
+            // before it does would push its deadline past the interval.
+            if second == 1 { try await waitUntil { clock.sleeperCount == 1 } }
         }
         writes = await store.writeCount
         XCTAssertEqual(writes, 1)
         XCTAssertEqual(try onDisk(id), 1)
-        try await waitUntil { clock.sleeperCount == 1 }
         XCTAssertEqual(clock.requestedSleeps, [4], "The wait runs to five seconds after the last write")
 
         clock.advance(by: 1)
