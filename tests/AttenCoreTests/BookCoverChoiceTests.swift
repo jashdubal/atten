@@ -9,7 +9,7 @@ import XCTest
 /// when it is a picture of a jacket; a page of text gets a generated cover.
 @MainActor
 final class BookCoverChoiceTests: XCTestCase {
-    private var workspace: URL!
+    nonisolated(unsafe) private var workspace: URL!
 
     override func setUpWithError() throws {
         workspace = FileManager.default.temporaryDirectory
