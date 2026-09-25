@@ -243,7 +243,7 @@ struct BookDetailView: View {
                     detail: progress.isCombining ? "Combining chapters into one audio file" : "Chapter \(min(progress.completed + 1, progress.total)) of \(progress.total): \(progress.chapterTitle)",
                     phase: .active,
                     progress: progress.total > 0 ? progress.fraction : nil,
-                    progressLabel: progress.eta
+                    progressLabel: shelf.remainingLabel(for: book.id)
                 )
             } else {
                 if let failure = book.narrationFailure {

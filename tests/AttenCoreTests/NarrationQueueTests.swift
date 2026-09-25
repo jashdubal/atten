@@ -158,6 +158,31 @@ final class NarrationQueueTests: XCTestCase {
         XCTAssertTrue(stale.queue.isEmpty)
     }
 
+    func testTimeRemainingComesFromEachBooksChaptersStillToNarrate() async throws {
+        // 120 words a minute, generated at half speed: one second per word.
+        shelf.listenEstimator = { ListenEstimator(calibratedWordsPerMinute: ["af_heart": 120], realTimeFactor: 2) }
+        let long = try draft("Long", chapters: 4, extraWords: 300)
+        let short = try draft("Short", chapters: 3, extraWords: 100)
+        func words(_ chapters: ArraySlice<BookChapter>) -> Double {
+            Double(chapters.reduce(0) { $0 + ListenEstimator.wordCount($1.text) })
+        }
+
+        XCTAssertEqual(shelf.remainingGenerationTime(for: long.id), words(long.chapters[...]), accuracy: 0.001)
+        XCTAssertEqual(shelf.remainingGenerationTime(for: short.id), words(short.chapters[...]), accuracy: 0.001)
+
+        shelf.narrate(long.id, useMPS: false)
+        shelf.narrate(short.id, useMPS: false)
+        generator.release()
+        try await waitUntil { self.shelf.narratedCount(of: long) == 1 }
+
+        // The running book counts only what is left; the queued one is untouched.
+        let remaining = shelf.remainingGenerationTime(for: long.id)
+        XCTAssertEqual(remaining, words(long.chapters[1...]), accuracy: 0.001)
+        XCTAssertEqual(shelf.remainingLabel(for: long.id), ListenEstimator.remainingLabel(remaining))
+        XCTAssertEqual(shelf.remainingGenerationTime(for: short.id), words(short.chapters[...]), accuracy: 0.001)
+        XCTAssertNotEqual(shelf.remainingLabel(for: long.id), shelf.remainingLabel(for: short.id))
+    }
+
     // MARK: - Completion notification
 
     func testACompletionNotifiesOnlyWhenAttenIsNotFrontmost() async {
@@ -194,8 +219,13 @@ final class NarrationQueueTests: XCTestCase {
 
     // MARK: - Helpers
 
-    private func draft(_ title: String, chapters: Int = 1) throws -> BookRecord {
-        let parts = (1...chapters).map { DocumentChapter(title: "\(title) \($0)", text: "\(title) chapter \($0) is read aloud.") }
+    private func draft(_ title: String, chapters: Int = 1, extraWords: Int = 0) throws -> BookRecord {
+        let parts = (1...chapters).map {
+            DocumentChapter(
+                title: "\(title) \($0)",
+                text: "\(title) chapter \($0) is read aloud." + String(repeating: " word", count: extraWords)
+            )
+        }
         return try shelf.saveDraft(
             title: title,
             text: parts.map(\.text).joined(separator: "\n"),

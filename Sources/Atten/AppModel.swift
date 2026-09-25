@@ -115,6 +115,7 @@ final class AppModel {
             self?.installedModelsChanged()
         }
         self.bookshelf.isAudioInUse = { [weak self] url in self?.activeAudioURL == url }
+        self.bookshelf.listenEstimator = { [weak self] in self?.settings.listenEstimator ?? ListenEstimator() }
         self.bookshelf.missingModelID = { [weak self] voiceID in
             self?.requiredModelID(for: voiceID)
         }

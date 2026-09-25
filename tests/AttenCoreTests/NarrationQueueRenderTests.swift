@@ -75,7 +75,7 @@ final class NarrationQueueRenderTests: XCTestCase {
 
     private func draft(_ title: String, chapters: Int, in model: AppModel) throws -> BookRecord {
         let parts = (1...chapters).map {
-            DocumentChapter(title: "Chapter \($0)", text: "\(title), chapter \($0). " + String(repeating: "Words to be read aloud. ", count: 400))
+            DocumentChapter(title: "Chapter \($0)", text: "\(title), chapter \($0). " + String(repeating: "Words to be read aloud. ", count: 60 * title.count))
         }
         return try model.bookshelf.saveDraft(
             title: title,

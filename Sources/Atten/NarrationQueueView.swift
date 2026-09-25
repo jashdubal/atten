@@ -95,8 +95,7 @@ struct NarrationQueuePanel: View {
             NarrationQueueRow(
                 shelf: shelf,
                 book: book,
-                isPaused: entry.isPaused,
-                estimator: model.settings.listenEstimator
+                isPaused: entry.isPaused
             )
             .frame(height: Self.rowHeight)
         }
@@ -107,7 +106,6 @@ private struct NarrationQueueRow: View {
     let shelf: BookshelfModel
     let book: BookRecord
     let isPaused: Bool
-    let estimator: ListenEstimator
 
     private var progress: BookshelfModel.NarrationProgress? {
         shelf.narratingBookID == book.id ? shelf.progress : nil
@@ -116,11 +114,7 @@ private struct NarrationQueueRow: View {
     private var completed: Int { progress?.completed ?? shelf.narratedCount(of: book) }
 
     private var eta: String {
-        if progress?.isCombining == true { return "Finishing" }
-        let seconds = estimator.generationTime(
-            audioSeconds: estimator.listenDuration(words: shelf.remainingWords(for: book.id), voiceID: book.voiceID)
-        )
-        return ListenEstimator.remainingLabel(seconds)
+        progress?.isCombining == true ? "Finishing" : shelf.remainingLabel(for: book.id)
     }
 
     var body: some View {
@@ -182,7 +176,8 @@ private struct NarrationQueueRow: View {
                 GeneratedCover(
                     title: book.title,
                     contentHash: AttenCore.LibraryItem.book(book).coverSeedKey,
-                    state: AttenCore.LibraryItem.book(book).state
+                    state: AttenCore.LibraryItem.book(book).state,
+                    showsTitle: false
                 )
             }
         }

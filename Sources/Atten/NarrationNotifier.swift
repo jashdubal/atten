@@ -33,14 +33,16 @@ final class SystemNotifications: NSObject, UNUserNotificationCenterDelegate {
     /// Opens the book a clicked notification was about.
     var open: (UUID) -> Void = { _ in }
 
-    private var center: UNUserNotificationCenter? {
+    private nonisolated var center: UNUserNotificationCenter? {
         guard Bundle.main.bundleURL.pathExtension == "app" else { return nil }
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         return center
     }
 
-    func authorize() async -> Bool {
+    /// Nonisolated, so the center is fetched and asked in one context and
+    /// never sent across the main actor's boundary.
+    nonisolated func authorize() async -> Bool {
         guard let center else { return false }
         return (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
     }

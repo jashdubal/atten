@@ -501,7 +501,7 @@ struct LibraryStatusArea: View {
                     detail: progress.isCombining ? "Combining chapters into one audio file" : "Chapter \(min(progress.completed + 1, progress.total)) of \(progress.total): \(progress.chapterTitle)",
                     phase: .active,
                     progress: progress.total > 0 ? progress.fraction : nil,
-                    progressLabel: progress.eta,
+                    progressLabel: shelf.remainingLabel(for: progress.bookID),
                     actionTitle: "Stop",
                     action: shelf.cancelNarration
                 )
@@ -725,9 +725,14 @@ struct NarrationMeter: View {
             .frame(height: 5)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(label)
+                    .lineLimit(isRunning || queued != nil ? 1 : nil)
                 Spacer(minLength: 0)
-                Text("\(Int(fraction * 100))%")
-                    .monospacedDigit()
+                // "Queued" alone has nothing to count yet.
+                if label != queued {
+                    Text("\(Int(fraction * 100))%")
+                        .monospacedDigit()
+                        .fixedSize()
+                }
             }
             .font(AttenTypography.callout)
             .foregroundStyle(AttenColor.textSecondary)
@@ -738,8 +743,8 @@ struct NarrationMeter: View {
     }
 
     private var label: String {
-        if isRunning { return "Narrating… \(narrated) of \(total) chapters" }
-        if let queued { return "\(queued) · \(narrated) of \(total) chapters" }
+        if isRunning { return "Narrating… \(narrated) of \(total)" }
+        if let queued { return queued == "Queued" && narrated == 0 ? queued : "\(queued) · \(narrated) of \(total)" }
         if total == 0 { return "No chapters" }
         if narrated == total { return "Audiobook · \(total) chapters" }
         return "\(narrated) of \(total) chapters narrated"

@@ -113,6 +113,8 @@ final class BookshelfModel {
     /// cancelled, or failed — so anything following it (progressive
     /// playback) can let go.
     @ObservationIgnored var onNarrationEnded: ((UUID) -> Void)?
+    /// The app's calibrated estimates, for time remaining.
+    @ObservationIgnored var listenEstimator: () -> ListenEstimator = { ListenEstimator() }
     @ObservationIgnored private var retiredAudio: Set<URL> = []
     /// Set on quit, so the narration being stopped keeps its place in the
     /// queue and nothing after it starts.
@@ -513,8 +515,6 @@ final class BookshelfModel {
                 let started = Date()
                 var generatedWords = 0
                 var generatedSeconds = 0.0
-                var completedWords = 0
-                let totalWords = pending.reduce(0) { $0 + book.chapters[$1].text.count }
                 for index in pending {
                     try Task.checkCancellation()
                     // Pausing waits for a chapter boundary, so every chapter
@@ -533,10 +533,6 @@ final class BookshelfModel {
                         completed: current.narratedCount,
                         total: current.chapters.count
                     )
-                    if completedWords > 0 {
-                        let remaining = Date().timeIntervalSince(started) * Double(totalWords - completedWords) / Double(completedWords)
-                        progress?.eta = "About \(max(1, Int(ceil(remaining / 60)))) min remaining"
-                    }
                     let chapterDirectory = directory.appendingPathComponent(
                         "chapter-\(index)-\(UUID().uuidString)", isDirectory: true
                     )
@@ -586,7 +582,6 @@ final class BookshelfModel {
                     }
                     try NarrationTimings(segments: segments).save(beside: audioURL)
                     try Task.checkCancellation()
-                    completedWords += chapter.text.count
                     generatedWords += chapter.text.split(whereSeparator: \.isWhitespace).count
                     generatedSeconds += segments.last.map { $0.start + $0.duration } ?? 0
                     // The shelf may have changed while the engine was running.
@@ -744,6 +739,22 @@ final class BookshelfModel {
         guard let book = book(id: bookID) else { return 0 }
         let words = book.chapters.filter { !$0.isNarrated }.reduce(0) { $0 + ListenEstimator.wordCount($1.text) }
         return max(0, words - (progress?.bookID == bookID ? progress?.spokenWords ?? 0 : 0))
+    }
+
+    /// How long the rest of a book should take to generate, from the text of
+    /// its chapters still to narrate. Every readout of time remaining — the
+    /// Library, the book, the queue — comes from here, so they agree.
+    func remainingGenerationTime(for bookID: UUID) -> TimeInterval {
+        guard let book = book(id: bookID) else { return 0 }
+        let estimator = listenEstimator()
+        return estimator.generationTime(
+            audioSeconds: estimator.listenDuration(words: remainingWords(for: bookID), voiceID: book.voiceID)
+        )
+    }
+
+    func remainingLabel(for bookID: UUID) -> String {
+        if let progress, progress.bookID == bookID, progress.isCombining { return progress.eta }
+        return ListenEstimator.remainingLabel(remainingGenerationTime(for: bookID))
     }
 
     private func enqueue(_ bookID: UUID, useMPS: Bool) {
