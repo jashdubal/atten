@@ -141,14 +141,14 @@ private struct CreateEmptyStage: View {
 
 // MARK: - Editor
 
+/// About 68 characters of the reading face, which is where the editor holds
+/// its text; the title and status share the same column.
+private let createEditorColumnWidth = ("0" as NSString)
+    .size(withAttributes: [.font: AttenTextStyle.reading.nsFont]).width * 68
+
 private struct CreateEditorColumn: View {
     @Bindable var model: AppModel
     @Bindable var flow: CreateFlowModel
-
-    /// About 68 characters of the reading face, which is where the editor
-    /// holds its text; the title sits on the same column.
-    private static let columnWidth = ("0" as NSString)
-        .size(withAttributes: [.font: AttenTextStyle.reading.nsFont]).width * 68
 
     var body: some View {
         let extent = flow.spokenExtent
@@ -160,7 +160,9 @@ private struct CreateEditorColumn: View {
                 .attenText(.title1)
                 .foregroundStyle(AttenColor.text1)
                 .disabled(isLocked)
-                .frame(maxWidth: Self.columnWidth, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: createEditorColumnWidth, alignment: .leading)
                 .padding(.horizontal, AttenSpacing.lg)
                 .padding(.top, AttenSpacing.xl)
                 .accessibilityLabel("Title")
@@ -174,16 +176,27 @@ private struct CreateEditorColumn: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text(status)
-                .attenText(.label)
-                .foregroundStyle(AttenColor.text3)
-                .frame(maxWidth: Self.columnWidth, alignment: .leading)
-                .padding(.horizontal, AttenSpacing.lg)
-                .padding(.vertical, AttenSpacing.sm)
-                // Clear of the player's ring, which floats at the bottom.
-                .padding(.bottom, model.playerTitle == nil ? 0 : AttenMetrics.playerHeight)
-                .accessibilityLabel(status.lowercased())
+            CreateStatusFooter(flow: flow, playerTitle: model.playerTitle)
         }
+    }
+}
+
+/// The word count, listen estimate and save state below the editor, in the
+/// same units the inspector uses (#101).
+struct CreateStatusFooter: View {
+    let flow: CreateFlowModel
+    var playerTitle: String?
+
+    var body: some View {
+        Text(status)
+            .attenText(.label)
+            .foregroundStyle(AttenColor.text3)
+            .frame(maxWidth: createEditorColumnWidth, alignment: .leading)
+            .padding(.horizontal, AttenSpacing.lg)
+            .padding(.vertical, AttenSpacing.sm)
+            // Clear of the player's ring, which floats at the bottom.
+            .padding(.bottom, playerTitle == nil ? 0 : AttenMetrics.playerHeight)
+            .accessibilityLabel(status.lowercased())
     }
 
     private var status: String {

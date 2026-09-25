@@ -5,6 +5,11 @@ import SwiftUI
 /// and tone, each one ready to say the draft's own first sentence.
 struct CastingSheet: View {
     @Bindable var model: AppModel
+    /// Recasting a book rather than Create's draft: the voice it has now,
+    /// and what choosing another does. Previews then say Atten's own line,
+    /// since the draft's first sentence belongs to another text.
+    var currentVoiceID: String?
+    var cast: ((Voice) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var accent: String?
     @State private var gender: String?
@@ -71,8 +76,13 @@ struct CastingSheet: View {
                         spacing: AttenSpacing.sm
                     ) {
                         ForEach(filtered) { voice in
-                            CastingCard(model: model, voice: voice, isSelected: voice.id == flow.voice.id) {
-                                flow.cast(voice)
+                            CastingCard(
+                                model: model,
+                                voice: voice,
+                                isSelected: voice.id == (currentVoiceID ?? flow.voice.id),
+                                previewFlow: cast == nil ? flow : nil
+                            ) {
+                                (cast ?? flow.cast)(voice)
                                 dismiss()
                             }
                         }
@@ -151,13 +161,14 @@ private struct CastingCard: View {
     @Bindable var model: AppModel
     let voice: Voice
     let isSelected: Bool
+    let previewFlow: CreateFlowModel?
     let choose: () -> Void
     @State private var isHovering = false
 
     var body: some View {
         let profile = VoiceProfile(voice: voice)
         let shape = RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
-        let isPlaying = model.isPlaying && model.activeAudioURL == model.createFlow.previewURL(for: voice)
+        let isPlaying = model.isPlaying && model.activeAudioURL == (previewFlow.map { $0.previewURL(for: voice) } ?? model.voicePreviewURL(voice))
         Button(action: choose) {
             VStack(alignment: .leading, spacing: AttenSpacing.sm) {
                 HStack(alignment: .top) {
@@ -197,7 +208,7 @@ private struct CastingCard: View {
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: AttenMotion.hover), value: isHovering)
         .overlay(alignment: .bottomTrailing) {
-            PreviewButton(model: model, flow: model.createFlow, voice: voice, showsTitle: false)
+            PreviewButton(model: model, flow: previewFlow, voice: voice, showsTitle: false)
                 .padding(AttenSpacing.sm)
         }
         .accessibilityLabel("\(profile.displayName), \(profile.descriptor)")
