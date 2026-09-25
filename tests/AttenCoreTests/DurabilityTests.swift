@@ -23,7 +23,7 @@ final class DurabilityTests: XCTestCase {
 
     private func quarantinedFiles() throws -> [URL] {
         try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.contains("unreadable") }
+            .filter { $0.pathExtension == "corrupt" }
     }
 
     // MARK: - Project history
@@ -67,14 +67,14 @@ final class DurabilityTests: XCTestCase {
     func testHistoryTruncatedByACrashIsKeptForRecovery() async throws {
         let repository = ProjectRepository(fileURL: projectsFile)
         try await repository.save([Self.record(title: "First"), Self.record(title: "Second")])
-        // A write cut short by a crash or a full disk leaves invalid JSON, which
-        // nothing can salvage — but the bytes must survive for the user.
+        // A write cut short by a crash or a full disk leaves invalid JSON. The
+        // record it finished writing is salvaged, and the bytes survive.
         let text = try String(contentsOf: projectsFile, encoding: .utf8)
         try Data(text.dropLast(60).utf8).write(to: projectsFile)
 
         let loaded = try await ProjectRepository(fileURL: projectsFile).load()
 
-        XCTAssertEqual(loaded, [])
+        XCTAssertEqual(loaded.map(\.title), ["First"])
         let quarantined = try XCTUnwrap(quarantinedFiles().first)
         XCTAssertTrue(try String(contentsOf: quarantined, encoding: .utf8).contains("First"))
     }

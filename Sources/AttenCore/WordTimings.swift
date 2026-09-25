@@ -107,10 +107,16 @@ public struct NarrationTimings: Codable, Equatable, Sendable {
         audioURL.deletingLastPathComponent().appendingPathComponent("timings.json")
     }
 
+    /// Nil when there are no timings — or none that can be read, in which
+    /// case a copy is kept as `timings.json.corrupt`. Word timing is a
+    /// nicety; a damaged sidecar must not stop a book being assembled.
     public static func load(beside audioURL: URL) throws -> NarrationTimings? {
         let url = sidecarURL(for: audioURL)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+        let data = try Data(contentsOf: url)
+        if let timings = try? JSONDecoder().decode(Self.self, from: data) { return timings }
+        try? CorruptFileBackup.preserve(url)
+        return nil
     }
 
     public func save(beside audioURL: URL) throws {

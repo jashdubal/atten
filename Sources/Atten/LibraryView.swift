@@ -686,7 +686,7 @@ private struct BookCard: View {
                     }
                 }
             }
-            .attenCoverFrame(tint: dominantColor ?? OKLCHColor(lightness: 0.6, chroma: 0.1, hue: CoverSeed(contentHash: libraryItem.coverSeedKey).hue))
+            .attenCoverFrame(tint: dominantColor ?? OKLCHColor(lightness: 0.6, chroma: 0.1, hue: CoverSeed.cached(contentHash: libraryItem.coverSeedKey).hue))
             .attenMatchedCover(book.id)
             .overlay(alignment: .bottomTrailing) {
                 if !book.sourceExists {

@@ -70,6 +70,29 @@ public struct CoverSeed: Equatable, Sendable {
     }
 }
 
+extension CoverSeed {
+    /// The seed for `contentHash`, worked out once per launch. A shelf asks
+    /// for the seed of every card it draws, twice (the art and its shadow's
+    /// tint), on every redraw, so it is kept rather than derived again on the
+    /// main actor each time.
+    public static func cached(contentHash: String) -> CoverSeed {
+        if let seed = CoverSeedCache.shared.seed(for: contentHash) { return seed }
+        let seed = CoverSeed(contentHash: contentHash)
+        CoverSeedCache.shared.store(seed, for: contentHash)
+        return seed
+    }
+}
+
+/// Seeds are small and there is one per book, so the cache is never pruned.
+private final class CoverSeedCache: @unchecked Sendable {
+    static let shared = CoverSeedCache()
+    private let lock = NSLock()
+    private var seeds: [String: CoverSeed] = [:]
+
+    func seed(for key: String) -> CoverSeed? { lock.withLock { seeds[key] } }
+    func store(_ seed: CoverSeed, for key: String) { lock.withLock { seeds[key] = seed } }
+}
+
 /// One radial blob of a generated cover. Position, radius and size are
 /// normalized to a 0...1 cover, so the caller can draw it at any size.
 public struct CoverBlob: Equatable, Sendable {

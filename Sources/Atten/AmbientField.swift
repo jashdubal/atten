@@ -164,7 +164,7 @@ final class AmbientFieldStore {
             cover = model.bookshelf.covers.cover(for: book.id)
         }
         guard !Task.isCancelled else { return }
-        let made = AmbientField.make(id: artwork.id, cover: cover, seed: CoverSeed(contentHash: artwork.seed))
+        let made = AmbientField.make(id: artwork.id, cover: cover, seed: CoverSeed.cached(contentHash: artwork.seed))
         cache[artwork.id] = made
         field = made
     }

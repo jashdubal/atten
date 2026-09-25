@@ -42,9 +42,9 @@ public actor ProjectRepository {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    /// Set when `load` had to set an unreadable history file aside, so the app
-    /// can tell the user where their old history went instead of silently
-    /// starting over.
+    /// Set when `load` had to copy an unreadable history file aside, so the
+    /// app can tell the user where their old history went instead of
+    /// silently starting over.
     public private(set) var quarantinedFileURL: URL?
     /// Whether this session ever read the file successfully. Until it has,
     /// saving must not replace whatever is already on disk.
@@ -59,9 +59,9 @@ public actor ProjectRepository {
 
     /// Reads project history. A file that cannot be decoded — truncated by a
     /// crash, hand-edited, or written by a version this one does not
-    /// understand — is moved aside rather than left in place, because the next
-    /// save would otherwise overwrite it and turn one bad launch into
-    /// permanent data loss.
+    /// understand — is copied aside as `projects.json.corrupt` before anything
+    /// else happens, because the next save overwrites it and would otherwise
+    /// turn one bad launch into permanent data loss.
     public func load() throws -> [ProjectRecord] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             hasReadExistingFile = true
@@ -73,41 +73,16 @@ public actor ProjectRepository {
             return projects
         }
 
-        // The file is not wholly readable. Keep every record that still decodes
-        // rather than discarding a long history over one damaged entry.
-        let salvaged = (try? decoder.decode([Salvaged].self, from: data))?
-            .compactMap(\.record) ?? []
-        // Only once the damaged file is safely aside may saving proceed. If the
-        // move fails, this throws with the guard still armed, so the file the
-        // user's history lives in is not written over.
-        quarantinedFileURL = try quarantine()
+        // The file is not wholly readable. Keep every record that still decodes,
+        // and every one a cut-short save finished writing, rather than
+        // discarding a long history over one damaged entry.
+        let salvaged = JSONArraySalvage.decode(ProjectRecord.self, from: data, using: decoder)
+        // Only once the damaged file is safely copied may saving proceed. If
+        // the copy fails, this throws with the guard still armed, so the file
+        // the user's history lives in is not written over.
+        quarantinedFileURL = try CorruptFileBackup.preserve(fileURL)
         hasReadExistingFile = true
         return salvaged
-    }
-
-    /// One array element that is kept when it decodes and skipped when it does not.
-    private struct Salvaged: Decodable {
-        let record: ProjectRecord?
-
-        init(from decoder: Decoder) throws {
-            record = try? ProjectRecord(from: decoder)
-        }
-    }
-
-    /// Moves the unreadable file next to itself with a timestamped name.
-    private func quarantine() throws -> URL {
-        let stamp = ISO8601DateFormatter.string(
-            from: Date(),
-            timeZone: TimeZone(secondsFromGMT: 0) ?? .current,
-            formatOptions: [.withYear, .withMonth, .withDay, .withTime]
-        )
-        .replacingOccurrences(of: ":", with: "-")
-        let destination = fileURL
-            .deletingLastPathComponent()
-            .appendingPathComponent("\(fileURL.deletingPathExtension().lastPathComponent)-unreadable-\(stamp).json")
-        try? FileManager.default.removeItem(at: destination)
-        try FileManager.default.moveItem(at: fileURL, to: destination)
-        return destination
     }
 
     /// Writes history atomically. If this session never managed to read the
@@ -120,7 +95,7 @@ public actor ProjectRepository {
             withIntermediateDirectories: true
         )
         if !hasReadExistingFile, FileManager.default.fileExists(atPath: fileURL.path) {
-            quarantinedFileURL = try quarantine()
+            quarantinedFileURL = try CorruptFileBackup.preserve(fileURL)
             hasReadExistingFile = true
         }
         try encoder.encode(projects).write(to: fileURL, options: .atomic)

@@ -11,7 +11,7 @@ public enum TranscodeService {
         installation: BackendInstallation? = BackendLocator.locateInstallation(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) async throws {
-        guard let installation else { throw BackendError.backendNotFound }
+        guard let installation, installation.isPresent else { throw BackendError.backendNotFound }
 
         let command = BackendRuntime.command(for: installation, environment: environment)
         let child = Process()
