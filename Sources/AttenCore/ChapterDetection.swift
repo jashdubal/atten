@@ -47,9 +47,11 @@ public enum ChapterDetection: String, CaseIterable, Identifiable, Sendable {
         return first.flatMap(FlatDocumentExtractor.headingText(in:))
     }
 
-    /// What a draft with no title of its own is called: its first line, or
-    /// that line's first sentence, cut at a word to about `limit` characters.
-    public static func derivedTitle(from text: String, limit: Int = 60) -> String? {
+    /// What a draft with no title of its own is called: its first line's
+    /// opening clause, or its first `wordLimit` words if the clause runs
+    /// longer — cut at a word boundary, with no trailing punctuation, so the
+    /// title doesn't just repeat the draft's whole first sentence.
+    public static func derivedTitle(from text: String, wordLimit: Int = 6, limit: Int = 60) -> String? {
         var line: String?
         text.enumerateLines { candidate, stop in
             let trimmed = candidate.trimmingCharacters(in: .whitespaces)
@@ -57,19 +59,24 @@ public enum ChapterDetection: String, CaseIterable, Identifiable, Sendable {
             line = FlatDocumentExtractor.headingText(in: trimmed) ?? trimmed
             stop = true
         }
-        guard var title = line else { return nil }
-        title.enumerateSubstrings(in: title.startIndex..., options: .bySentences) { sentence, _, _, stop in
-            if let sentence { title = sentence.trimmingCharacters(in: .whitespaces) }
-            stop = true
+        guard let line else { return nil }
+
+        var words: [Substring] = []
+        for word in line.split(whereSeparator: { $0 == " " || $0 == "\t" }) {
+            words.append(word)
+            if let last = word.last, ",.;:!?".contains(last) { break }
+            if words.count >= wordLimit { break }
         }
-        let isCut = title.count > limit
-        if isCut {
-            title = String(title.prefix(limit))
-            if let space = title.lastIndex(of: " ") { title = String(title[..<space]) }
-        }
-        while let last = title.last, ".,;:".contains(last) || last.isWhitespace { title.removeLast() }
+        var title = words.joined(separator: " ")
+        while let last = title.last, ",.;:!?".contains(last) || last.isWhitespace { title.removeLast() }
         guard !title.isEmpty else { return nil }
-        return isCut ? title + "…" : title
+
+        guard title.count > limit else { return title }
+        var cut = String(title.prefix(limit))
+        if let space = cut.lastIndex(of: " ") { cut = String(cut[..<space]) }
+        while let last = cut.last, ",.;:!?".contains(last) || last.isWhitespace { cut.removeLast() }
+        guard !cut.isEmpty else { return nil }
+        return cut + "…"
     }
 
     /// Heading marks divide text; they are not read aloud.

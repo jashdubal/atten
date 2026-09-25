@@ -76,7 +76,7 @@ public struct ListenEstimator: Equatable, Sendable {
     // MARK: - Formatting
 
     public static func listenLabel(_ duration: TimeInterval) -> String {
-        "≈ \(amount(duration, seconds: "SEC", minutes: "MIN")) LISTEN"
+        "≈ \(amount(duration)) LISTEN"
     }
 
     public static func generationLabel(_ duration: TimeInterval) -> String {
@@ -97,10 +97,10 @@ public struct ListenEstimator: Equatable, Sendable {
 
     /// Seconds under a minute, so a short draft does not claim a minute it
     /// will not take.
-    private static func amount(_ duration: TimeInterval, seconds: String = "s", minutes: String = "min") -> String {
+    private static func amount(_ duration: TimeInterval) -> String {
         let wholeSeconds = max(1, Int(duration.rounded()))
-        if wholeSeconds < 60 { return "\(wholeSeconds) \(seconds)" }
-        return "\(max(1, Int((duration / 60).rounded()))) \(minutes)"
+        if wholeSeconds < 60 { return "\(wholeSeconds) s" }
+        return "\(max(1, Int((duration / 60).rounded()))) min"
     }
 
     /// A fixed locale, not the user's: these are compact, uppercase, mono
