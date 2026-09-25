@@ -19,6 +19,9 @@ struct BookDetailView: View {
 
     private var narratedCount: Int { shelf.narratedCount(of: book) }
 
+    /// Waiting its turn behind another narration, not paused.
+    private var isWaiting: Bool { shelf.isQueued(book.id) && !shelf.isPaused(book.id) }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: AttenSpacing.lg) {
@@ -191,6 +194,7 @@ struct BookDetailView: View {
 
     private var primaryTitle: String {
         if let progress { return progress.isCombining ? "Finalizing…" : "Preparing…" }
+        if isWaiting { return "Queued" }
         if shelf.isFullyNarrated(book) { return model.playingBook?.id == book.id && model.isPlaying ? "Pause" : "Listen" }
         return narratedCount > 0 || book.narrationState == .interrupted || book.narrationState == .failed
             ? "Resume Preparation" : "Prepare Audio"
@@ -206,9 +210,9 @@ struct BookDetailView: View {
                     Label(primaryTitle, systemImage: shelf.isFullyNarrated(book) ? (model.playingBook?.id == book.id && model.isPlaying ? "pause.fill" : "play.fill") : "waveform")
                 }
                 .buttonStyle(AttenPrimaryButtonStyle(
-                    disabledReason: progress == nil ? "Another narration is running" : nil
+                    disabledReason: progress == nil && !isWaiting ? "Another narration is running" : nil
                 ))
-                .disabled(progress != nil || (!shelf.isFullyNarrated(book) && model.synthesis.isBusy))
+                .disabled(progress != nil || isWaiting || (!shelf.isFullyNarrated(book) && !shelf.canStartNarration))
                 .help(shelf.isFullyNarrated(book) ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
 
                 // A book already started opens where it was left off, so the
@@ -239,7 +243,7 @@ struct BookDetailView: View {
                     detail: progress.isCombining ? "Combining chapters into one audio file" : "Chapter \(min(progress.completed + 1, progress.total)) of \(progress.total): \(progress.chapterTitle)",
                     phase: .active,
                     progress: progress.total > 0 ? progress.fraction : nil,
-                    progressLabel: progress.eta
+                    progressLabel: shelf.remainingLabel(for: book.id)
                 )
             } else {
                 if let failure = book.narrationFailure {
@@ -390,7 +394,7 @@ private struct ChapterRow: View {
         .onHover { isHovering = $0 }
         .contextMenu {
             Button("Prepare Complete Audiobook", systemImage: "waveform", action: narrateOne)
-                .disabled(book.hasBookAudio || model.synthesis.isBusy)
+                .disabled(book.hasBookAudio || !model.bookshelf.canStartNarration)
         }
         .task(id: chapter.audioPath) {
             guard let url = chapter.audioURL, chapter.isNarrated else {

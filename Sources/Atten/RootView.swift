@@ -236,6 +236,10 @@ struct RootView: View {
                 }
                 .focused($focusedSidebarItem, equals: item)
             }
+
+            Spacer(minLength: 0)
+            NarrationQueueIndicator(model: model)
+                .padding(.bottom, AttenSpacing.sm)
         }
         .padding(.horizontal, AttenSpacing.xs)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

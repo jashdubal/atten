@@ -488,7 +488,7 @@ struct BookReaderView: View {
                     useMPS: model.settings.useMPS
                 )
             }
-            .disabled(model.synthesis.isBusy)
+            .disabled(!model.bookshelf.canStartNarration)
         }
     }
 
@@ -869,9 +869,9 @@ struct BookReaderView: View {
                     Label("Prepare Audio", systemImage: "waveform")
                 }
                 .buttonStyle(AttenPrimaryButtonStyle(
-                    disabledReason: model.synthesis.isBusy ? "Another narration is running" : nil
+                    disabledReason: model.bookshelf.canStartNarration ? nil : "Another narration is running"
                 ))
-                .disabled(chapter == nil || model.synthesis.isBusy)
+                .disabled(chapter == nil || !model.bookshelf.canStartNarration)
             }
         }
         .frame(minHeight: 38, alignment: .leading)
