@@ -147,9 +147,7 @@ public enum LibraryFixture {
 
         // The pool repeats past its own length; disambiguate the repeats.
         let displayTitle = index < titles.count ? title.title : "\(title.title) (\(index / titles.count + 1))"
-        let sourcePath = try writeSource(
-            title: displayTitle, format: format, chapters: chapters, index: index, in: directories
-        )
+        let sourcePath = try writeSource(title: displayTitle, format: format, chapters: chapters, in: directories)
 
         return BookRecord(
             id: UUID(),
@@ -171,7 +169,7 @@ public enum LibraryFixture {
     /// aloud are already embedded in the book record, exactly as they are for
     /// a real book reopened after import.
     private static func writeSource(
-        title: String, format: BookFormat, chapters: [BookChapter], index: Int, in directories: AppDirectories
+        title: String, format: BookFormat, chapters: [BookChapter], in directories: AppDirectories
     ) throws -> URL {
         let slug = ExportService.safeFilename(title, maximumByteCount: 80)
         switch format {
