@@ -36,20 +36,11 @@ public enum DocumentImportError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case let .unsupportedFormat(pathExtension):
-            """
-            Atten reads PDFs, EPUBs, and text, Markdown, Word and RTF \
-            documents. It cannot open a .\(pathExtension) file.
-            """
+            "Atten can’t open .\(pathExtension) files."
         case let .unreadable(name):
-            """
-            Atten could not open \(name). The file may be damaged, or protected \
-            with a password Atten cannot supply.
-            """
+            "\(name) couldn’t be opened. It may be damaged or password-protected."
         case let .noText(name):
-            """
-            \(name) has no text Atten can read aloud. Scanned documents are images \
-            of pages rather than text, so they need to be run through OCR first.
-            """
+            "\(name) has no readable text. Scanned pages need OCR first."
         }
     }
 }

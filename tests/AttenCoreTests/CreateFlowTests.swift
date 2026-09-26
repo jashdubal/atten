@@ -134,6 +134,22 @@ final class CreateFlowTests: XCTestCase {
         XCTAssertEqual(flow.state, .empty)
     }
 
+    func testGenerateSaysWhyWhenTheEngineIsMissing() {
+        flow.startWriting()
+        flow.text = "Hello there."
+        model.locateBackend = { false }
+        XCTAssertEqual(flow.generateDisabledReason, "Speech engine not found")
+        XCTAssertFalse(flow.canGenerate)
+    }
+
+    func testGenerateSaysWhichModelAVoiceStillNeeds() {
+        flow.startWriting()
+        flow.text = "Hello there."
+        model.selectedVoiceID = "jf_alpha"
+        XCTAssertEqual(flow.generateDisabledReason, "Voice needs download")
+        XCTAssertFalse(flow.canGenerate)
+    }
+
     func testTheSampleOpensTheEditor() {
         flow.loadSample()
         XCTAssertEqual(flow.state, .editing)

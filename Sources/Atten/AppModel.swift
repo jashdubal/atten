@@ -180,7 +180,10 @@ final class AppModel {
         return projects.first { $0.audioPath == currentAudioURL.path }
     }
 
-    var backendIsAvailable: Bool { BackendLocator.locateInstallation() != nil }
+    /// Whether the speech engine can be found. Injectable so tests can
+    /// stand in for a Mac whose engine is missing.
+    @ObservationIgnored var locateBackend: () -> Bool = { BackendLocator.locateInstallation() != nil }
+    var backendIsAvailable: Bool { locateBackend() }
 
     /// Most voices run on the bundled engine. The rest name one model that has
     /// to be downloaded once; until it is, Atten says so rather than starting a
@@ -192,12 +195,7 @@ final class AppModel {
     }
 
     private func missingModelMessage(for voiceID: String) -> String? {
-        guard let required = requiredModelID(for: voiceID) else { return nil }
-        let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
-        return """
-        \(name) speaks through the \(required) model, which is not downloaded yet. \
-        Open Settings → Models and download it once — after that this voice works offline like the rest.
-        """
+        requiredModelID(for: voiceID).map { "Download \($0) in Settings → Models" }
     }
 
     func start() async {

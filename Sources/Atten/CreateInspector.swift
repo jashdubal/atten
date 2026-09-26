@@ -156,7 +156,11 @@ private struct NarratorCard: View {
             NarratorIdentity(profile: profile, isSpeaking: isPlayingPreview(of: voice))
             if !isLocked {
                 HStack(spacing: AttenSpacing.xs) {
-                    PreviewButton(model: model, flow: flow, voice: voice)
+                    if let required = model.requiredModelID(for: voice.id) {
+                        VoiceModelDownloadButton(library: model.library, modelID: required)
+                    } else {
+                        PreviewButton(model: model, flow: flow, voice: voice)
+                    }
                     Spacer()
                     Button("Change") { flow.isCasting = true }
                         .buttonStyle(AttenSecondaryButtonStyle())

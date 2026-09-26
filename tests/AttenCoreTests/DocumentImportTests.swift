@@ -112,6 +112,15 @@ final class DocumentImportTests: XCTestCase {
         }
     }
 
+    func testImportErrorsAreOneShortLine() {
+        XCTAssertEqual(DocumentImportError.unsupportedFormat("key").localizedDescription,
+                       "Atten can’t open .key files.")
+        XCTAssertEqual(DocumentImportError.unreadable("Notes.pdf").localizedDescription,
+                       "Notes.pdf couldn’t be opened. It may be damaged or password-protected.")
+        XCTAssertEqual(DocumentImportError.noText("Scan.pdf").localizedDescription,
+                       "Scan.pdf has no readable text. Scanned pages need OCR first.")
+    }
+
     func testADamagedEPUBReportsItselfRatherThanCrashing() throws {
         let url = workspace.appendingPathComponent("torn.epub")
         try Data("not a zip at all".utf8).write(to: url)
