@@ -30,6 +30,7 @@ struct VoicesView: View {
                                 VoiceRow(
                                     voice: voice,
                                     requiredModelID: model.requiredModelID(for: voice.id),
+                                    library: model.library,
                                     isSelected: model.selectedVoiceID == voice.id,
                                     isFavorite: model.settings.favoriteVoiceIDs.contains(voice.id),
                                     isPreviewing: model.voicePreviewID == voice.id,
@@ -156,10 +157,11 @@ struct VoicesView: View {
     }
 }
 
-private struct VoiceRow: View {
+struct VoiceRow: View {
     let voice: Voice
     /// Set when this voice needs a model the user has not downloaded yet.
     let requiredModelID: String?
+    let library: ModelLibrary
     let isSelected: Bool
     let isFavorite: Bool
     let isPreviewing: Bool
@@ -181,7 +183,7 @@ private struct VoiceRow: View {
                     .attenText(.body)
                     .fontWeight(.semibold)
                     .foregroundStyle(AttenColor.text1)
-                Text(requiredModelID.map { "\(profile.descriptor) · Needs \($0)" } ?? profile.descriptor)
+                Text(requiredModelID.map { "\(profile.descriptor) · \(library.needsDownloadLabel(for: $0))" } ?? profile.descriptor)
                     .attenText(.callout)
                     .foregroundStyle(AttenColor.text2)
                     .lineLimit(1)
@@ -189,6 +191,10 @@ private struct VoiceRow: View {
             .frame(minWidth: 150, alignment: .leading)
 
             Spacer(minLength: AttenSpacing.xs)
+
+            if let requiredModelID {
+                VoiceModelDownloadButton(library: library, modelID: requiredModelID)
+            }
 
             Text(profile.gender)
                 .attenText(.label)
@@ -209,7 +215,7 @@ private struct VoiceRow: View {
             }
             .buttonStyle(.plain)
             .disabled(!canPreview)
-            .help(isPlaying ? "Pause preview" : "Preview \(profile.displayName)")
+            .help(requiredModelID != nil ? "Needs download" : isPlaying ? "Pause preview" : "Preview \(profile.displayName)")
             .accessibilityLabel(isPlaying ? "Pause preview of \(profile.displayName)" : "Preview \(profile.displayName)")
 
             Button(action: favorite) {
@@ -251,6 +257,7 @@ private struct VoiceRow: View {
         .contextMenu {
             Button(isSelected ? "Open Draft" : "Use in Draft", action: select)
             Button("Preview", systemImage: "play.fill", action: preview)
+                .disabled(!canPreview)
             Button(
                 isFavorite ? "Remove from Favorites" : "Add to Favorites",
                 systemImage: isFavorite ? "heart.slash" : "heart",

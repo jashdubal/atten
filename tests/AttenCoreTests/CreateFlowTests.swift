@@ -146,7 +146,7 @@ final class CreateFlowTests: XCTestCase {
         flow.startWriting()
         flow.text = "Hello there."
         model.selectedVoiceID = "jf_alpha"
-        XCTAssertEqual(flow.generateDisabledReason, "Download facebook/mms-tts-jpn in Settings → Models")
+        XCTAssertEqual(flow.generateDisabledReason, "Voice needs download")
         XCTAssertFalse(flow.canGenerate)
     }
 

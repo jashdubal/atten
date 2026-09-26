@@ -706,5 +706,25 @@ class ServeTests(unittest.TestCase):
         self.assertEqual(events[-1]["id"], "p")
 
 
+class ModelManifestTests(unittest.TestCase):
+    """The app tells offline, 404 and 401 apart, so the manifest must not
+    turn each of them into the same empty list."""
+
+    def test_a_failed_manifest_fetch_keeps_its_reason(self):
+        import urllib.error
+        from atten_backend.downloader import get_hf_repo_files
+
+        for error in (
+            urllib.error.URLError(OSError(8, "nodename nor servname provided, or not known")),
+            urllib.error.HTTPError("https://huggingface.co", 404, "Not Found", {}, None),
+            urllib.error.HTTPError("https://huggingface.co", 401, "Unauthorized", {}, None),
+        ):
+            with self.subTest(error=str(error)):
+                with patch("urllib.request.urlopen", side_effect=error):
+                    with self.assertRaises(type(error)) as raised:
+                        get_hf_repo_files("facebook/mms-tts-jpn")
+                self.assertEqual(str(raised.exception), str(error))
+
+
 if __name__ == "__main__":
     unittest.main()

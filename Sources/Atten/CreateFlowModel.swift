@@ -281,7 +281,7 @@ final class CreateFlowModel {
         if trimmedText.isEmpty { return "Add text to generate" }
         if importingName != nil { return "Importing…" }
         if !app.backendIsAvailable { return "Speech engine not found" }
-        if let model = app.requiredModelID(for: voice.id) { return "Download \(model) in Settings → Models" }
+        if app.requiredModelID(for: voice.id) != nil { return "Voice needs download" }
         // Behind another narration the draft queues; anything else holding
         // the engine has to finish first.
         if !app.bookshelf.canStartNarration { return "Another narration is running" }

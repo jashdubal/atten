@@ -224,6 +224,9 @@ def download_xtts_model(progress_callback: Optional[Callable[[dict], None]] = No
 def get_hf_repo_files(clean_id: str) -> List[tuple]:
     """Retrieves and filters repository files to only essential model weights and configs."""
     all_files = []
+    # Kept so an empty manifest can say why: offline, 404 and 401 each
+    # need a different answer from the app.
+    fetch_error = None
     
     # Try tree endpoint first (has accurate file sizes and all files recursively)
     try:
@@ -232,8 +235,8 @@ def get_hf_repo_files(clean_id: str) -> List[tuple]:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             all_files = [(item["path"], int(item.get("size", 0))) for item in data if item.get("type") == "file"]
-    except Exception:
-        pass
+    except Exception as error:
+        fetch_error = error
 
     # Fallback to model info endpoint
     if not all_files:
@@ -243,10 +246,12 @@ def get_hf_repo_files(clean_id: str) -> List[tuple]:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 all_files = [(s.get("rfilename", ""), 0) for s in data.get("siblings", [])]
-        except Exception:
-            pass
+        except Exception as error:
+            fetch_error = error
 
     if not all_files:
+        if isinstance(fetch_error, OSError):
+            raise fetch_error
         return []
 
     # Smart filtering
