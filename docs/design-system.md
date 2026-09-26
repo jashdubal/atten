@@ -108,9 +108,12 @@ serif, for prose someone reads rather than scans). Apply a step with
     and its label turns `text1`, so the label still reads at 3:1 on the dimmed
     fill; it shows the reason as text underneath rather than leaving a puzzle.
   - `AttenSecondaryButtonStyle`: glass, 32pt, for a real action that isn't
-    the point of the screen.
+    the point of the screen. When disabled, only the glass fill dims to 40%;
+    its `text1` label stays undimmed so it keeps 3:1 on the dimmed fill.
   - `AttenTertiaryButtonStyle`: text only (`text2` → `text1` on hover), for
-    toolbars and the actions around a thing.
+    toolbars and the actions around a thing. It has no fill to dim, so
+    disabled swaps the label to `text3` — Atten's own 3:1 tier — instead of
+    fading it.
   - An icon that's a hit target rather than something styled to look like a
     button (a transport glyph, a cover) uses `.plain` instead.
   - All three draw their own focus ring (`attenFocusRing`) rather than using
