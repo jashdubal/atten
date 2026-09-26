@@ -10,7 +10,7 @@ import SwiftUI
 
 private struct AttenGlass: ViewModifier {
     let cornerRadius: CGFloat
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.attenReduceTransparency) private var reduceTransparency
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)

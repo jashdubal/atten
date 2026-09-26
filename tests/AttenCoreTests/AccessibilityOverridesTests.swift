@@ -40,10 +40,10 @@ final class AccessibilityOverridesTests: XCTestCase {
         )
     }
 
-    /// What views under the root actually read. Unset, the modifier leaves
-    /// alone whatever the view would read without it. That is compared with
-    /// a bare render rather than with `NSWorkspace`, because an offscreen
-    /// render never sees the system settings, and CI's runner has both on.
+    /// What views under the root actually read. Unset, they read the
+    /// system's own values. The system is read in the same offscreen render
+    /// rather than from `NSWorkspace`, because an offscreen render never sees
+    /// the system settings, and CI's runner has both on.
     func testTheRootModifierReachesTheEnvironment() throws {
         let forced = AttenAccessibilityOverrides(environment: [
             "ATTEN_QA_REDUCE_MOTION": "1",
@@ -54,6 +54,31 @@ final class AccessibilityOverridesTests: XCTestCase {
         XCTAssertEqual(try read(AttenAccessibilityOverrides(environment: [:])), try read(nil))
     }
 
+    /// Only the root reads the system's keys; every other view reads the
+    /// Atten keys, or the override would not reach it. AppKit code goes
+    /// through `AttenAccessibilityOverrides.reducesMotion` the same way.
+    func testNoViewReadsTheSystemSettingsDirectly() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Atten")
+        let files = try FileManager.default.contentsOfDirectory(atPath: sources.path)
+            .filter { $0.hasSuffix(".swift") && $0 != "AccessibilityOverrides.swift" }
+        XCTAssertFalse(files.isEmpty, "found no sources at \(sources.path)")
+
+        let patterns = [#"\.accessibilityReduceMotion"#, #"\.accessibilityReduceTransparency"#, "accessibilityDisplayShouldReduce"]
+        var violations: [String] = []
+        for file in files {
+            let source = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            for (index, line) in source.components(separatedBy: .newlines).enumerated()
+            where patterns.contains(where: { line.contains($0) }) {
+                violations.append("\(file):\(index + 1): \(line.trimmingCharacters(in: .whitespaces))")
+            }
+        }
+        XCTAssertEqual(violations, [], "read attenReduceMotion / attenReduceTransparency instead")
+    }
+
     private struct Seen: Equatable {
         var reduceMotion: Bool
         var reduceTransparency: Bool
@@ -61,7 +86,20 @@ final class AccessibilityOverridesTests: XCTestCase {
 
     private final class Box { var seen: Seen? }
 
+    /// Reads what every view under the root reads.
     private struct Probe: View {
+        let box: Box
+        @Environment(\.attenReduceMotion) private var reduceMotion
+        @Environment(\.attenReduceTransparency) private var reduceTransparency
+
+        var body: some View {
+            box.seen = Seen(reduceMotion: reduceMotion, reduceTransparency: reduceTransparency)
+            return Color.clear.frame(width: 1, height: 1)
+        }
+    }
+
+    /// Reads the system's own values.
+    private struct SystemProbe: View {
         let box: Box
         @Environment(\.accessibilityReduceMotion) private var reduceMotion
         @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -72,12 +110,13 @@ final class AccessibilityOverridesTests: XCTestCase {
         }
     }
 
+    /// Under the root modifier with `overrides`, or with none, the system's.
     private func read(_ overrides: AttenAccessibilityOverrides?) throws -> Seen {
         let box = Box()
         if let overrides {
             _ = ImageRenderer(content: Probe(box: box).attenAccessibilityOverrides(overrides)).nsImage
         } else {
-            _ = ImageRenderer(content: Probe(box: box)).nsImage
+            _ = ImageRenderer(content: SystemProbe(box: box)).nsImage
         }
         return try XCTUnwrap(box.seen, "the probe was never drawn")
     }

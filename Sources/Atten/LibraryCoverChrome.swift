@@ -4,7 +4,7 @@ import SwiftUI
 /// The small waveform glyph that says "this one, right now" — the one place
 /// besides a transport control or the primary button that draws in `signal`.
 struct PlayingGlyph: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     @State private var isAnimating = false
 
     private let heights: [CGFloat] = [7, 12, 9]

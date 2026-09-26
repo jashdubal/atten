@@ -307,7 +307,7 @@ private struct ReadAlongFollower: View {
     let proxy: ScrollViewProxy
     let playhead: ReadAlongPlayhead
     let scroll: ReadAlongScroll
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         Color.clear
@@ -335,7 +335,7 @@ private struct SentenceRow: View {
     let scroll: ReadAlongScroll
     let seek: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         let distance = playhead.sentence.map { abs($0 - sentence.id) } ?? 0
@@ -774,7 +774,7 @@ private struct VoiceLevelGlyph: View {
 private struct VoiceLevel<Content: View>: View {
     let model: AppModel
     @ViewBuilder let content: (Double) -> Content
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     static var heldLevel: Double { 0.5 }
 

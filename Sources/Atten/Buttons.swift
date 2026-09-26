@@ -81,7 +81,7 @@ struct AttenSecondaryButtonStyle: PrimitiveButtonStyle {
 private struct AttenSecondaryButtonBody: View {
     let configuration: PrimitiveButtonStyleConfiguration
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.attenReduceTransparency) private var reduceTransparency
     @State private var isHovering = false
 
     var body: some View {
