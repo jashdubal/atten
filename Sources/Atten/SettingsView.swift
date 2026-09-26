@@ -325,7 +325,7 @@ private struct AttenSwitchStyle: ToggleStyle {
 
 private struct AttenSwitch: View {
     let configuration: ToggleStyleConfiguration
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {

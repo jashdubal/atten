@@ -86,8 +86,10 @@ Duration fades: 120ms hover, 200ms state change, 800ms for the ambient tint
 opacity and blur are animated — never layout.
 
 `AttenMotion.animation(_:reduceMotion:)` and `.transitionAnimation` are the
-only way a screen should reach for these: pass `accessibilityReduceMotion`
-from the environment, and under Reduce Motion every spring becomes a 150ms
+only way a screen should reach for these: pass `attenReduceMotion` from the
+environment (never `accessibilityReduceMotion`, which only the window root
+reads, so the `ATTEN_QA_REDUCE_MOTION` override reaches every view; the same
+goes for `attenReduceTransparency`), and under Reduce Motion every spring becomes a 150ms
 fade (`reducedFade`) or, for a state-only change, no animation at all — the
 state still changes, it just doesn't animate getting there.
 

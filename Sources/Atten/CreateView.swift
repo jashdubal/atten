@@ -6,7 +6,7 @@ import SwiftUI
 /// editor read-only while it is queued or narrated, and the finished cover.
 struct CreateView: View {
     @Bindable var model: AppModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var flow: CreateFlowModel { model.createFlow }
 
@@ -61,7 +61,7 @@ struct CreateView: View {
 
 private struct CreateEmptyStage: View {
     @Bindable var flow: CreateFlowModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: AttenSpacing.lg) {
@@ -214,7 +214,7 @@ struct CreateStatusFooter: View {
 private struct CreateDoneStage: View {
     let flow: CreateFlowModel
     let book: BookRecord?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     @State private var hasLanded = false
 
     var body: some View {

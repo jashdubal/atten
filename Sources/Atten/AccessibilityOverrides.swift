@@ -20,7 +20,7 @@ struct AttenAccessibilityOverrides: Equatable {
     func reducesTransparency(system: Bool) -> Bool { reduceTransparency || system }
 
     /// For AppKit code, in place of reading `NSWorkspace` directly. SwiftUI
-    /// views read `accessibilityReduceMotion` from the environment, which
+    /// views read `attenReduceMotion` from the environment, which
     /// `attenAccessibilityOverrides()` sets.
     static var reducesMotion: Bool {
         launch.reducesMotion(system: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
@@ -31,10 +31,47 @@ struct AttenAccessibilityOverrides: Equatable {
     }
 }
 
+private struct AttenReduceMotionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private struct AttenReduceTransparencyKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// The system's Reduce Motion, or the QA override. Views read this, never
+    /// `accessibilityReduceMotion`, so the override needs no private SwiftUI
+    /// setter.
+    var attenReduceMotion: Bool {
+        get { self[AttenReduceMotionKey.self] }
+        set { self[AttenReduceMotionKey.self] = newValue }
+    }
+
+    /// The system's Reduce Transparency, or the QA override.
+    var attenReduceTransparency: Bool {
+        get { self[AttenReduceTransparencyKey.self] }
+        set { self[AttenReduceTransparencyKey.self] = newValue }
+    }
+}
+
+/// The one place the system's settings are read: at the window root, where
+/// they are published down, with the overrides applied, as the Atten keys.
+private struct AttenAccessibilityRoot: ViewModifier {
+    let overrides: AttenAccessibilityOverrides
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.attenReduceMotion, overrides.reducesMotion(system: systemReduceMotion))
+            .environment(\.attenReduceTransparency, overrides.reducesTransparency(system: systemReduceTransparency))
+    }
+}
+
 extension View {
     /// Applies the launch overrides to everything under the window's root.
     func attenAccessibilityOverrides(_ overrides: AttenAccessibilityOverrides = .launch) -> some View {
-        transformEnvironment(\._accessibilityReduceMotion) { if overrides.reduceMotion { $0 = true } }
-            .transformEnvironment(\._accessibilityReduceTransparency) { if overrides.reduceTransparency { $0 = true } }
+        modifier(AttenAccessibilityRoot(overrides: overrides))
     }
 }
