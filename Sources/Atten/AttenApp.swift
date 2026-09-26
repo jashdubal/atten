@@ -19,6 +19,7 @@ struct AttenApp: App {
     var body: some Scene {
         Window("Atten", id: "main") {
             RootView(model: model)
+                .attenAccessibilityOverrides()
                 .onAppear { appDelegate.model = model }
                 .frame(minWidth: 960, minHeight: 700)
                 .onOpenURL { url in

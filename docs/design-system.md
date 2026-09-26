@@ -104,8 +104,9 @@ serif, for prose someone reads rather than scans). Apply a step with
 
 - **Buttons** (`Buttons.swift`) — three kinds and no others:
   - `AttenPrimaryButtonStyle`: the one thing a screen is for. Signal-filled,
-    40pt, at most one per screen. When disabled, it dims to 40% opacity and
-    shows the reason as text underneath rather than leaving a puzzle.
+    40pt, at most one per screen. When disabled, its fill dims to 40% opacity
+    and its label turns `text1`, so the label still reads at 3:1 on the dimmed
+    fill; it shows the reason as text underneath rather than leaving a puzzle.
   - `AttenSecondaryButtonStyle`: glass, 32pt, for a real action that isn't
     the point of the screen.
   - `AttenTertiaryButtonStyle`: text only (`text2` → `text1` on hover), for

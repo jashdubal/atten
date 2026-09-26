@@ -51,10 +51,7 @@ struct BookNarratorCard: View {
                 isSpeaking: model.isPlaying && model.activeAudioURL == model.voicePreviewURL(voice)
             )
             if let required = model.requiredModelID(for: voice.id) {
-                Button("Download Voice Model") { model.library.download(required) }
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .disabled(model.library.downloads[required] != nil)
-                    .help("Download once; this voice then works offline")
+                VoiceModelDownloadButton(library: model.library, modelID: required)
             } else {
                 PreviewButton(model: model, flow: nil, voice: voice)
             }

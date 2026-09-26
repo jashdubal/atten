@@ -39,17 +39,19 @@ private struct AttenPrimaryButtonBody: View {
                 configuration.label
                     .attenText(.callout)
                     .fontWeight(.semibold)
-                    .foregroundStyle(AttenColor.signalInk)
+                    // Disabled, only the fill dims. `signalInk` dimmed with
+                    // it all but vanished; `text1` holds 3:1 on the dimmed
+                    // fill in both appearances.
+                    .foregroundStyle(isEnabled ? AttenColor.signalInk : AttenColor.text1)
                     .padding(.horizontal, AttenSpacing.md)
                     .frame(minHeight: 40)
                     .background(
-                        AttenColor.signal,
+                        AttenColor.signal.opacity(isEnabled ? 1 : AttenState.disabledOpacity),
                         in: RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+            .buttonStyle(AttenPressDimButtonStyle())
             .attenFocusRing(cornerRadius: AttenRadius.control)
             if !isEnabled, let disabledReason {
                 Text(disabledReason)
@@ -58,6 +60,15 @@ private struct AttenPrimaryButtonBody: View {
                     .lineLimit(1)
             }
         }
+    }
+}
+
+/// The press dim alone. `.plain` also fades a disabled label by about half
+/// again, on top of the primary's own 40% fill, which is what lost "Generate"
+/// in dark mode; the primary draws its disabled look itself.
+private struct AttenPressDimButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? AttenState.pressedOpacity : 1)
     }
 }
 
