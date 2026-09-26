@@ -195,12 +195,7 @@ final class AppModel {
     }
 
     private func missingModelMessage(for voiceID: String) -> String? {
-        guard let required = requiredModelID(for: voiceID) else { return nil }
-        let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
-        return """
-        \(name) speaks through the \(required) model, which is not downloaded yet. \
-        Open Settings → Models and download it once — after that this voice works offline like the rest.
-        """
+        requiredModelID(for: voiceID).map { "Download \($0) in Settings → Models" }
     }
 
     func start() async {

@@ -208,7 +208,7 @@ private struct ModelRow: View {
             }
 
             if let download {
-                progress(download)
+                ModelDownloadStatus(state: download, retry: onDownload)
                     .padding(.leading, 48)
             }
         }
@@ -245,9 +245,12 @@ private struct ModelRow: View {
             Button("Pause", systemImage: "pause.fill", action: onPause)
                 .buttonStyle(AttenSecondaryButtonStyle())
             cancelButton
-        case .paused, .failed:
+        case .paused:
             Button("Resume", systemImage: "arrow.down.circle", action: onDownload)
                 .buttonStyle(AttenSecondaryButtonStyle())
+            cancelButton
+        case .failed:
+            // Retry sits beside the reason, under the row.
             cancelButton
         case nil:
             if isBundled {
@@ -278,36 +281,6 @@ private struct ModelRow: View {
             .tint(AttenColor.text2)
             .help("Cancel and remove partial files")
             .accessibilityLabel("Cancel download of \(model.id)")
-    }
-
-    private func progress(_ state: ModelLibrary.DownloadState) -> some View {
-        let phase: AttenTaskPhase
-        switch state.phase {
-        case .downloading: phase = .active
-        case .paused: phase = .cancelled
-        case .failed: phase = .error
-        }
-        let metadata = [
-            state.progress.sizeText,
-            state.progress.speed,
-            state.progress.eta.isEmpty ? "" : "ETA \(state.progress.eta)",
-        ]
-        .filter { !$0.isEmpty }
-        .joined(separator: " · ")
-
-        return AttenProgressStatus(
-            title: "Download \(model.name)",
-            detail: statusText(state),
-            phase: phase,
-            progress: state.progress.fraction,
-            progressLabel: state.progress.fraction == nil ? nil : "\(state.progress.percent)%",
-            metadata: metadata.isEmpty ? nil : metadata
-        )
-    }
-
-    private func statusText(_ state: ModelLibrary.DownloadState) -> String {
-        if case let .failed(message) = state.phase { return "Stopped: \(message)" }
-        return state.progress.status
     }
 
 }

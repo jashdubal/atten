@@ -97,7 +97,7 @@ struct CastingSheet: View {
     }
 }
 
-private struct CastingCard: View {
+struct CastingCard: View {
     @Bindable var model: AppModel
     let voice: Voice
     let isSelected: Bool
@@ -109,6 +109,7 @@ private struct CastingCard: View {
         let profile = VoiceProfile(voice: voice)
         let shape = RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
         let isPlaying = model.isPlaying && model.activeAudioURL == (previewFlow.map { $0.previewURL(for: voice) } ?? model.voicePreviewURL(voice))
+        let requiredModelID = model.requiredModelID(for: voice.id)
         Button(action: choose) {
             VStack(alignment: .leading, spacing: AttenSpacing.sm) {
                 HStack(alignment: .top) {
@@ -125,12 +126,12 @@ private struct CastingCard: View {
                         .attenText(.body)
                         .fontWeight(.semibold)
                         .foregroundStyle(AttenColor.text1)
-                    Text(profile.descriptor)
+                    Text(requiredModelID.map { "\(profile.descriptor) · \(model.library.needsDownloadLabel(for: $0))" } ?? profile.descriptor)
                         .attenText(.callout)
                         .foregroundStyle(AttenColor.text2)
                         .lineLimit(2, reservesSpace: true)
                 }
-                Text(model.requiredModelID(for: voice.id) == nil ? profile.gender : "\(profile.gender) · Needs model")
+                Text(profile.gender)
                     .attenText(.label)
                     .foregroundStyle(AttenColor.text3)
             }
@@ -148,8 +149,16 @@ private struct CastingCard: View {
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: AttenMotion.hover), value: isHovering)
         .overlay(alignment: .bottomTrailing) {
-            PreviewButton(model: model, flow: previewFlow, voice: voice, showsTitle: false)
-                .padding(AttenSpacing.sm)
+            // Until its model is here the voice can't speak, so the slot
+            // Preview will take offers the download instead.
+            Group {
+                if let requiredModelID {
+                    VoiceModelDownloadButton(library: model.library, modelID: requiredModelID, isCompact: true)
+                } else {
+                    PreviewButton(model: model, flow: previewFlow, voice: voice, showsTitle: false)
+                }
+            }
+            .padding(AttenSpacing.sm)
         }
         .accessibilityLabel("\(profile.displayName), \(profile.descriptor)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])

@@ -9,7 +9,7 @@ final class ModelLibrary {
     enum DownloadPhase: Equatable {
         case downloading
         case paused
-        case failed(String)
+        case failed(ModelDownloadFailure)
     }
 
     struct DownloadState: Equatable {
@@ -264,7 +264,7 @@ final class ModelLibrary {
                 // Pause and cancel update state themselves.
             } catch {
                 guard isCurrent(modelID, attempt) else { return }
-                downloads[modelID]?.phase = .failed(error.localizedDescription)
+                downloads[modelID]?.phase = .failed(ModelDownloadFailure(error))
                 downloads[modelID]?.progress.speed = ""
                 downloads[modelID]?.progress.eta = ""
             }
