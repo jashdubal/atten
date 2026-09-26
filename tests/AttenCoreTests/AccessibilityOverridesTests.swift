@@ -40,7 +40,10 @@ final class AccessibilityOverridesTests: XCTestCase {
         )
     }
 
-    /// What views under the root actually read.
+    /// What views under the root actually read. Unset, the modifier leaves
+    /// alone whatever the view would read without it. That is compared with
+    /// a bare render rather than with `NSWorkspace`, because an offscreen
+    /// render never sees the system settings, and CI's runner has both on.
     func testTheRootModifierReachesTheEnvironment() throws {
         let forced = AttenAccessibilityOverrides(environment: [
             "ATTEN_QA_REDUCE_MOTION": "1",
@@ -48,9 +51,7 @@ final class AccessibilityOverridesTests: XCTestCase {
         ])
         XCTAssertEqual(try read(forced), .init(reduceMotion: true, reduceTransparency: true))
 
-        let untouched = try read(AttenAccessibilityOverrides(environment: [:]))
-        XCTAssertEqual(untouched.reduceMotion, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-        XCTAssertEqual(untouched.reduceTransparency, NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency)
+        XCTAssertEqual(try read(AttenAccessibilityOverrides(environment: [:])), try read(nil))
     }
 
     private struct Seen: Equatable {
@@ -71,9 +72,13 @@ final class AccessibilityOverridesTests: XCTestCase {
         }
     }
 
-    private func read(_ overrides: AttenAccessibilityOverrides) throws -> Seen {
+    private func read(_ overrides: AttenAccessibilityOverrides?) throws -> Seen {
         let box = Box()
-        _ = ImageRenderer(content: Probe(box: box).attenAccessibilityOverrides(overrides)).nsImage
+        if let overrides {
+            _ = ImageRenderer(content: Probe(box: box).attenAccessibilityOverrides(overrides)).nsImage
+        } else {
+            _ = ImageRenderer(content: Probe(box: box)).nsImage
+        }
         return try XCTUnwrap(box.seen, "the probe was never drawn")
     }
 }
