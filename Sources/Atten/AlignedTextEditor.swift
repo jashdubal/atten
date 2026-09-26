@@ -19,7 +19,7 @@ struct AlignedTextEditor: NSViewRepresentable {
     var playingRange: NSRange?
     var focusesOnAppear = false
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)

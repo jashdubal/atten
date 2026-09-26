@@ -284,7 +284,7 @@ private struct TransportButton: View {
     let action: () -> Void
 
     @State private var isHovering = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: action) {
@@ -325,7 +325,7 @@ struct ScrubBar: View {
     @State private var dragged: TimeInterval?
     @State private var isHovering = false
     @State private var hovered: CGFloat?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var shown: TimeInterval { dragged ?? position }
 

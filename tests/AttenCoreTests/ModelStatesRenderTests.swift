@@ -7,8 +7,9 @@ import XCTest
 
 /// Offscreen renders of a model download in each state (#114) — in
 /// Settings → Models, on a casting card and in Voices — and of Create with
-/// Generate held back for a voice whose model is missing. The downloader is
-/// a stub, so nothing is fetched. Gated behind `ATTEN_RENDER_DIR`, like
+/// Generate held back for a voice whose model is missing, and of a book's
+/// page cast in such a voice (#118). The downloader is a stub, so nothing is
+/// fetched. Gated behind `ATTEN_RENDER_DIR`, like
 /// `VoicesSettingsRenderTests`, whose hosting-window harness this shares.
 @MainActor
 final class ModelStatesRenderTests: XCTestCase {
@@ -111,6 +112,26 @@ final class ModelStatesRenderTests: XCTestCase {
                 dark: dark, size: CGSize(width: 320, height: 640),
                 to: renderDir.appendingPathComponent("create-\(dark ? "dark" : "light").png")
             )
+        }
+
+        // A book cast in a voice whose model is missing (#118): not yet
+        // started, then mid-download.
+        let book = try model.bookshelf.saveDraft(
+            title: "Letters Home",
+            text: "The monsoon came early that year, and the letters stopped.",
+            voiceID: voices[3].id,
+            defaults: model.settings
+        )
+        let bookModelID = try XCTUnwrap(model.requiredModelID(for: book.voiceID))
+        for (name, state) in [("needs-download", nil), ("downloading", downloading)] {
+            library.downloads[bookModelID] = state
+            for dark in [false, true] {
+                try await render(
+                    BookDetailView(model: model, book: book) {}.environment(\.attenIsOffscreenRender, true),
+                    dark: dark, size: CGSize(width: 960, height: 520),
+                    to: renderDir.appendingPathComponent("book-\(name)-\(dark ? "dark" : "light").png")
+                )
+            }
         }
     }
 

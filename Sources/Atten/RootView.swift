@@ -59,7 +59,7 @@ struct RootView: View {
     @Namespace private var playerNamespace
     @Namespace private var coverNamespace
     @FocusState private var focusedSidebarItem: SidebarItem?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -323,7 +323,7 @@ private struct SidebarNavigationRow: View {
 
     @Environment(\.isFocused) private var isFocused
     @Environment(\.attenHasUsedKeyboard) private var hasUsedKeyboard
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     @State private var isHovering = false
 
     var body: some View {

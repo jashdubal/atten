@@ -39,17 +39,19 @@ private struct AttenPrimaryButtonBody: View {
                 configuration.label
                     .attenText(.callout)
                     .fontWeight(.semibold)
-                    .foregroundStyle(AttenColor.signalInk)
+                    // Disabled, only the fill dims. `signalInk` dimmed with
+                    // it all but vanished; `text1` holds 3:1 on the dimmed
+                    // fill in both appearances.
+                    .foregroundStyle(isEnabled ? AttenColor.signalInk : AttenColor.text1)
                     .padding(.horizontal, AttenSpacing.md)
                     .frame(minHeight: 40)
                     .background(
-                        AttenColor.signal,
+                        AttenColor.signal.opacity(isEnabled ? 1 : AttenState.disabledOpacity),
                         in: RoundedRectangle(cornerRadius: AttenRadius.control, style: .continuous)
                     )
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+            .buttonStyle(AttenPressDimButtonStyle())
             .attenFocusRing(cornerRadius: AttenRadius.control)
             if !isEnabled, let disabledReason {
                 Text(disabledReason)
@@ -58,6 +60,15 @@ private struct AttenPrimaryButtonBody: View {
                     .lineLimit(1)
             }
         }
+    }
+}
+
+/// The press dim alone. `.plain` also fades a disabled label by about half
+/// again, on top of whatever a style already dims for disabled, which is what
+/// lost "Generate" in dark mode; each style draws its own disabled look.
+private struct AttenPressDimButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? AttenState.pressedOpacity : 1)
     }
 }
 
@@ -70,7 +81,7 @@ struct AttenSecondaryButtonStyle: PrimitiveButtonStyle {
 private struct AttenSecondaryButtonBody: View {
     let configuration: PrimitiveButtonStyleConfiguration
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.attenReduceTransparency) private var reduceTransparency
     @State private var isHovering = false
 
     var body: some View {
@@ -83,7 +94,14 @@ private struct AttenSecondaryButtonBody: View {
                 .frame(minHeight: 32)
                 // The glass tint alone, not a live material: a screen can hold
                 // a dozen of these and only three materials.
-                .background(reduceTransparency ? AttenColor.surface1 : AttenColor.glass, in: shape)
+                //
+                // Disabled, only the fill dims, same as the primary: `text1`
+                // dimmed with it lost the 3:1 a label needs on its own fill.
+                .background(
+                    (reduceTransparency ? AttenColor.surface1 : AttenColor.glass)
+                        .opacity(isEnabled ? 1 : AttenState.disabledOpacity),
+                    in: shape
+                )
                 .overlay {
                     shape.fill(AttenColor.text1.opacity(AttenState.hoverFill / 2))
                         .opacity(isHovering && isEnabled ? 1 : 0)
@@ -91,8 +109,7 @@ private struct AttenSecondaryButtonBody: View {
                 .overlay { shape.strokeBorder(AttenColor.hairline, lineWidth: 1) }
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+        .buttonStyle(AttenPressDimButtonStyle())
         .attenFocusRing(cornerRadius: AttenRadius.control)
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: AttenMotion.hover), value: isHovering)
@@ -119,11 +136,15 @@ private struct AttenTertiaryButtonBody: View {
         Button(role: configuration.role, action: configuration.trigger) {
             configuration.label
                 .attenText(.callout)
-                .foregroundStyle(isSelected || (isHovering && isEnabled) ? AttenColor.text1 : AttenColor.text2)
+                // A tertiary label has no fill of its own to dim, and fading
+                // the label the way the rule fades a fill took it under 3:1
+                // on its ground; `text3` is Atten's own 3:1 tier instead.
+                .foregroundStyle(
+                    isEnabled ? (isSelected || isHovering ? AttenColor.text1 : AttenColor.text2) : AttenColor.text3
+                )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+        .buttonStyle(AttenPressDimButtonStyle())
         .attenFocusRing(cornerRadius: AttenRadius.small)
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: AttenMotion.hover), value: isHovering)

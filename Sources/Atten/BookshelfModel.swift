@@ -504,8 +504,10 @@ final class BookshelfModel {
             .filter { book.chapters.indices.contains($0) && !book.chapters[$0].isNarrated }
         guard (!book.hasBookAudio || book.needsPreparation), !book.chapters.isEmpty else { return }
 
-        if !pending.isEmpty, let missing = missingModelMessage(for: book.voiceID) {
-            errorMessage = missing
+        // Saying so beats starting a run of 135 chapters that can only fail
+        // on the first. The narrator card offers the download.
+        if !pending.isEmpty, missingModelID(book.voiceID) != nil {
+            errorMessage = "Voice needs download"
             return
         }
 
@@ -844,18 +846,6 @@ final class BookshelfModel {
 
     private func saveQueue() {
         try? NarrationQueueFile.save(queue, to: NarrationQueueFile.url(in: directories))
-    }
-
-    /// Most voices run on the bundled engine; the rest name one model that has
-    /// to be downloaded once. Saying so beats starting a run of 135 chapters
-    /// that can only fail on the first.
-    private func missingModelMessage(for voiceID: String) -> String? {
-        guard let required = missingModelID(voiceID) else { return nil }
-        let name = VoiceCatalog.voice(id: voiceID)?.name ?? voiceID
-        return """
-        \(name) speaks through the \(required) model. Open Settings → Models and download it \
-        once, or pick another voice for this book.
-        """
     }
 
     /// Numbered so the narrations folder sorts in reading order in Finder.
