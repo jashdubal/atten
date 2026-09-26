@@ -164,6 +164,7 @@ struct SleepTimerControl: View {
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
+                .tint(timer.choice == nil ? AttenColor.text2 : AttenColor.text1)
                 .fixedSize()
                 .accessibilityLabel("Sleep timer")
             }

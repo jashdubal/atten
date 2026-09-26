@@ -1,61 +1,53 @@
 import AttenCore
 import SwiftUI
 
-private enum SettingsCategory: String, CaseIterable, Identifiable {
-    case provider
+private enum SettingsTab: String, CaseIterable, Identifiable {
+    case general
     case audio
     case storage
     case appearance
+    case models
     case shortcuts
 
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
-
-    var icon: String {
-        switch self {
-        case .provider: "cpu"
-        case .audio: "speaker.wave.2"
-        case .storage: "internaldrive"
-        case .appearance: "paintpalette"
-        case .shortcuts: "keyboard"
-        }
-    }
 }
 
 struct SettingsView: View {
     @Bindable var model: AppModel
+    @Environment(\.openURL) private var openURL
+
+    private var tab: SettingsTab { SettingsTab(rawValue: model.settingsTab) ?? .general }
 
     var body: some View {
-        TabView(selection: $model.settingsTab) {
-            SettingsPane(title: "General", detail: "Speech stays on this Mac.") {
-                providerForm
+        // One column: the title, the tabs and every section share its
+        // leading edge.
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: AttenSpacing.md) {
+                Text("Settings").font(AttenTypography.title2)
+                Picker("Settings", selection: $model.settingsTab) {
+                    ForEach(SettingsTab.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
-            .tabItem { Label("General", systemImage: SettingsCategory.provider.icon) }.tag("general")
+            .padding(.horizontal, SettingsColumn.gutter)
+            .padding(.top, AttenSpacing.lg)
+            .padding(.bottom, AttenSpacing.md)
 
-            SettingsPane(title: "Audio", detail: "Defaults used for new audio.") {
-                audioForm
+            switch tab {
+            case .general: SettingsPane { generalSections }
+            case .audio: SettingsPane { audioSections }
+            case .storage: SettingsPane { storageSections }
+            case .appearance: SettingsPane { appearanceSections }
+            case .models: ModelsView(model: model)
+            case .shortcuts: SettingsPane { shortcutsSections }
             }
-            .tabItem { Label("Audio", systemImage: SettingsCategory.audio.icon) }.tag("audio")
-
-            SettingsPane(title: "Storage", detail: "Where Atten keeps generated audio and project history.") {
-                storageForm
-            }
-            .tabItem { Label("Storage", systemImage: SettingsCategory.storage.icon) }.tag("storage")
-
-            SettingsPane(title: "Appearance", detail: "Match macOS or choose a specific appearance.") {
-                appearanceForm
-            }
-            .tabItem { Label("Appearance", systemImage: SettingsCategory.appearance.icon) }.tag("appearance")
-
-            ModelsView(model: model)
-                .tabItem { Label("Models", systemImage: "shippingbox") }.tag("models")
-
-            SettingsPane(title: "Shortcuts", detail: "Keyboard commands available throughout Atten.") {
-                shortcutsForm
-            }
-            .tabItem { Label("Shortcuts", systemImage: SettingsCategory.shortcuts.icon) }.tag("shortcuts")
         }
-        .tint(AttenColor.accent)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(AttenColor.appBackground)
+        .tint(AttenColor.signal)
         .font(AttenTypography.body)
         .foregroundStyle(AttenColor.textPrimary)
         .preferredColorScheme(preferredColorScheme)
@@ -73,206 +65,288 @@ struct SettingsView: View {
         }
     }
 
-    private var providerForm: some View {
-        Form {
-            Section("Kokoro 82M") {
-                FormRow(label: "Status", detail: "Offline synthesis; no account or API credential required.") {
-                    Label(
-                        model.backendIsAvailable ? "Ready" : "Not found",
-                        systemImage: model.backendIsAvailable
-                            ? "checkmark.circle.fill"
-                            : "exclamationmark.triangle.fill"
-                    )
-                    .foregroundStyle(
-                        model.backendIsAvailable ? AttenColor.success : AttenColor.destructive
-                    )
-                }
-
-                FormRow(label: "Credentials") {
-                    Text("None required").foregroundStyle(AttenColor.textSecondary)
-                }
-
-                Toggle("Use Metal acceleration fallback", isOn: $model.settings.useMPS)
-                    .help("Sets PYTORCH_ENABLE_MPS_FALLBACK for the local Kokoro process")
+    @ViewBuilder private var generalSections: some View {
+        SettingsSection("Kokoro 82M") {
+            SettingsRow("Status") {
+                Label(
+                    model.backendIsAvailable ? "Ready" : "Not found",
+                    systemImage: model.backendIsAvailable
+                        ? "checkmark.circle.fill"
+                        : "exclamationmark.triangle.fill"
+                )
+                .foregroundStyle(
+                    model.backendIsAvailable ? AttenColor.success : AttenColor.destructive
+                )
             }
+            SettingsDivider()
+            SettingsRow("Use Metal acceleration fallback") {
+                SettingsSwitch(label: "Use Metal acceleration fallback", isOn: $model.settings.useMPS)
+            }
+            .help("Sets PYTORCH_ENABLE_MPS_FALLBACK for the local Kokoro process")
+        }
 
-            Section("Updates") {
-                Toggle("Check GitHub for new versions at launch", isOn: $model.settings.checksForUpdates)
-                    .help("Turn this off to keep this version indefinitely and never use the network")
+        SettingsSection("Updates", footer: "Speech never uses the network; only this check does.") {
+            SettingsRow("Check GitHub for new versions at launch") {
+                SettingsSwitch(label: "Check GitHub for new versions at launch", isOn: $model.settings.checksForUpdates)
+            }
+            SettingsDivider()
+            SettingsRow("Version") {
+                HStack(spacing: AttenSpacing.sm) {
+                    Text(model.isInstallingUpdate ? "Updating…" : model.appVersion)
+                        .foregroundStyle(AttenColor.textSecondary)
+                    if model.isCheckingForUpdate {
+                        ProgressView().controlSize(.small)
+                    }
+                    Button("Check for Updates") {
+                        Task { await model.checkForUpdate(manual: true) }
+                    }
+                    .buttonStyle(AttenSecondaryButtonStyle())
+                    .disabled(model.isCheckingForUpdate || model.isInstallingUpdate)
+                }
+            }
+            SettingsDivider()
+            SettingsRow("Source code") {
+                Button("View on GitHub") { openURL(UpdateChecker.repositoryURL) }
+                    .buttonStyle(AttenTertiaryButtonStyle())
+            }
+        }
+    }
 
-                Text("Speech generation never uses the network. Turning this off makes Atten fully offline; you can still check manually here.")
-                    .font(AttenTypography.callout)
-                    .foregroundStyle(AttenColor.textSecondary)
-
-                LabeledContent("Version") {
-                    HStack(spacing: AttenSpacing.sm) {
-                        Text(model.isInstallingUpdate ? "Updating…" : model.appVersion)
-                            .foregroundStyle(AttenColor.textSecondary)
-                        if model.isCheckingForUpdate {
-                            ProgressView().controlSize(.small)
-                        }
-                        Button("Check for Updates") {
-                            Task { await model.checkForUpdate(manual: true) }
-                        }
-                        .disabled(model.isCheckingForUpdate || model.isInstallingUpdate)
+    @ViewBuilder private var audioSections: some View {
+        SettingsSection("Generation defaults") {
+            SettingsRow("Voice") {
+                Picker("Voice", selection: $model.selectedVoiceID) {
+                    ForEach(VoiceCatalog.all) { voice in
+                        let profile = VoiceProfile(voice: voice)
+                        Text("\(profile.displayName) — \(profile.accent)").tag(voice.id)
                     }
                 }
+                .labelsHidden()
+                .frame(width: 270)
+            }
+            SettingsDivider()
+            SettingsRow("Speech speed") {
+                HStack {
+                    Slider(value: $model.speed, in: 0.5...2, step: 0.05)
+                        .frame(width: 190)
+                        .accessibilityLabel("Speech speed")
+                        .accessibilityValue(String(format: "%.2f×", model.speed))
+                    Text(String(format: "%.2f×", model.speed))
+                        .monospacedDigit()
+                        .frame(width: 48, alignment: .trailing)
+                        .accessibilityHidden(true)
+                }
+            }
+            SettingsDivider()
+            SettingsRow("File format") {
+                Picker("File format", selection: $model.format) {
+                    ForEach(AudioFormat.allCases) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+        }
+    }
 
-                LabeledContent("Source code") {
-                    Link("View on GitHub", destination: UpdateChecker.repositoryURL)
+    @ViewBuilder private var storageSections: some View {
+        SettingsSection("Generated audio") {
+            SettingsRow("Export folder") {
+                HStack(spacing: AttenSpacing.xs) {
+                    Text(model.settings.outputDirectory)
+                        .font(AttenTypography.callout)
+                        .foregroundStyle(AttenColor.textSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 290, alignment: .trailing)
+                    Button("Choose…") { model.chooseOutputDirectory() }
+                        .buttonStyle(AttenSecondaryButtonStyle())
+                    Button("Show in Finder") { model.openSaveFolder() }
+                        .buttonStyle(AttenSecondaryButtonStyle())
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
-    private var audioForm: some View {
-        Form {
-            Section("Generation defaults") {
-                FormRow(label: "Voice") {
-                    Picker("Voice", selection: $model.selectedVoiceID) {
-                        ForEach(VoiceCatalog.all) { voice in
-                            Text("\(voice.name) — \(voice.language)").tag(voice.id)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 270)
-                }
-
-                FormRow(label: "Speech speed") {
-                    HStack {
-                        Slider(value: $model.speed, in: 0.5...2, step: 0.05)
-                            .frame(width: 190)
-                            .accessibilityLabel("Speech speed")
-                            .accessibilityValue(String(format: "%.2f×", model.speed))
-                        Text(String(format: "%.2f×", model.speed))
-                            .monospacedDigit()
-                            .frame(width: 48, alignment: .trailing)
-                            .accessibilityHidden(true)
-                    }
-                }
-
-                FormRow(label: "File format") {
-                    Picker("File format", selection: $model.format) {
-                        ForEach(AudioFormat.allCases) { format in
-                            Text(format.displayName).tag(format)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var storageForm: some View {
-        Form {
-            Section("Generated audio") {
-                FormRow(
-                    label: "Export folder",
-                    detail: "Project metadata remains in Application Support/Atten."
-                ) {
-                    HStack(spacing: AttenSpacing.xs) {
-                        Text(model.settings.outputDirectory)
-                            .font(AttenTypography.callout)
-                            .foregroundStyle(AttenColor.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(width: 290, alignment: .trailing)
-                        Button("Choose…") { model.chooseOutputDirectory() }
-                        Button("Show in Finder") { model.openSaveFolder() }
-                    }
-                }
-            }
-
-            Section {
-                Text("Existing audio in the original outputs folder is discovered without being moved.")
-                    .font(AttenTypography.callout)
-                    .foregroundStyle(AttenColor.textSecondary)
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var appearanceForm: some View {
-        Form {
-            Section("Light or dark") {
+    @ViewBuilder private var appearanceSections: some View {
+        SettingsSection("Light or dark") {
+            SettingsRow("Appearance") {
                 Picker("Appearance", selection: $model.settings.appearance) {
                     ForEach(AppearancePreference.allCases) { appearance in
                         Text(appearance.displayName).tag(appearance)
                     }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
-
-                Text("Atten has one palette, drawn light or dark. Motion and transparency follow your macOS accessibility preferences.")
-                    .font(AttenTypography.callout)
-                    .foregroundStyle(AttenColor.textSecondary)
+                .fixedSize()
             }
         }
-        .formStyle(.grouped)
     }
 
-    private var shortcutsForm: some View {
-        Form {
-            Section("Create") {
-                ShortcutRow(action: "New", keys: "⌘N")
-                ShortcutRow(action: "Add to Library", keys: "⌘O")
-                ShortcutRow(action: "Import into Create", keys: "⌘I")
-                ShortcutRow(action: "Generate speech", keys: "⌘↩")
-                ShortcutRow(action: "Export current audio", keys: "⇧⌘E")
-            }
-            Section("Library and reader") {
-                ShortcutRow(action: "Open Library", keys: "⌘1")
-                ShortcutRow(action: "Open Voices", keys: "⌘2")
-                ShortcutRow(action: "Open Settings", keys: "⌘,")
-                ShortcutRow(action: "Search the Library", keys: "⌘F")
-                ShortcutRow(action: "Find in book", keys: "⌘F")
-            }
-            Section("Playback") {
-                ShortcutRow(action: "Play or pause", keys: "Space")
-                ShortcutRow(action: "Play or pause (anywhere)", keys: "⌥Space")
-                ShortcutRow(action: "Skip back 15 seconds", keys: "←")
-                ShortcutRow(action: "Skip forward 15 seconds", keys: "→")
-                ShortcutRow(action: "Bookmark the sentence playing", keys: "⌘D")
-                ShortcutRow(action: "Cancel generation", keys: "Esc")
+    @ViewBuilder private var shortcutsSections: some View {
+        shortcuts("Create", [
+            ("New", "⌘N"),
+            ("Add to Library", "⌘O"),
+            ("Import into Create", "⌘I"),
+            ("Generate speech", "⌘↩"),
+            ("Export current audio", "⇧⌘E"),
+        ])
+        shortcuts("Library and reader", [
+            ("Open Library", "⌘1"),
+            ("Open Voices", "⌘2"),
+            ("Open Settings", "⌘,"),
+            ("Search the Library", "⌘F"),
+            ("Find in book", "⌘F"),
+        ])
+        shortcuts("Playback", [
+            ("Play or pause", "Space"),
+            ("Play or pause (anywhere)", "⌥Space"),
+            ("Skip back 15 seconds", "←"),
+            ("Skip forward 15 seconds", "→"),
+            ("Bookmark the sentence playing", "⌘D"),
+            ("Cancel generation", "Esc"),
+        ])
+    }
+
+    private func shortcuts(_ title: String, _ rows: [(action: String, keys: String)]) -> some View {
+        SettingsSection(title) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                if index > 0 { SettingsDivider() }
+                ShortcutRow(action: row.action, keys: row.keys)
             }
         }
-        .formStyle(.grouped)
     }
 }
 
+/// Where the title and every section start, and how wide they may grow.
+enum SettingsColumn {
+    static let gutter = AttenSpacing.xl
+    static let maxWidth: CGFloat = 720
+}
+
 private struct SettingsPane<Content: View>: View {
-    let title: String
-    let detail: String
     @ViewBuilder let content: Content
 
-    init(title: String, detail: String, @ViewBuilder content: () -> Content) {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: AttenSpacing.lg) {
+                content
+            }
+            .frame(maxWidth: SettingsColumn.maxWidth, alignment: .leading)
+            .padding(.horizontal, SettingsColumn.gutter)
+            .padding(.top, AttenSpacing.xs)
+            .attenScrollPadding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// A titled card of rows, as a grouped form draws one but on the page's own
+/// column.
+private struct SettingsSection<Content: View>: View {
+    let title: String
+    var footer: String?
+    @ViewBuilder let content: Content
+
+    init(_ title: String, footer: String? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
-        self.detail = detail
+        self.footer = footer
         self.content = content()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AttenSpacing.md) {
-            VStack(alignment: .leading, spacing: AttenSpacing.xxs) {
-                Text(title)
-                    .font(AttenTypography.title2)
-                    .foregroundStyle(AttenColor.textPrimary)
-                Text(detail)
-                    .font(AttenTypography.body)
-                    .foregroundStyle(AttenColor.textSecondary)
+        let shape = RoundedRectangle(cornerRadius: AttenRadius.card, style: .continuous)
+        VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+            Text(title)
+                .attenText(.label)
+                .foregroundStyle(AttenColor.text3)
+            VStack(alignment: .leading, spacing: 0) {
+                content
             }
-            .padding(.horizontal, AttenSpacing.lg)
-            .padding(.top, AttenSpacing.lg)
-
-            // The form's own grey would cut the pane in two under its header.
-            content.scrollContentBackground(.hidden)
-                .attenFormScrollPadding()
+            .padding(.horizontal, AttenSpacing.md)
+            .background(AttenColor.surface1, in: shape)
+            .overlay { shape.strokeBorder(AttenColor.hairline, lineWidth: 1) }
+            if let footer {
+                Text(footer)
+                    .attenText(.callout)
+                    .foregroundStyle(AttenColor.text2)
+                    .lineLimit(1)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(AttenColor.appBackground)
+    }
+}
+
+private struct SettingsRow<Content: View>: View {
+    let label: String
+    @ViewBuilder let content: Content
+
+    init(_ label: String, @ViewBuilder content: () -> Content) {
+        self.label = label
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: AttenSpacing.md) {
+            Text(label).foregroundStyle(AttenColor.text1)
+            Spacer(minLength: 0)
+            content
+        }
+        .frame(minHeight: 44)
+    }
+}
+
+private struct SettingsDivider: View {
+    var body: some View {
+        Rectangle().fill(AttenColor.hairline).frame(height: 1)
+    }
+}
+
+/// A switch whose label is the row it sits in.
+private struct SettingsSwitch: View {
+    let label: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        Toggle(label, isOn: $isOn)
+            .toggleStyle(AttenSwitchStyle())
+    }
+}
+
+/// The system switch's off track nearly vanishes on a light card, so Atten
+/// draws its own: off is a `text3` track, which holds 3:1 against the card in
+/// both appearances, and on is `signal`, a selected control.
+private struct AttenSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        AttenSwitch(configuration: configuration)
+    }
+}
+
+private struct AttenSwitch: View {
+    let configuration: ToggleStyleConfiguration
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        let isOn = configuration.isOn
+        Button { configuration.isOn.toggle() } label: {
+            Capsule()
+                .fill(isOn ? AttenColor.signal : AttenColor.text3)
+                .frame(width: 32, height: 18)
+                .overlay(alignment: .leading) {
+                    Circle()
+                        .fill(AttenColor.surface1)
+                        .frame(width: 14, height: 14)
+                        .offset(x: isOn ? 16 : 2)
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : AttenState.disabledOpacity)
+        .attenFocusRing(cornerRadius: 9)
+        .animation(AttenMotion.animation(.small, reduceMotion: reduceMotion), value: isOn)
+        .accessibilityRepresentation { Toggle(isOn: configuration.$isOn) { configuration.label } }
     }
 }
 
@@ -281,7 +355,7 @@ private struct ShortcutRow: View {
     let keys: String
 
     var body: some View {
-        LabeledContent(action) {
+        SettingsRow(action) {
             Text(keys)
                 .font(AttenTypography.label)
                 .foregroundStyle(AttenColor.textSecondary)

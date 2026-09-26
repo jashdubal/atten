@@ -183,6 +183,7 @@ struct BookDetailView: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .tint(AttenColor.text1)
         .fixedSize()
         .accessibilityLabel("Actions for \(book.title)")
     }

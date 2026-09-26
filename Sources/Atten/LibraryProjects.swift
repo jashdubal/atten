@@ -191,6 +191,7 @@ private struct ProjectRow: View {
                     .frame(width: 28, height: 28)
             }
             .menuStyle(.borderlessButton)
+            .tint(AttenColor.text2)
             .frame(width: 30)
             .accessibilityLabel("Actions for \(project.title)")
         }

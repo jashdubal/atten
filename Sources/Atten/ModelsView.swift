@@ -32,7 +32,7 @@ struct ModelsView: View {
                                     isInstalled: library.isInstalled(hfModel.id),
                                     isBundled: hfModel.id == ModelStore.kokoroID,
                                     download: library.downloads[hfModel.id],
-                                    availableWidth: proxy.size.width,
+                                    availableWidth: min(proxy.size.width, SettingsColumn.maxWidth),
                                     onDownload: { library.download(hfModel.id) },
                                     onPause: { library.pause(hfModel.id) },
                                     onCancel: { library.cancel(hfModel.id) },
@@ -52,11 +52,12 @@ struct ModelsView: View {
                         }
                     }
                 }
-                .padding(.horizontal, proxy.size.width < 700 ? AttenSpacing.lg : AttenSpacing.xl)
-                .padding(.vertical, AttenSpacing.lg)
+                // Settings' column, under its title and tabs.
+                .frame(maxWidth: SettingsColumn.maxWidth, alignment: .topLeading)
+                .padding(.horizontal, SettingsColumn.gutter)
+                .padding(.top, AttenSpacing.xs)
                 .attenScrollPadding()
-                .frame(maxWidth: 1120, alignment: .topLeading)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .confirmationDialog(
@@ -81,18 +82,13 @@ struct ModelsView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom) {
-            PageHeader(
-                eyebrow: "Models",
-                title: "Model library",
-                detail: "Discover Hugging Face speech models and keep them offline."
-            )
-            Spacer()
+        HStack(spacing: AttenSpacing.sm) {
             AttenSearchField(prompt: "Search Hugging Face", text: queryBinding)
-                .frame(maxWidth: 240)
+                .frame(maxWidth: 320)
             if library.isSearching {
                 ProgressView().controlSize(.small)
             }
+            Spacer()
             Text("\(library.installed.count) installed")
                 .font(AttenTypography.callout)
                 .foregroundStyle(AttenColor.textSecondary)
@@ -112,22 +108,23 @@ struct ModelsView: View {
     }
 
     private func filters(library: Bindable<ModelLibrary>) -> some View {
-        HStack(spacing: AttenSpacing.sm) {
-            Picker("Language", selection: library.language) {
-                Text(ModelLibrary.allLanguages).tag(ModelLibrary.allLanguages)
-                ForEach(HuggingFaceCatalog.languages, id: \.self) { Text($0).tag($0) }
+        HStack(spacing: AttenSpacing.md) {
+            quietMenu("Language", value: self.library.language) {
+                Picker("Language", selection: library.language) {
+                    Text(ModelLibrary.allLanguages).tag(ModelLibrary.allLanguages)
+                    ForEach(HuggingFaceCatalog.languages, id: \.self) { Text($0).tag($0) }
+                }
             }
-            .frame(width: 200)
-
-            Picker("Show", selection: library.installFilter) {
-                ForEach(ModelLibrary.InstallFilter.allCases) { Text($0.rawValue).tag($0) }
+            quietMenu("Show", value: self.library.installFilter.rawValue) {
+                Picker("Show", selection: library.installFilter) {
+                    ForEach(ModelLibrary.InstallFilter.allCases) { Text($0.rawValue).tag($0) }
+                }
             }
-            .frame(width: 230)
-
-            Picker("Sort", selection: library.sort) {
-                ForEach(HFSort.allCases) { Text($0.rawValue).tag($0) }
+            quietMenu("Sort by", value: self.library.sort.rawValue) {
+                Picker("Sort by", selection: library.sort) {
+                    ForEach(HFSort.allCases) { Text($0.rawValue).tag($0) }
+                }
             }
-            .frame(width: 210)
 
             Spacer()
 
@@ -141,6 +138,23 @@ struct ModelsView: View {
             .help("Refresh")
             .accessibilityLabel("Refresh")
         }
+    }
+
+    /// A label and a borderless menu, as the Library's "Sort by" is drawn.
+    private func quietMenu(_ title: String, value: String, @ViewBuilder picker: () -> some View) -> some View {
+        HStack(spacing: AttenSpacing.xs) {
+            Text(title)
+                .foregroundStyle(AttenColor.textMuted)
+            Menu {
+                picker()
+            } label: {
+                Text(value)
+            }
+            .menuStyle(.borderlessButton)
+            .tint(AttenColor.text2)
+            .fixedSize()
+        }
+        .font(AttenTypography.callout)
     }
 }
 
@@ -162,7 +176,7 @@ private struct ModelRow: View {
             HStack(spacing: AttenSpacing.sm) {
                 Image(systemName: isInstalled ? "checkmark.seal.fill" : "shippingbox")
                     .font(.system(size: 18))
-                    .foregroundStyle(isInstalled ? AttenColor.success : AttenColor.accent)
+                    .foregroundStyle(isInstalled ? AttenColor.success : AttenColor.text2)
                     .frame(width: 36, height: 36)
                     .background(AttenColor.surfaceMuted)
                     .clipShape(RoundedRectangle(cornerRadius: AttenRadius.control))
@@ -248,6 +262,7 @@ private struct ModelRow: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.borderless)
+                .tint(AttenColor.text2)
                 .help("Delete \(model.id)")
                 .accessibilityLabel("Delete \(model.id)")
             } else {
@@ -260,6 +275,7 @@ private struct ModelRow: View {
     private var cancelButton: some View {
         Button(action: onCancel) { Image(systemName: "xmark") }
             .buttonStyle(.borderless)
+            .tint(AttenColor.text2)
             .help("Cancel and remove partial files")
             .accessibilityLabel("Cancel download of \(model.id)")
     }

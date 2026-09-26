@@ -6,8 +6,8 @@ struct VoicesView: View {
     let openStudio: () -> Void
     @State private var query = ""
     @State private var favoritesOnly = false
-    @State private var language = "All languages"
-    @State private var engine = "All engines"
+    @State private var accent: String?
+    @State private var engine: String?
 
     var body: some View {
         GeometryReader { proxy in
@@ -29,11 +29,12 @@ struct VoicesView: View {
                             ForEach(filteredVoices) { voice in
                                 VoiceRow(
                                     voice: voice,
-                                    availableWidth: proxy.size.width,
                                     requiredModelID: model.requiredModelID(for: voice.id),
                                     isSelected: model.selectedVoiceID == voice.id,
                                     isFavorite: model.settings.favoriteVoiceIDs.contains(voice.id),
                                     isPreviewing: model.voicePreviewID == voice.id,
+                                    isPlaying: isPlayingPreview(of: voice),
+                                    canPreview: canPreview(voice),
                                     select: {
                                         model.selectVoice(voice)
                                         openStudio()
@@ -67,12 +68,8 @@ struct VoicesView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .bottom) {
-            PageHeader(
-                eyebrow: "Voices",
-                title: "Voice library",
-                detail: "Preview bundled and downloaded voices and keep favorites close."
-            )
+        HStack(alignment: .center, spacing: AttenSpacing.sm) {
+            Text("Voices").font(AttenTypography.title2)
             Spacer()
             AttenSearchField(prompt: "Search voices", text: $query)
                 .frame(maxWidth: 240)
@@ -82,25 +79,33 @@ struct VoicesView: View {
         }
     }
 
+    /// Language as the casting sheet's chips. Engines are many — one per
+    /// downloaded model — so they sit in a menu, as the Library's sort does.
     private var filters: some View {
-        HStack(spacing: AttenSpacing.sm) {
-            Picker("Language", selection: $language) {
-                Text("All languages").tag("All languages")
-                ForEach(languages, id: \.self) { Text($0).tag($0) }
+        VStack(alignment: .leading, spacing: AttenSpacing.xs) {
+            FilterChipRow(title: "Language", options: accents, selection: $accent)
+            HStack(spacing: AttenSpacing.md) {
+                FilterChip(title: "Favorites", systemImage: "heart", isSelected: favoritesOnly) {
+                    favoritesOnly.toggle()
+                }
+                HStack(spacing: AttenSpacing.xs) {
+                    Text("Engine")
+                        .foregroundStyle(AttenColor.textMuted)
+                    Menu {
+                        Picker("Engine", selection: $engine) {
+                            Text("All engines").tag(String?.none)
+                            ForEach(engines, id: \.self) { Text($0).tag(Optional($0)) }
+                        }
+                    } label: {
+                        Text(engine ?? "All engines")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .tint(AttenColor.text2)
+                    .fixedSize()
+                }
+                .font(AttenTypography.callout)
+                Spacer()
             }
-            .frame(width: 210)
-
-            Picker("Engine", selection: $engine) {
-                Text("All engines").tag("All engines")
-                ForEach(engines, id: \.self) { Text($0).tag($0) }
-            }
-            .frame(width: 260)
-
-            Toggle("Favorites", systemImage: "heart.fill", isOn: $favoritesOnly)
-                .toggleStyle(.button)
-                .tint(AttenColor.accentSecondary)
-
-            Spacer()
         }
     }
 
@@ -113,14 +118,28 @@ struct VoicesView: View {
         }
     }
 
-    private var languages: [String] {
+    private var accents: [String] {
         _ = model.voiceCatalogRevision
-        return Array(Set(VoiceCatalog.all.map(\.language))).sorted()
+        return FilterChipRow.ranked(VoiceCatalog.all.map { VoiceProfile(voice: $0).accent })
     }
 
     private var engines: [String] {
         _ = model.voiceCatalogRevision
         return Array(Set(VoiceCatalog.all.map(\.provider))).sorted()
+    }
+
+    private func isPlayingPreview(of voice: Voice) -> Bool {
+        model.isPlaying && model.activeAudioURL == model.voicePreviewURL(voice)
+    }
+
+    /// As `PreviewButton` decides: a preview can play once it exists, and
+    /// can be made only while nothing else is being spoken.
+    private func canPreview(_ voice: Voice) -> Bool {
+        let previewURL = model.voicePreviewURL(voice)
+        return model.voicePreviewID != voice.id
+            && model.requiredModelID(for: voice.id) == nil
+            && (!model.synthesis.isBusy || isPlayingPreview(of: voice)
+                || FileManager.default.fileExists(atPath: previewURL.path))
     }
 
     private var filteredVoices: [Voice] {
@@ -130,8 +149,8 @@ struct VoicesView: View {
                 .joined(separator: " ")
             let matchesQuery = query.isEmpty || searchable.localizedCaseInsensitiveContains(query)
             let matchesFavorite = !favoritesOnly || model.settings.favoriteVoiceIDs.contains(voice.id)
-            let matchesLanguage = language == "All languages" || voice.language == language
-            let matchesEngine = engine == "All engines" || voice.provider == engine
+            let matchesLanguage = accent == nil || VoiceProfile(voice: voice).accent == accent
+            let matchesEngine = engine == nil || voice.provider == engine
             return matchesQuery && matchesFavorite && matchesLanguage && matchesEngine
         }
     }
@@ -139,12 +158,13 @@ struct VoicesView: View {
 
 private struct VoiceRow: View {
     let voice: Voice
-    let availableWidth: CGFloat
     /// Set when this voice needs a model the user has not downloaded yet.
     let requiredModelID: String?
     let isSelected: Bool
     let isFavorite: Bool
     let isPreviewing: Bool
+    let isPlaying: Bool
+    let canPreview: Bool
     let select: () -> Void
     let favorite: () -> Void
     let preview: () -> Void
@@ -152,90 +172,79 @@ private struct VoiceRow: View {
     @State private var isHovering = false
 
     var body: some View {
+        let profile = VoiceProfile(voice: voice)
         HStack(spacing: AttenSpacing.sm) {
-            VoiceAvatar(voice: voice, size: 36)
+            VoiceWaveformAvatar(profile: profile, size: 36, isSpeaking: isPlaying)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: AttenSpacing.xs) {
-                    Text(voice.name)
-                        .font(AttenTypography.callout.weight(.semibold))
-                        .foregroundStyle(AttenColor.textPrimary)
-                    if isSelected {
-                        Label("Selected", systemImage: "checkmark")
-                            .labelStyle(.iconOnly)
-                            .font(.caption)
-                            .foregroundStyle(AttenColor.accent)
-                    }
-                }
-                Text(
-                    requiredModelID.map { "\(voice.language) · Needs \($0)" }
-                        ?? "\(voice.language) · \(voice.gender) · \(voice.provider)"
-                )
-                .font(AttenTypography.callout)
-                .foregroundStyle(
-                    requiredModelID == nil ? AttenColor.textSecondary : AttenColor.accentSecondary
-                )
-                .lineLimit(1)
+                Text(profile.displayName)
+                    .attenText(.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(AttenColor.text1)
+                Text(requiredModelID.map { "\(profile.descriptor) · Needs \($0)" } ?? profile.descriptor)
+                    .attenText(.callout)
+                    .foregroundStyle(AttenColor.text2)
+                    .lineLimit(1)
             }
             .frame(minWidth: 150, alignment: .leading)
 
-            if availableWidth >= 820 {
-                HStack(spacing: AttenSpacing.xs) {
-                    ForEach(voice.traits.prefix(2), id: \.self) { trait in
-                        Text(trait.capitalized)
-                            .font(AttenTypography.callout)
-                            .foregroundStyle(AttenColor.textSecondary)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(AttenColor.surfaceMuted)
-                            .clipShape(RoundedRectangle(cornerRadius: AttenRadius.small))
-                    }
-                }
-            }
-
             Spacer(minLength: AttenSpacing.xs)
 
+            Text(profile.gender)
+                .attenText(.label)
+                .foregroundStyle(AttenColor.text3)
+
+            // Glows only while this voice is speaking.
             Button(action: preview) {
-                if isPreviewing {
-                    ProgressView().controlSize(.small).frame(width: 30, height: 30)
-                } else {
-                    Image(systemName: "play.fill").frame(width: 30, height: 30)
+                Group {
+                    if isPreviewing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .foregroundStyle(isPlaying ? AttenColor.signal : AttenColor.text2)
+                    }
                 }
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
-            .disabled(isPreviewing)
-            .help("Preview \(voice.name)")
-            .accessibilityLabel("Preview \(voice.name)")
+            .buttonStyle(.plain)
+            .disabled(!canPreview)
+            .help(isPlaying ? "Pause preview" : "Preview \(profile.displayName)")
+            .accessibilityLabel(isPlaying ? "Pause preview of \(profile.displayName)" : "Preview \(profile.displayName)")
 
             Button(action: favorite) {
                 Image(systemName: isFavorite ? "heart.fill" : "heart")
-                    .foregroundStyle(
-                        isFavorite ? AttenColor.accentSecondary : AttenColor.textSecondary
-                    )
+                    .foregroundStyle(isFavorite ? AttenColor.text1 : AttenColor.text2)
                     .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .help(isFavorite ? "Remove from favorites" : "Add to favorites")
             .accessibilityLabel(
-                isFavorite ? "Remove \(voice.name) from favorites" : "Favorite \(voice.name)"
+                isFavorite ? "Remove \(profile.displayName) from favorites" : "Favorite \(profile.displayName)"
             )
 
-            if isSelected {
-                Button("Open", action: select)
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .frame(minWidth: 58)
-            } else {
-                Button("Use", action: select)
-                    .buttonStyle(AttenSecondaryButtonStyle())
-                    .frame(minWidth: 58)
+            // The current voice is marked as the casting sheet marks it;
+            // every other voice offers to take its place.
+            Group {
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AttenColor.text1)
+                        .accessibilityLabel("Current voice")
+                } else {
+                    Button("Use", action: select)
+                        .buttonStyle(AttenSecondaryButtonStyle())
+                }
             }
+            .frame(minWidth: 58)
         }
         .padding(.horizontal, AttenSpacing.sm)
         .frame(minHeight: 58)
         .background(
-            isSelected
-                ? AttenColor.accent.opacity(0.09)
-                : (isHovering ? AttenColor.surfaceMuted.opacity(0.65) : .clear)
+            AttenColor.text1.opacity(
+                isSelected ? AttenState.pressedFill / 2 : (isHovering ? AttenState.hoverFill / 2 : 0)
+            )
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
@@ -249,34 +258,6 @@ private struct VoiceRow: View {
             )
         }
         .accessibilityElement(children: .contain)
-    }
-}
-
-struct VoiceAvatar: View {
-    let voice: Voice
-    var size: CGFloat = 40
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: AttenRadius.small)
-                .fill(AttenColor.surfaceMuted)
-                .overlay {
-                    RoundedRectangle(cornerRadius: AttenRadius.small)
-                        .stroke(avatarColor.opacity(0.7), lineWidth: 1)
-                }
-            Image(systemName: voice.gender == "Female" ? "person.fill" : "person.fill")
-                .font(.system(size: size * 0.40, weight: .medium))
-                .foregroundStyle(avatarColor)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-
-    private var avatarColor: Color {
-        switch voice.languageCode {
-        case "b", "f": AttenColor.accentSecondary
-        case "e", "i", "p": AttenColor.warning
-        default: AttenColor.accent
-        }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
