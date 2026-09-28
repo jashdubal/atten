@@ -9,7 +9,7 @@ struct ContinueListeningHero: View {
     @Bindable var model: AppModel
     let book: BookRecord
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var shelf: BookshelfModel { model.bookshelf }
     private var isLoaded: Bool { model.playingBook?.id == book.id }

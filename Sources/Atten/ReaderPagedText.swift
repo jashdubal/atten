@@ -64,7 +64,7 @@ struct ReaderPagedText: View {
     /// must not be set going for a chapter that will never arrive.
     let runOff: (ReaderTurn) -> Bool
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     @State private var layout = ReaderChapterLayout.empty
     @State private var pageIndex = 0

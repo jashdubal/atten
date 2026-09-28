@@ -46,7 +46,7 @@ struct ReaderSidePanel: View {
     let removeBookmark: (Bookmark) -> Void
     let onClose: (() -> Void)?
     @FocusState.Binding var isSearchFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var isSearchingBook: Bool {
         query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2

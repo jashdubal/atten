@@ -264,6 +264,12 @@ refuses a non-empty `DIR` and any path under `~/Library/Application
 Support/Atten`. Point a build at the result the same way, e.g.
 `ATTEN_DATA_DIRECTORY=DIR swift run Atten`.
 
+`ATTEN_QA_REDUCE_MOTION=1` and `ATTEN_QA_REDUCE_TRANSPARENCY=1` turn Reduce
+Motion and Reduce Transparency on for that launch only, so both can be checked
+without changing System Settings, e.g.
+`ATTEN_DATA_DIRECTORY=DIR ATTEN_QA_REDUCE_MOTION=1 swift run Atten`. They are
+read once at startup and do nothing unless set to `1`.
+
 ## Pre-tag checklist
 
 - [ ] `CFBundleShortVersionString` in `macOS/Info.plist` matches the version being tagged.

@@ -27,6 +27,12 @@ struct BookDetailView: View {
     /// Waiting its turn behind another narration, not paused.
     private var isWaiting: Bool { shelf.isQueued(book.id) && !shelf.isPaused(book.id) }
 
+    /// Chapters are left to narrate in a voice whose model isn't here yet.
+    /// The narrator card offers the download.
+    private var voiceNeedsDownload: Bool {
+        narratedCount < book.chapters.count && model.requiredModelID(for: book.voiceID) != nil
+    }
+
     var body: some View {
         Group {
             // `ImageRenderer` draws nothing inside a `ScrollView`; see
@@ -265,6 +271,9 @@ struct BookDetailView: View {
                 if shelf.isFullyNarrated(book) {
                     Label("Ready to listen", systemImage: "headphones")
                         .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
+                } else if voiceNeedsDownload {
+                    Text("Voice needs download")
+                        .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
                 } else if !isWaiting && !shelf.canStartNarration {
                     Text("Another narration is running")
                         .font(AttenTypography.callout).foregroundStyle(AttenColor.textSecondary)
@@ -285,7 +294,7 @@ struct BookDetailView: View {
         } label: {
             Label(primaryTitle, systemImage: isListenable ? (isPlayingBook ? "pause.fill" : "play.fill") : "waveform")
         }
-        .disabled(progress != nil || isWaiting || (!isListenable && !shelf.canStartNarration))
+        .disabled(progress != nil || isWaiting || (!isListenable && (!shelf.canStartNarration || voiceNeedsDownload)))
         .help(isListenable ? "Listen to the complete book" : "Prepare the complete audiobook. You can keep reading while it works.")
         if isListenable {
             button.buttonStyle(AttenPrimaryButtonStyle())

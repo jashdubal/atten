@@ -44,7 +44,7 @@ struct LibraryView: View {
     /// shelf scrolls to and briefly highlights.
     @State private var duplicateBookID: UUID?
     @FocusState private var isSearchFocused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     @Environment(\.attenIsOffscreenRender) private var isOffscreenRender
 
     private var shelf: BookshelfModel { model.bookshelf }
@@ -548,7 +548,7 @@ private struct BookCard: View {
     let remove: () -> Void
     let export: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var isNarrating: Bool { progress?.bookID == book.id }
     private var isFullyNarrated: Bool {

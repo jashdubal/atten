@@ -7,7 +7,7 @@ struct CreateInspector: View {
     @Bindable var model: AppModel
     @Bindable var flow: CreateFlowModel
     @State private var showsAdvanced = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var isGenerating: Bool { flow.state == .generating }
     private var isQueued: Bool { flow.state == .queued }

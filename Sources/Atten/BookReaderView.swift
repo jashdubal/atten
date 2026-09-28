@@ -12,7 +12,7 @@ struct BookReaderView: View {
     @Bindable var model: AppModel
     let book: BookRecord
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var chapterIndex = 0

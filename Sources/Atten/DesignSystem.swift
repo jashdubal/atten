@@ -227,7 +227,7 @@ enum AttenRadius {
 /// How long things take, and what they are allowed to do while they take it.
 ///
 /// Every duration here is short enough to read as a response to input rather
-/// than as an effect. `accessibilityReduceMotion` is honoured at the call site
+/// than as an effect. `attenReduceMotion` is honoured at the call site
 /// through ``AttenMotion/animation(_:reduceMotion:)``, which is the only way a
 /// screen should be reaching for these.
 enum AttenMotion {

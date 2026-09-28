@@ -201,7 +201,7 @@ struct AmbientFieldLayer: View {
     @Environment(\.attenAmbientField) private var field
     @Environment(\.attenAmbientIsLive) private var isLive
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {

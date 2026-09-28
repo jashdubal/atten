@@ -9,7 +9,7 @@ struct VoiceWaveformAvatar: View {
     var size: CGFloat = 44
     var isSpeaking = false
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     private var heights: [Double] {
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
@@ -51,7 +51,7 @@ struct GenerationWaveform: View {
     let fraction: Double
     var seed: String = ""
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
     private static let barCount = 48
 
     private var heights: [Double] {
@@ -207,7 +207,7 @@ extension View {
 /// Floats over whatever screen the finished narration lands on.
 struct CreateToast: View {
     @Bindable var flow: CreateFlowModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.attenReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
